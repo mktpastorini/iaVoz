@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Settings, Zap, MessageSquare, SlidersHorizontal } from 'lucide-react';
+import { Settings, Zap, MessageSquare, SlidersHorizontal, MousePointerClick } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const AdminLayout: React.FC = () => {
@@ -12,6 +12,7 @@ const AdminLayout: React.FC = () => {
     { name: 'Configurações', path: '/admin/settings', icon: Settings },
     { name: 'Poderes', path: '/admin/powers', icon: Zap },
     { name: 'Poderes do Sistema', path: '/admin/system-powers', icon: SlidersHorizontal },
+    { name: 'Ações do Cliente', path: '/admin/client-actions', icon: MousePointerClick },
     { name: 'Conversas', path: '/admin/conversations', icon: MessageSquare },
   ];
 
@@ -27,7 +28,7 @@ const AdminLayout: React.FC = () => {
                   to={item.path}
                   className={cn(
                     "flex items-center p-2 rounded-md text-sidebar-foreground dark:text-sidebar-foreground hover:bg-sidebar-accent dark:hover:bg-sidebar-accent hover:text-sidebar-accent-foreground dark:hover:text-sidebar-accent-foreground transition-colors",
-                    location.pathname === item.path && "bg-sidebar-accent dark:bg-sidebar-accent text-sidebar-accent-foreground dark:text-sidebar-accent-foreground"
+                    location.pathname.startsWith(item.path) && "bg-sidebar-accent dark:bg-sidebar-accent text-sidebar-accent-foreground dark:text-sidebar-accent-foreground"
                   )}
                 >
                   <item.icon className="mr-3 h-5 w-5" />
