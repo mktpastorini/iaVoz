@@ -489,26 +489,30 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
         setConversationId(data.id);
         setMessageHistory([]);
       }
-
-      const micPermission = await checkMicrophonePermission();
-      if (micPermission) {
-        if (!initialGreetingSpoken) {
-          speak(welcomeMessage, () => {
-            setInitialGreetingSpoken(true);
-            startListening();
-          });
-        } else {
-          startListening();
-        }
-      } else {
-        speak("Por favor, habilite seu microfone para conversar comigo.", () => {
-          startListening();
-        });
-      }
+      await checkMicrophonePermission();
     };
 
     initializeAssistant();
-  }, [workspace, conversationId, initialGreetingSpoken, welcomeMessage, loadingSystemContext]);
+  }, [workspace, conversationId, loadingSystemContext]);
+
+  const handleStartInteraction = async () => {
+    if (isListening || isSpeaking) return;
+
+    const permissionGranted = await checkMicrophonePermission();
+    if (!permissionGranted) {
+      speak("Por favor, habilite seu microfone para conversar comigo.");
+      return;
+    }
+
+    if (!initialGreetingSpoken) {
+      speak(welcomeMessage, () => {
+        setInitialGreetingSpoken(true);
+        startListening();
+      });
+    } else {
+      startListening();
+    }
+  };
 
   if (loadingSystemContext) {
     return (
@@ -547,7 +551,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
         </div>
         <div className="flex space-x-4">
           <Button
-            onClick={startListening}
+            onClick={handleStartInteraction}
             disabled={isListening || isSpeaking}
             className="bg-pink-500 hover:bg-pink-600 text-white"
           >
