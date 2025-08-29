@@ -203,7 +203,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (action.action_payload.url) {
           speak(`Abrindo ${action.action_payload.url}`, () => {
             window.open(action.action_payload.url, '_blank');
-            startListening();
+            startListening(); // Reinicia a escuta após abrir a URL
           });
         }
         break;
@@ -211,6 +211,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (action.action_payload.imageUrl) {
           speak("Claro, aqui está a imagem.", () => {
             setImageToShow(action.action_payload);
+            // A escuta será reiniciada APENAS quando o modal for fechado
           });
         }
         break;
@@ -296,7 +297,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onend = () => { 
       isRecognitionActive.current = false; 
       setIsListening(false); 
-      if (isOpen && !isSpeakingRef.current) {
+      // Reinicia a escuta explicitamente se o assistente estiver aberto, não falando E NENHUM modal de imagem estiver aberto
+      if (isOpen && !isSpeakingRef.current && !imageToShow) {
         startListening();
       }
     };
@@ -308,13 +310,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (isOpen) {
         // O comando "fechar" tem prioridade máxima.
-        if (transcript.includes(closePhrase)) {
+        if (transcript.includes(closePhrase)) { // Usar includes para maior flexibilidade
           closeAssistant();
           return;
         }
 
         const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
         if (matchedAction) {
+          // Parar de ouvir antes de executar a ação para evitar conflitos
+          stopListening();
           executeClientAction(matchedAction);
           return;
         }
@@ -325,6 +329,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           setIsOpen(true);
           speak(welcomeMessage, startListening);
         } else {
+          // Se não for a palavra de ativação, reinicia a escuta para a próxima tentativa
           startListening();
         }
       }
@@ -333,10 +338,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
     else showError("Síntese de voz não suportada.");
 
-    startListening();
+    startListening(); // Inicia a escuta inicial
 
     return () => { stopListening(); stopSpeaking(); };
-  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables]);
+  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables, imageToShow]); // Adicionado imageToShow às dependências
 
   const handleInit = () => {
     setIsInitialized(true);
@@ -361,7 +366,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           altText={imageToShow.altText}
           onClose={() => {
             setImageToShow(null);
-            startListening();
+            startListening(); // Reinicia a escuta ao fechar o modal de imagem
           }}
         />
       )}
