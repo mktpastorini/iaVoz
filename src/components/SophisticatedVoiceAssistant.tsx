@@ -144,10 +144,17 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       setAssistantState('SPEAKING');
       setAiResponse(text);
 
+      let resolved = false;
       const onEnd = () => {
-        setAssistantState('IDLE');
-        resolve();
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
       };
+
+      // Fallback timer to ensure the promise always resolves
+      const estimatedDuration = text.length * 80 + 1000; // 80ms/char + 1s buffer
+      setTimeout(onEnd, estimatedDuration);
 
       if (voiceModel === "browser" && "speechSynthesis" in window) {
         const utterance = new SpeechSynthesisUtterance(text);
