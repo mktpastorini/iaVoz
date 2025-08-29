@@ -13,7 +13,7 @@ const LoginPage = () => {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (session) {
-          navigate("/"); // Redirecionar para a home se logado
+          navigate("/admin"); // Redirecionar para a página de admin se logado
         }
       }
     );
@@ -68,7 +68,7 @@ const LoginPage = () => {
             },
           }}
           providers={["google", "github"]} // Exemplo de provedores, ajuste conforme necessário
-          redirectTo="http://localhost:8080/"
+          redirectTo="http://localhost:8080/admin"
           localization={{
             variables: {
               sign_in: {
