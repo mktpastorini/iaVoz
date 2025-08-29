@@ -254,35 +254,44 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       recognitionRef.current.onresult = async (event) => {
         const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
         setTranscript(transcript); // Update transcript immediately
+        setAssistantState('PROCESSING'); // Indicate that we are processing the transcript
 
-        if (isOpen) {
-          if (transcript.includes("fechar")) {
-            setIsOpen(false);
-            setAiResponse(""); // Clear AI response
-            setAssistantState('IDLE'); // Go to IDLE, motor will restart listening
-          } else {
-            const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
-            if (matchedAction) {
-              setAssistantState('ACTION_PENDING'); // Set state to indicate action is pending
-              if (matchedAction.action_type === 'OPEN_URL' && matchedAction.action_payload.url) {
-                await speak("Claro, aqui está o link que você pediu.");
-                setLinkToShow({ url: matchedAction.action_payload.url, triggerPhrase: matchedAction.trigger_phrase });
-              } else if (matchedAction.action_type === 'SHOW_IMAGE' && matchedAction.action_payload.imageUrl) {
-                await speak("Ok, mostrando a imagem.");
-                setImageToShow(matchedAction.action_payload);
-              }
-              // After action, state will be set to IDLE by the action's onClose or onClick handlers
+        try {
+          if (isOpen) {
+            if (transcript.includes("fechar")) {
+              setIsOpen(false);
+              setAiResponse(""); // Clear AI response
+              setAssistantState('IDLE'); // Explicitly set to IDLE after closing
             } else {
-              await runConversation(transcript); // runConversation sets state to IDLE at its end
+              const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
+              if (matchedAction) {
+                setAssistantState('ACTION_PENDING'); // Set state to indicate action is pending
+                if (matchedAction.action_type === 'OPEN_URL' && matchedAction.action_payload.url) {
+                  await speak("Claro, aqui está o link que você pediu."); // speak sets state to IDLE
+                  setLinkToShow({ url: matchedAction.action_payload.url, triggerPhrase: matchedAction.trigger_phrase });
+                } else if (matchedAction.action_type === 'SHOW_IMAGE' && matchedAction.action_payload.imageUrl) {
+                  await speak("Ok, mostrando a imagem."); // speak sets state to IDLE
+                  setImageToShow(matchedAction.action_payload);
+                }
+                // State will be set to IDLE by modal/link onClose/onClick handlers
+              } else {
+                await runConversation(transcript); // runConversation sets state to IDLE at its end
+              }
+            }
+          } else { // Assistant is not open
+            if (transcript.includes(activationPhrase.toLowerCase())) {
+              setIsOpen(true);
+              await speak(welcomeMessage); // speak function already sets state to IDLE on completion
+            } else {
+              // If not activation phrase and not open, simply return to IDLE
+              // The useEffect will then restart listening
+              setAssistantState('IDLE'); 
             }
           }
-        } else { // Assistant is not open
-          if (transcript.includes(activationPhrase.toLowerCase())) {
-            setIsOpen(true);
-            await speak(welcomeMessage); // speak function already sets state to IDLE on completion
-          } else {
-            setAssistantState('IDLE'); // If not activation phrase, just go back to IDLE to restart listening
-          }
+        } catch (error) {
+          console.error("Error during onresult processing:", error);
+          showError("Ocorreu um erro ao processar seu comando.");
+          setAssistantState('IDLE'); // Ensure IDLE on error
         }
       };
     }
