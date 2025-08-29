@@ -9,7 +9,10 @@ import { replacePlaceholders } from "@/lib/utils";
 import { useTypewriter } from "@/hooks/useTypewriter";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Mic } from "lucide-react";
 
+// ... (interfaces Message, Power, VoiceAssistantProps remain the same)
 interface VoiceAssistantProps {
   welcomeMessage?: string;
   openAiApiKey: string;
@@ -41,6 +44,7 @@ interface Power {
   parameters_schema: Record<string, any> | null;
 }
 
+
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -58,12 +62,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const { workspace } = useSession();
   const { systemVariables } = useSystem();
 
+  const [isInitialized, setIsInitialized] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
-  const [conversationId, setConversationId] = useState<string | null>(null);
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
   const [powers, setPowers] = useState<Power[]>([]);
 
@@ -73,7 +77,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const isRecognitionActive = useRef(false);
   const isSpeakingRef = useRef(false);
 
-  const displayedAiResponse = useTypewriter(aiResponse, 50);
+  const displayedAiResponse = useTypewriter(aiResponse, 40);
 
   useEffect(() => {
     if (workspace?.id) {
@@ -110,6 +114,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
     setIsSpeaking(false);
     isSpeakingRef.current = false;
+  };
+
+  const closeAssistant = () => {
+    stopListening();
+    stopSpeaking();
+    setIsOpen(false);
+    setAiResponse("");
+    setTranscript("");
   };
 
   const speak = async (text: string, onEndCallback?: () => void) => {
@@ -151,7 +163,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         onSpeechEnd();
       }
     } else {
-      onSpeechEnd();
+      onEndCallback();
     }
   };
 
@@ -160,6 +172,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       speak("Chave API OpenAI não configurada.", startListening);
       return;
     }
+    setTranscript(userInput);
+    setAiResponse("Pensando...");
     const newHistory = [...messageHistory, { role: "user" as const, content: userInput }];
     setMessageHistory(newHistory);
 
@@ -177,6 +191,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       const responseMessage = data.choices?.[0]?.message;
 
       if (responseMessage.tool_calls) {
+        setAiResponse("Executando ação...");
         const historyWithToolCall = [...newHistory, responseMessage];
         setMessageHistory(historyWithToolCall);
         const toolOutputs = await Promise.all(responseMessage.tool_calls.map(async (toolCall: any) => {
@@ -215,6 +230,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   };
 
   useEffect(() => {
+    if (!isInitialized) return;
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       showError("Reconhecimento de voz não suportado.");
@@ -226,29 +243,24 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.lang = "pt-BR";
 
     recognitionRef.current.onstart = () => { isRecognitionActive.current = true; setIsListening(true); };
-    recognitionRef.current.onend = () => { isRecognitionActive.current = false; setIsListening(false); if (isOpen && !isSpeakingRef.current) startListening(); };
+    recognitionRef.current.onend = () => { isRecognitionActive.current = false; setIsListening(false); if (!isSpeakingRef.current) startListening(); };
     recognitionRef.current.onerror = (e) => { console.error(`Erro de reconhecimento: ${e.error}`); if (e.error !== 'no-speech') showError(`Erro de voz: ${e.error}`); };
 
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
       const closePhrase = "fechar";
 
-      if (!isOpen) {
-        if (transcript.includes(activationPhrase.toLowerCase())) {
-          setIsOpen(true);
-          speak(welcomeMessage, startListening);
-        }
-      } else {
-        setTranscript(transcript);
+      if (isOpen) {
         if (transcript.includes(closePhrase)) {
-          stopListening();
-          stopSpeaking();
-          setIsOpen(false);
-          setAiResponse("");
-          setTranscript("");
+          closeAssistant();
         } else {
           stopListening();
           runConversation(transcript);
+        }
+      } else {
+        if (transcript.includes(activationPhrase.toLowerCase())) {
+          setIsOpen(true);
+          speak(welcomeMessage, startListening);
         }
       }
     };
@@ -256,18 +268,32 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
     else showError("Síntese de voz não suportada.");
 
-    // Inicia a escuta passiva para a palavra de ativação
     startListening();
 
     return () => { stopListening(); stopSpeaking(); };
-  }, [isOpen, activationPhrase, welcomeMessage, powers, systemVariables]);
+  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, systemVariables]);
+
+  const handleInit = () => {
+    setIsInitialized(true);
+    showSuccess("Assistente ativado! Diga a palavra de ativação.");
+  };
+
+  if (!isInitialized) {
+    return (
+      <div className="fixed bottom-8 right-8 z-50">
+        <Button onClick={handleInit} size="lg" className="rounded-full w-20 h-20 bg-gradient-to-br from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 shadow-lg transform hover:scale-110 transition-transform duration-200">
+          <Mic size={32} />
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className={cn(
-      "fixed inset-0 z-50 flex flex-col items-center justify-center p-8 transition-opacity duration-500",
+      "fixed inset-0 z-50 flex flex-col items-center justify-center p-8 transition-all duration-500",
       isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
     )}>
-      <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm"></div>
+      <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={closeAssistant}></div>
       <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
         <div className="flex-grow flex items-center justify-center">
           <p className="text-white text-4xl md:text-6xl font-bold leading-tight drop-shadow-lg">
