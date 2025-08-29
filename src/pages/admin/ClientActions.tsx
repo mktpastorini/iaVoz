@@ -35,16 +35,24 @@ const clientActionSchema = z.object({
   id: z.string().optional(),
   trigger_phrase: z.string().min(1, "Frase de gatilho é obrigatória"),
   action_type: z.enum(['OPEN_URL', 'SHOW_IMAGE']),
-  url: z.string().url("URL inválida").optional(),
-  imageUrl: z.string().url("URL da imagem inválida").optional(),
-  altText: z.string().optional(),
-}).refine(data => {
-  if (data.action_type === 'OPEN_URL') return !!data.url;
-  if (data.action_type === 'SHOW_IMAGE') return !!data.imageUrl;
-  return false;
-}, {
-  message: "Preencha os campos necessários para o tipo de ação selecionado.",
-  path: ["url"], // Pode ser qualquer um dos campos condicionais
+  url: z.string().url("URL inválida").optional().nullable(),
+  imageUrl: z.string().url("URL da imagem inválida").optional().nullable(),
+  altText: z.string().optional().nullable(),
+}).superRefine((data, ctx) => {
+  if (data.action_type === 'OPEN_URL' && (!data.url || data.url.trim() === '')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "URL é obrigatória para a ação 'Abrir URL'.",
+      path: ['url'],
+    });
+  }
+  if (data.action_type === 'SHOW_IMAGE' && (!data.imageUrl || data.imageUrl.trim() === '')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "URL da Imagem é obrigatória para a ação 'Mostrar Imagem'.",
+      path: ['imageUrl'],
+    });
+  }
 });
 
 type ClientActionFormData = z.infer<typeof clientActionSchema>;
@@ -67,6 +75,9 @@ const ClientActionsPage: React.FC = () => {
     defaultValues: {
       trigger_phrase: "",
       action_type: "OPEN_URL",
+      url: "",
+      imageUrl: "",
+      altText: "",
     },
   });
 

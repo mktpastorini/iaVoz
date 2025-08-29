@@ -81,11 +81,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   openaiTtsVoice = "alloy",
   activationPhrase,
 }) => {
-  // FIX: Call hooks to get context values
   const { workspace } = useSession();
   const { systemVariables } = useSystem();
 
-  // State variables
   const [isInitialized, setIsInitialized] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -97,7 +95,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const [imageToShow, setImageToShow] = useState<ClientAction['action_payload'] | null>(null);
 
-  // Refs
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -106,7 +103,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
-  // Fetch powers and client actions
   useEffect(() => {
     if (workspace?.id) {
       const fetchPowers = async () => {
@@ -124,7 +120,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   }, [workspace]);
 
-  // Audio control functions
   const startListening = () => {
     if (recognitionRef.current && !isRecognitionActive.current && !isSpeakingRef.current) {
       try {
@@ -175,13 +170,13 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       onEndCallback?.();
     };
 
-    if (voiceModel === "browser" && synthRef.current) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "pt-BR";
-      utterance.onend = onSpeechEnd;
-      synthRef.current.speak(utterance);
-    } else if (voiceModel === "openai-tts" && openAiApiKey) {
-      try {
+    try {
+      if (voiceModel === "browser" && synthRef.current) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "pt-BR";
+        utterance.onend = onSpeechEnd;
+        synthRef.current.speak(utterance);
+      } else if (voiceModel === "openai-tts" && openAiApiKey) {
         const response = await fetch(OPENAI_TTS_API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiApiKey}` },
@@ -193,16 +188,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         audioRef.current.play();
-      } catch (error) {
-        console.error(error);
-        onSpeechEnd();
+      } else {
+        onEndCallback?.();
       }
-    } else {
-      onEndCallback();
+    } catch (error) {
+      console.error("Erro durante a fala:", error);
+      onSpeechEnd(); // Garante que o estado de 'speaking' seja resetado mesmo em caso de erro
     }
   };
 
-  // Client action execution
   const executeClientAction = (action: ClientAction) => {
     switch (action.action_type) {
       case 'OPEN_URL':
@@ -223,7 +217,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   };
 
-  // Main conversation logic
   const runConversation = async (userInput: string) => {
     if (!openAiApiKey) {
       speak("Chave API OpenAI não configurada.", startListening);
@@ -286,7 +279,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   };
 
-  // Speech recognition setup
   useEffect(() => {
     if (!isInitialized) return;
 
@@ -315,7 +307,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       const closePhrase = "fechar";
 
       if (isOpen) {
-        if (transcript.includes(closePhrase)) {
+        // O comando "fechar" tem prioridade máxima.
+        if (transcript === closePhrase) {
           closeAssistant();
           return;
         }
@@ -345,13 +338,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     return () => { stopListening(); stopSpeaking(); };
   }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables]);
 
-  // Init handler
   const handleInit = () => {
     setIsInitialized(true);
     showSuccess("Assistente ativado! Diga a palavra de ativação.");
   };
 
-  // Render logic
   if (!isInitialized) {
     return (
       <div className="fixed bottom-4 right-4 md:bottom-8 md:right-8 z-50">
