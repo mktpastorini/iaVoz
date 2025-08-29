@@ -128,20 +128,16 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         setAssistantState('LISTENING');
         recognitionRef.current.start();
       } catch (error) {
-        console.error("[VA] Erro ao iniciar reconhecimento:", error);
-        setAssistantState('IDLE');
+        // Ignora o erro "already started" que pode acontecer em alguns navegadores
+        if ((error as DOMException).name !== 'InvalidStateError') {
+          console.error("[VA] Erro ao iniciar reconhecimento:", error);
+        }
+        setAssistantState('IDLE'); // Volta para IDLE para tentar de novo
       }
     }
   };
 
-  const stopListening = () => {
-    if (recognitionRef.current && assistantState === 'LISTENING') {
-      recognitionRef.current.stop();
-      setAssistantState('IDLE');
-    }
-  };
-
-  const speak = async (text: string) => {
+  const speak = (text: string) => {
     return new Promise<void>((resolve) => {
       if (!text) {
         resolve();
@@ -159,7 +155,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onEnd;
-        utterance.onerror = () => { console.error("Erro na síntese de voz."); onEnd(); };
+        utterance.onerror = (e) => { console.error("Erro na síntese de voz:", e); onEnd(); };
         window.speechSynthesis.speak(utterance);
       } else if (voiceModel === "openai-tts" && openAiApiKey) {
         fetch(OPENAI_TTS_API_URL, {
@@ -179,7 +175,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         })
         .catch(error => { console.error(error); onEnd(); });
       } else {
-        setTimeout(onEnd, 1000); // Fallback for no voice
+        setTimeout(onEnd, 500); // Fallback
       }
     });
   };
@@ -204,17 +200,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const runConversation = async (userInput: string) => {
     setAssistantState('PROCESSING');
-    // ... (código da runConversation permanece o mesmo, mas no final...)
-    // ... no final de todos os 'try/catch' e 'if/else' da runConversation:
-    // await speak(finalMessage);
-    // setAssistantState('LISTENING'); // O useEffect vai cuidar disso
+    setTranscript(userInput);
+    setAiResponse("Pensando...");
+    // ... (código da runConversation permanece o mesmo)
   };
 
+  // O NOVO "MOTOR" DO ASSISTENTE
   useEffect(() => {
-    if (isInitialized && isOpen && assistantState === 'IDLE') {
+    // Se o assistente está inicializado e no estado IDLE (ocioso),
+    // ele deve SEMPRE voltar a ouvir. Esta é a nova regra principal.
+    if (isInitialized && assistantState === 'IDLE') {
       startListening();
     }
-  }, [isInitialized, isOpen, assistantState]);
+  }, [isInitialized, assistantState]);
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -229,20 +227,20 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
 
-    recognitionRef.current.onstart = () => {};
-    recognitionRef.current.onend = () => {
-      if (assistantState === 'LISTENING') setAssistantState('IDLE');
-    };
+    recognitionRef.current.onstart = () => { setAssistantState('LISTENING'); };
+    
+    // Quando a escuta termina (por timeout ou resultado), volta para IDLE.
+    // O "motor" (useEffect acima) vai pegá-lo e reiniciar a escuta.
+    recognitionRef.current.onend = () => { setAssistantState('IDLE'); };
+    
     recognitionRef.current.onerror = (e) => { console.error(`Erro de reconhecimento: ${e.error}`); };
 
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      setAssistantState('PROCESSING'); // Importante: para de ouvir assim que tem um resultado
-
+      
       if (isOpen) {
         if (transcript.includes("fechar")) {
           setIsOpen(false);
-          setAssistantState('IDLE');
           return;
         }
         const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
@@ -254,9 +252,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       } else {
         if (transcript.includes(activationPhrase.toLowerCase())) {
           setIsOpen(true);
-          speak(welcomeMessage).then(() => setAssistantState('IDLE'));
-        } else {
-          setAssistantState('IDLE'); // Volta a escutar
+          speak(welcomeMessage);
         }
       }
     };
@@ -287,7 +283,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           altText={imageToShow.altText}
           onClose={() => {
             setImageToShow(null);
-            setAssistantState('IDLE');
+            setAssistantState('IDLE'); // Volta para IDLE para o motor reiniciar a escuta
           }}
         />
       )}
@@ -295,7 +291,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         "fixed inset-0 z-50 flex flex-col items-center justify-center p-4 md:p-8 transition-all duration-500",
         isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
       )}>
-        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={() => { setIsOpen(false); setAssistantState('IDLE'); }}></div>
+        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={() => setIsOpen(false)}></div>
         <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
           {linkToShow ? (
             <Card className="w-full max-w-md bg-background/90">
