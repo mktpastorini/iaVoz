@@ -10,12 +10,9 @@ import { useTypewriter } from "@/hooks/useTypewriter";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Mic, X, Link as LinkIcon } from "lucide-react";
+import { Mic, X } from "lucide-react";
 
-// Types
-type AssistantState = "IDLE" | "LISTENING" | "PROCESSING" | "SPEAKING" | "ACTION_PENDING";
-
+// Interfaces
 interface VoiceAssistantProps {
   welcomeMessage?: string;
   openAiApiKey: string;
@@ -64,10 +61,10 @@ const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 
 // Modal Component
 const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?: string; onClose: () => void }) => (
-  <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" onClick={onClose}>
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
     <div className="relative max-w-4xl max-h-full p-4" onClick={(e) => e.stopPropagation()}>
       <img src={imageUrl} alt={altText || 'Imagem exibida pelo assistente'} className="max-w-full max-h-[80vh] rounded-lg shadow-2xl" />
-      <Button variant="destructive" size="icon" className="absolute -top-2 -right-2 rounded-full z-10" onClick={onClose}><X /></Button>
+      <Button variant="destructive" size="icon" className="absolute -top-2 -right-2 rounded-full" onClick={onClose}><X /></Button>
     </div>
   </div>
 );
@@ -76,8 +73,8 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
 const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   welcomeMessage = "Bem-vindo ao site! Diga 'ativar' para começar a conversar.",
   openAiApiKey,
-  systemPrompt,
-  assistantPrompt,
+  systemPrompt = "Você é Intra, a IA da Intratégica. Empresa de automações, desenvolvimento de IAs e sistemas.",
+  assistantPrompt = "Você é um assistente amigável e profissional que ajuda agências de tecnologia a automatizar processos e criar soluções de IA personalizadas.",
   model = "gpt-4o-mini",
   conversationMemoryLength,
   voiceModel,
@@ -89,21 +86,22 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const [isInitialized, setIsInitialized] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
-  const [assistantState, setAssistantState] = useState<AssistantState>("IDLE");
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
   const [powers, setPowers] = useState<Power[]>([]);
   const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const [imageToShow, setImageToShow] = useState<ClientAction['action_payload'] | null>(null);
-  const [linkToShow, setLinkToShow] = useState<{ url: string; triggerPhrase: string } | null>(null);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const isRecognitionActive = useRef(false);
+  const isSpeakingRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
-  const isSpeaking = assistantState === "SPEAKING";
-  const isListening = assistantState === "LISTENING";
 
   useEffect(() => {
     if (workspace?.id) {
@@ -123,69 +121,107 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [workspace]);
 
   const startListening = () => {
-    if (recognitionRef.current && assistantState !== 'LISTENING') {
+    if (recognitionRef.current && !isRecognitionActive.current && !isSpeakingRef.current) {
       try {
         recognitionRef.current.start();
       } catch (error) {
-        if ((error as DOMException).name !== 'InvalidStateError') {
-          console.error("[VA] Erro ao iniciar reconhecimento:", error);
-        }
-        setAssistantState('IDLE'); // Fallback to IDLE to retry
+        console.error("[VA] Erro ao iniciar reconhecimento:", error);
       }
     }
   };
 
-  const speak = (text: string): Promise<void> => {
-    return new Promise((resolve) => {
-      if (!text) {
-        setAssistantState('IDLE'); // If no text, immediately go to IDLE
-        resolve();
-        return;
-      }
-      setAssistantState('SPEAKING');
-      setAiResponse(text);
+  const stopListening = () => {
+    if (recognitionRef.current && isRecognitionActive.current) {
+      recognitionRef.current.stop();
+    }
+  };
 
-      let resolved = false;
-      const onEnd = () => {
-        if (!resolved) {
-          resolved = true;
-          setAssistantState('IDLE'); // Crucial: Set to IDLE after speech ends
-          resolve();
-        }
-      };
+  const stopSpeaking = () => {
+    if (synthRef.current?.speaking) synthRef.current.cancel();
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsSpeaking(false);
+    isSpeakingRef.current = false;
+  };
 
-      // Fallback timer to ensure the promise always resolves
-      const estimatedDuration = text.length * 80 + 1000; // 80ms/char + 1s buffer
-      setTimeout(onEnd, estimatedDuration);
+  const closeAssistant = () => {
+    stopListening();
+    stopSpeaking();
+    setIsOpen(false);
+    setAiResponse("");
+    setTranscript("");
+  };
 
-      if (voiceModel === "browser" && "speechSynthesis" in window) {
+  const speak = async (text: string, onEndCallback?: () => void) => {
+    if (!text) {
+      onEndCallback?.();
+      return;
+    }
+    stopSpeaking();
+    setIsSpeaking(true);
+    isSpeakingRef.current = true;
+    setAiResponse(text);
+
+    const onSpeechEnd = () => {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      onEndCallback?.();
+    };
+
+    try {
+      if (voiceModel === "browser" && synthRef.current) {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
-        utterance.onend = onEnd;
-        utterance.onerror = (e) => { console.error("Erro na síntese de voz:", e); onEnd(); };
-        window.speechSynthesis.speak(utterance);
+        utterance.onend = onSpeechEnd;
+        synthRef.current.speak(utterance);
       } else if (voiceModel === "openai-tts" && openAiApiKey) {
-        fetch(OPENAI_TTS_API_URL, {
+        const response = await fetch(OPENAI_TTS_API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiApiKey}` },
           body: JSON.stringify({ model: "tts-1", voice: openaiTtsVoice || "alloy", input: text }),
-        })
-        .then(response => response.ok ? response.blob() : Promise.reject("Falha na API OpenAI TTS"))
-        .then(audioBlob => {
-          const audioUrl = URL.createObjectURL(audioBlob);
-          audioRef.current = new Audio(audioUrl);
-          audioRef.current.onended = () => { URL.revokeObjectURL(audioUrl); onEnd(); };
-          audioRef.current.play();
-        })
-        .catch(error => { console.error(error); onEnd(); });
+        });
+        if (!response.ok) throw new Error("Falha na API OpenAI TTS");
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioRef.current = new Audio(audioUrl);
+        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.play();
       } else {
-        setTimeout(onEnd, 500);
+        onEndCallback?.();
       }
-    });
+    } catch (error) {
+      console.error("Erro durante a fala:", error);
+      onSpeechEnd(); // Garante que o estado de 'speaking' seja resetado mesmo em caso de erro
+    }
+  };
+
+  const executeClientAction = (action: ClientAction) => {
+    switch (action.action_type) {
+      case 'OPEN_URL':
+        if (action.action_payload.url) {
+          speak(`Abrindo ${action.action_payload.url}`, () => {
+            window.open(action.action_payload.url, '_blank');
+            startListening();
+          });
+        }
+        break;
+      case 'SHOW_IMAGE':
+        if (action.action_payload.imageUrl) {
+          speak("Claro, aqui está a imagem.", () => {
+            setImageToShow(action.action_payload);
+          });
+        }
+        break;
+    }
   };
 
   const runConversation = async (userInput: string) => {
-    setAssistantState('PROCESSING');
+    if (!openAiApiKey) {
+      speak("Chave API OpenAI não configurada.", startListening);
+      return;
+    }
     setTranscript(userInput);
     setAiResponse("Pensando...");
     const newHistory = [...messageHistory, { role: "user" as const, content: userInput }];
@@ -205,116 +241,107 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       const responseMessage = data.choices?.[0]?.message;
 
       if (responseMessage.tool_calls) {
-        // ... (lógica de ferramentas)
+        setAiResponse("Executando ação...");
+        const historyWithToolCall = [...newHistory, responseMessage];
+        setMessageHistory(historyWithToolCall);
+        const toolOutputs = await Promise.all(responseMessage.tool_calls.map(async (toolCall: any) => {
+          const power = powers.find(p => p.name === toolCall.function.name);
+          if (!power) return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: 'Poder não encontrado.' };
+          
+          const args = JSON.parse(toolCall.function.arguments);
+          let url = replacePlaceholders(power.url || '', { ...systemVariables, ...args });
+          let body = power.body ? JSON.parse(replacePlaceholders(JSON.stringify(power.body), { ...systemVariables, ...args })) : undefined;
+
+          const { data: toolResult, error } = await supabase.functions.invoke('proxy-api', { body: { url, method: power.method, headers: power.headers, body } });
+          return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: error ? JSON.stringify({ error: error.message }) : JSON.stringify(toolResult) };
+        }));
+
+        const historyWithToolResults = [...historyWithToolCall, ...toolOutputs];
+        setMessageHistory(historyWithToolResults);
+        const secondResponse = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiApiKey}` },
+          body: JSON.stringify({ model, messages: historyWithToolResults }),
+        });
+        if (!secondResponse.ok) throw new Error("Erro na 2ª chamada OpenAI");
+        const secondData = await secondResponse.json();
+        const finalMessage = secondData.choices?.[0]?.message?.content;
+        setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
+        speak(finalMessage, startListening);
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        await speak(assistantMessage); // speak will set state to IDLE
+        speak(assistantMessage, startListening);
       }
     } catch (error) {
       console.error(error);
-      await speak("Desculpe, ocorreu um erro."); // speak will set state to IDLE
+      speak("Desculpe, ocorreu um erro.", startListening);
     }
-    // No need to set IDLE here, speak function handles it.
   };
 
-  // This useEffect is the "motor" that ensures listening restarts when IDLE
   useEffect(() => {
-    if (isInitialized && assistantState === 'IDLE') {
-      startListening();
-    }
-  }, [isInitialized, assistantState]);
+    if (!isInitialized) return;
 
-  const handleInit = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       showError("Reconhecimento de voz não suportado.");
       return;
     }
-    if (!recognitionRef.current) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = "pt-BR";
+    recognitionRef.current = new SpeechRecognition();
+    recognitionRef.current.continuous = false;
+    recognitionRef.current.interimResults = false;
+    recognitionRef.current.lang = "pt-BR";
 
-      recognitionRef.current.onstart = () => setAssistantState('LISTENING');
-      recognitionRef.current.onend = () => {
-        if (assistantState === 'LISTENING') {
-          setAssistantState('IDLE'); // Go to IDLE, motor will restart listening
+    recognitionRef.current.onstart = () => { isRecognitionActive.current = true; setIsListening(true); };
+    recognitionRef.current.onend = () => { 
+      isRecognitionActive.current = false; 
+      setIsListening(false); 
+      if (isOpen && !isSpeakingRef.current) {
+        startListening();
+      }
+    };
+    recognitionRef.current.onerror = (e) => { console.error(`Erro de reconhecimento: ${e.error}`); if (e.error !== 'no-speech') showError(`Erro de voz: ${e.error}`); };
+
+    recognitionRef.current.onresult = (event) => {
+      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      const closePhrase = "fechar";
+
+      if (isOpen) {
+        // O comando "fechar" tem prioridade máxima.
+        if (transcript.includes(closePhrase)) {
+          closeAssistant();
+          return;
         }
-      };
-      recognitionRef.current.onerror = (e) => {
-        console.error(`Erro de reconhecimento: ${e.error}`);
-        if (e.error === 'not-allowed') {
-          showError("Permissão para o microfone foi negada.");
+
+        const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
+        if (matchedAction) {
+          executeClientAction(matchedAction);
+          return;
         }
-        setAssistantState('IDLE'); // Ensure state is IDLE on error to allow retry
-      };
 
-      recognitionRef.current.onresult = async (event) => {
-        const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-        setTranscript(transcript); // Update transcript immediately
-        setAssistantState('PROCESSING'); // Indicate that we are processing the transcript
-
-        try {
-          if (isOpen) {
-            if (transcript.includes("fechar")) {
-              setIsOpen(false);
-              setAiResponse(""); // Clear AI response
-              setAssistantState('IDLE'); // Explicitly set to IDLE after closing
-            } else {
-              const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
-              if (matchedAction) {
-                setAssistantState('ACTION_PENDING'); // Set state to indicate action is pending
-                if (matchedAction.action_type === 'OPEN_URL' && matchedAction.action_payload.url) {
-                  await speak("Claro, aqui está o link que você pediu."); // speak sets state to IDLE
-                  setLinkToShow({ url: matchedAction.action_payload.url, triggerPhrase: matchedAction.trigger_phrase });
-                } else if (matchedAction.action_type === 'SHOW_IMAGE' && matchedAction.action_payload.imageUrl) {
-                  await speak("Ok, mostrando a imagem."); // speak sets state to IDLE
-                  setImageToShow(matchedAction.action_payload);
-                }
-                // State will be set to IDLE by modal/link onClose/onClick handlers
-              } else {
-                await runConversation(transcript); // runConversation sets state to IDLE at its end
-              }
-            }
-          } else { // Assistant is not open
-            if (transcript.includes(activationPhrase.toLowerCase())) {
-              setIsOpen(true);
-              await speak(welcomeMessage); // speak function already sets state to IDLE on completion
-            } else {
-              // If not activation phrase and not open, simply return to IDLE
-              // The useEffect will then restart listening
-              setAssistantState('IDLE'); 
-            }
-          }
-        } catch (error) {
-          console.error("Error during onresult processing:", error);
-          showError("Ocorreu um erro ao processar seu comando.");
-          setAssistantState('IDLE'); // Ensure IDLE on error
+        runConversation(transcript);
+      } else {
+        if (transcript.includes(activationPhrase.toLowerCase())) {
+          setIsOpen(true);
+          speak(welcomeMessage, startListening);
+        } else {
+          startListening();
         }
-      };
-    }
+      }
+    };
 
+    if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
+    else showError("Síntese de voz não suportada.");
+
+    startListening();
+
+    return () => { stopListening(); stopSpeaking(); };
+  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables]);
+
+  const handleInit = () => {
     setIsInitialized(true);
     showSuccess("Assistente ativado! Diga a palavra de ativação.");
-    startListening();
   };
-
-  // Function to handle closing the assistant and resetting state
-  const closeAssistant = () => {
-    if (recognitionRef.current) recognitionRef.current.abort(); // Stop listening immediately
-    if (audioRef.current) audioRef.current.pause(); // Stop any ongoing speech
-    if (window.speechSynthesis.speaking) window.speechSynthesis.cancel(); // Stop browser speech
-
-    setIsOpen(false);
-    setAiResponse("");
-    setTranscript("");
-    setImageToShow(null);
-    setLinkToShow(null);
-    setAssistantState('IDLE'); // Ensure it goes back to IDLE to restart listening if needed
-  };
-
 
   if (!isInitialized) {
     return (
@@ -334,7 +361,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           altText={imageToShow.altText}
           onClose={() => {
             setImageToShow(null);
-            setAssistantState('IDLE'); // After closing modal, go to IDLE to restart listening
+            startListening();
           }}
         />
       )}
@@ -344,36 +371,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       )}>
         <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={closeAssistant}></div>
         <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
-          {linkToShow ? (
-            <Card className="w-full max-w-md bg-background/90">
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span>Ação: {linkToShow.triggerPhrase}</span>
-                  <Button variant="ghost" size="icon" onClick={() => { setLinkToShow(null); setAssistantState('IDLE'); }}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col items-center gap-4">
-                <p>Clique no botão abaixo para abrir o link solicitado.</p>
-                <Button asChild size="lg" className="w-full">
-                  <a href={linkToShow.url} target="_blank" rel="noopener noreferrer" onClick={() => { setLinkToShow(null); setAssistantState('IDLE'); }}>
-                    <LinkIcon className="mr-2 h-5 w-5" />
-                    Abrir {linkToShow.url}
-                  </a>
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="flex-grow flex items-center justify-center">
-              <p className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">
-                {displayedAiResponse}
-              </p>
-            </div>
-          )}
+          <div className="flex-grow flex items-center justify-center">
+            <p className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">
+              {displayedAiResponse}
+            </p>
+          </div>
           <AudioVisualizer isSpeaking={isSpeaking} />
           <div className="h-16">
-            <p className="text-gray-400 text-lg md:text-xl">{isListening ? "Ouvindo..." : transcript}</p>
+            <p className="text-gray-400 text-lg md:text-xl">{transcript}</p>
           </div>
         </div>
       </div>
