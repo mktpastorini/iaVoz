@@ -203,6 +203,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error(error);
       await speak("Desculpe, ocorreu um erro.");
     }
+    setAssistantState('IDLE');
   };
 
   // O "MOTOR" DO ASSISTENTE
@@ -240,6 +241,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       if (isOpen) {
         if (transcript.includes("fechar")) {
           setIsOpen(false);
+          setAssistantState('IDLE');
         } else {
           const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
           if (matchedAction) {
@@ -259,11 +261,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (transcript.includes(activationPhrase.toLowerCase())) {
           setIsOpen(true);
           await speak(welcomeMessage);
+          setAssistantState('IDLE');
+        } else {
+          setAssistantState('IDLE');
         }
-      }
-      
-      if (assistantState === 'PROCESSING') {
-        setAssistantState('IDLE');
       }
     };
 
