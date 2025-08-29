@@ -144,7 +144,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       setAssistantState('SPEAKING');
       setAiResponse(text);
 
-      const onEnd = () => resolve();
+      const onEnd = () => {
+        setAssistantState('IDLE');
+        resolve();
+      };
 
       if (voiceModel === "browser" && "speechSynthesis" in window) {
         const utterance = new SpeechSynthesisUtterance(text);
@@ -206,74 +209,75 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setAssistantState('IDLE');
   };
 
-  // O "MOTOR" DO ASSISTENTE
   useEffect(() => {
     if (isInitialized && assistantState === 'IDLE') {
       startListening();
     }
   }, [isInitialized, assistantState]);
 
-  useEffect(() => {
-    if (!isInitialized) return;
-
+  const handleInit = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       showError("Reconhecimento de voz não suportado.");
       return;
     }
-    recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = false;
-    recognitionRef.current.interimResults = false;
-    recognitionRef.current.lang = "pt-BR";
+    if (!recognitionRef.current) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = "pt-BR";
 
-    recognitionRef.current.onstart = () => setAssistantState('LISTENING');
-    recognitionRef.current.onend = () => {
-      if (assistantState === 'LISTENING') {
-        setAssistantState('IDLE');
-      }
-    };
-    recognitionRef.current.onerror = (e) => { console.error(`Erro de reconhecimento: ${e.error}`); };
-
-    recognitionRef.current.onresult = async (event) => {
-      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      setAssistantState('PROCESSING');
-
-      if (isOpen) {
-        if (transcript.includes("fechar")) {
-          setIsOpen(false);
+      recognitionRef.current.onstart = () => setAssistantState('LISTENING');
+      recognitionRef.current.onend = () => {
+        if (assistantState === 'LISTENING') {
           setAssistantState('IDLE');
-        } else {
-          const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
-          if (matchedAction) {
-            setAssistantState('ACTION_PENDING');
-            if (matchedAction.action_type === 'OPEN_URL' && matchedAction.action_payload.url) {
-              await speak("Claro, aqui está o link que você pediu.");
-              setLinkToShow({ url: matchedAction.action_payload.url, triggerPhrase: matchedAction.trigger_phrase });
-            } else if (matchedAction.action_type === 'SHOW_IMAGE' && matchedAction.action_payload.imageUrl) {
-              await speak("Ok, mostrando a imagem.");
-              setImageToShow(matchedAction.action_payload);
-            }
+        }
+      };
+      recognitionRef.current.onerror = (e) => {
+        console.error(`Erro de reconhecimento: ${e.error}`);
+        if (e.error === 'not-allowed') {
+          showError("Permissão para o microfone foi negada.");
+        }
+      };
+
+      recognitionRef.current.onresult = async (event) => {
+        const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+        setAssistantState('PROCESSING');
+
+        if (isOpen) {
+          if (transcript.includes("fechar")) {
+            setIsOpen(false);
+            setAssistantState('IDLE');
           } else {
-            await runConversation(transcript);
+            const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
+            if (matchedAction) {
+              setAssistantState('ACTION_PENDING');
+              if (matchedAction.action_type === 'OPEN_URL' && matchedAction.action_payload.url) {
+                await speak("Claro, aqui está o link que você pediu.");
+                setLinkToShow({ url: matchedAction.action_payload.url, triggerPhrase: matchedAction.trigger_phrase });
+              } else if (matchedAction.action_type === 'SHOW_IMAGE' && matchedAction.action_payload.imageUrl) {
+                await speak("Ok, mostrando a imagem.");
+                setImageToShow(matchedAction.action_payload);
+              }
+            } else {
+              await runConversation(transcript);
+            }
+          }
+        } else {
+          if (transcript.includes(activationPhrase.toLowerCase())) {
+            setIsOpen(true);
+            await speak(welcomeMessage);
+            setAssistantState('IDLE');
+          } else {
+            setAssistantState('IDLE');
           }
         }
-      } else {
-        if (transcript.includes(activationPhrase.toLowerCase())) {
-          setIsOpen(true);
-          await speak(welcomeMessage);
-          setAssistantState('IDLE');
-        } else {
-          setAssistantState('IDLE');
-        }
-      }
-    };
+      };
+    }
 
-    return () => { recognitionRef.current?.abort(); };
-  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables]);
-
-  const handleInit = () => {
     setIsInitialized(true);
     showSuccess("Assistente ativado! Diga a palavra de ativação.");
+    startListening();
   };
 
   if (!isInitialized) {
