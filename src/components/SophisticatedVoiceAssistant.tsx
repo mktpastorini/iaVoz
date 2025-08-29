@@ -156,7 +156,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         audioRef.current.play();
       } catch (error) {
         console.error(error);
@@ -238,12 +238,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       return;
     }
     recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = true;
+    recognitionRef.current.continuous = false; // MUDANÇA CHAVE: Desativa o modo contínuo
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
 
     recognitionRef.current.onstart = () => { isRecognitionActive.current = true; setIsListening(true); };
-    recognitionRef.current.onend = () => { isRecognitionActive.current = false; setIsListening(false); if (!isSpeakingRef.current) startListening(); };
+    recognitionRef.current.onend = () => { 
+      isRecognitionActive.current = false; 
+      setIsListening(false); 
+      // Reinicia a escuta explicitamente se o assistente estiver aberto e não falando
+      if (isOpen && !isSpeakingRef.current) {
+        startListening();
+      }
+    };
     recognitionRef.current.onerror = (e) => { console.error(`Erro de reconhecimento: ${e.error}`); if (e.error !== 'no-speech') showError(`Erro de voz: ${e.error}`); };
 
     recognitionRef.current.onresult = (event) => {
@@ -254,13 +261,16 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (transcript.includes(closePhrase)) {
           closeAssistant();
         } else {
-          stopListening();
+          // Não precisa mais parar a escuta aqui, pois o modo não contínuo fará isso
           runConversation(transcript);
         }
       } else {
         if (transcript.includes(activationPhrase.toLowerCase())) {
           setIsOpen(true);
           speak(welcomeMessage, startListening);
+        } else {
+          // Se não for a palavra de ativação, reinicia a escuta
+          startListening();
         }
       }
     };
