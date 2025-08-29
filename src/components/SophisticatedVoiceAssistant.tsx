@@ -156,7 +156,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onended = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
         audioRef.current.play();
       } catch (error) {
         console.error(error);
@@ -280,8 +280,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   if (!isInitialized) {
     return (
-      <div className="fixed bottom-8 right-8 z-50">
-        <Button onClick={handleInit} size="lg" className="rounded-full w-20 h-20 bg-gradient-to-br from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 shadow-lg transform hover:scale-110 transition-transform duration-200">
+      <div className="fixed bottom-4 right-4 md:bottom-8 md:right-8 z-50">
+        <Button onClick={handleInit} size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 shadow-lg transform hover:scale-110 transition-transform duration-200 flex items-center justify-center">
           <Mic size={32} />
         </Button>
       </div>
@@ -290,19 +290,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   return (
     <div className={cn(
-      "fixed inset-0 z-50 flex flex-col items-center justify-center p-8 transition-all duration-500",
+      "fixed inset-0 z-50 flex flex-col items-center justify-center p-4 md:p-8 transition-all duration-500",
       isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
     )}>
       <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={closeAssistant}></div>
       <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
         <div className="flex-grow flex items-center justify-center">
-          <p className="text-white text-4xl md:text-6xl font-bold leading-tight drop-shadow-lg">
+          <p className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">
             {displayedAiResponse}
           </p>
         </div>
         <AudioVisualizer isSpeaking={isSpeaking} />
         <div className="h-16">
-          <p className="text-gray-400 text-xl md:text-2xl">{transcript}</p>
+          <p className="text-gray-400 text-lg md:text-xl">{transcript}</p>
         </div>
       </div>
     </div>
