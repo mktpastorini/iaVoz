@@ -68,7 +68,7 @@ const LoginPage = () => {
             },
           }}
           providers={["google", "github"]} // Exemplo de provedores, ajuste conforme necessário
-          redirectTo={process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}
+          redirectTo="http://localhost:8080/"
           localization={{
             variables: {
               sign_in: {
