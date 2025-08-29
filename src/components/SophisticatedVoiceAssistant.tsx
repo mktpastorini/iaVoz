@@ -308,7 +308,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (isOpen) {
         // O comando "fechar" tem prioridade máxima.
-        if (transcript === closePhrase) {
+        if (transcript.includes(closePhrase)) {
           closeAssistant();
           return;
         }
