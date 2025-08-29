@@ -130,7 +130,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if ((error as DOMException).name !== 'InvalidStateError') {
           console.error("[VA] Erro ao iniciar reconhecimento:", error);
         }
-        setAssistantState('IDLE');
+        setAssistantState('IDLE'); // Fallback to IDLE to retry
       }
     }
   };
@@ -138,6 +138,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const speak = (text: string): Promise<void> => {
     return new Promise((resolve) => {
       if (!text) {
+        setAssistantState('IDLE'); // If no text, immediately go to IDLE
         resolve();
         return;
       }
@@ -148,6 +149,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       const onEnd = () => {
         if (!resolved) {
           resolved = true;
+          setAssistantState('IDLE'); // Crucial: Set to IDLE after speech ends
           resolve();
         }
       };
@@ -207,15 +209,16 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        await speak(assistantMessage);
+        await speak(assistantMessage); // speak will set state to IDLE
       }
     } catch (error) {
       console.error(error);
-      await speak("Desculpe, ocorreu um erro.");
+      await speak("Desculpe, ocorreu um erro."); // speak will set state to IDLE
     }
-    setAssistantState('IDLE');
+    // No need to set IDLE here, speak function handles it.
   };
 
+  // This useEffect is the "motor" that ensures listening restarts when IDLE
   useEffect(() => {
     if (isInitialized && assistantState === 'IDLE') {
       startListening();
@@ -237,7 +240,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       recognitionRef.current.onstart = () => setAssistantState('LISTENING');
       recognitionRef.current.onend = () => {
         if (assistantState === 'LISTENING') {
-          setAssistantState('IDLE');
+          setAssistantState('IDLE'); // Go to IDLE, motor will restart listening
         }
       };
       recognitionRef.current.onerror = (e) => {
@@ -245,20 +248,22 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (e.error === 'not-allowed') {
           showError("Permissão para o microfone foi negada.");
         }
+        setAssistantState('IDLE'); // Ensure state is IDLE on error to allow retry
       };
 
       recognitionRef.current.onresult = async (event) => {
         const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-        setAssistantState('PROCESSING');
+        setTranscript(transcript); // Update transcript immediately
 
         if (isOpen) {
           if (transcript.includes("fechar")) {
             setIsOpen(false);
-            setAssistantState('IDLE');
+            setAiResponse(""); // Clear AI response
+            setAssistantState('IDLE'); // Go to IDLE, motor will restart listening
           } else {
             const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
             if (matchedAction) {
-              setAssistantState('ACTION_PENDING');
+              setAssistantState('ACTION_PENDING'); // Set state to indicate action is pending
               if (matchedAction.action_type === 'OPEN_URL' && matchedAction.action_payload.url) {
                 await speak("Claro, aqui está o link que você pediu.");
                 setLinkToShow({ url: matchedAction.action_payload.url, triggerPhrase: matchedAction.trigger_phrase });
@@ -266,17 +271,17 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
                 await speak("Ok, mostrando a imagem.");
                 setImageToShow(matchedAction.action_payload);
               }
+              // After action, state will be set to IDLE by the action's onClose or onClick handlers
             } else {
-              await runConversation(transcript);
+              await runConversation(transcript); // runConversation sets state to IDLE at its end
             }
           }
-        } else {
+        } else { // Assistant is not open
           if (transcript.includes(activationPhrase.toLowerCase())) {
             setIsOpen(true);
-            await speak(welcomeMessage);
-            setAssistantState('IDLE');
+            await speak(welcomeMessage); // speak function already sets state to IDLE on completion
           } else {
-            setAssistantState('IDLE');
+            setAssistantState('IDLE'); // If not activation phrase, just go back to IDLE to restart listening
           }
         }
       };
@@ -286,6 +291,21 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     showSuccess("Assistente ativado! Diga a palavra de ativação.");
     startListening();
   };
+
+  // Function to handle closing the assistant and resetting state
+  const closeAssistant = () => {
+    if (recognitionRef.current) recognitionRef.current.abort(); // Stop listening immediately
+    if (audioRef.current) audioRef.current.pause(); // Stop any ongoing speech
+    if (window.speechSynthesis.speaking) window.speechSynthesis.cancel(); // Stop browser speech
+
+    setIsOpen(false);
+    setAiResponse("");
+    setTranscript("");
+    setImageToShow(null);
+    setLinkToShow(null);
+    setAssistantState('IDLE'); // Ensure it goes back to IDLE to restart listening if needed
+  };
+
 
   if (!isInitialized) {
     return (
@@ -305,7 +325,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           altText={imageToShow.altText}
           onClose={() => {
             setImageToShow(null);
-            setAssistantState('IDLE');
+            setAssistantState('IDLE'); // After closing modal, go to IDLE to restart listening
           }}
         />
       )}
@@ -313,7 +333,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         "fixed inset-0 z-50 flex flex-col items-center justify-center p-4 md:p-8 transition-all duration-500",
         isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
       )}>
-        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={() => setIsOpen(false)}></div>
+        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={closeAssistant}></div>
         <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
           {linkToShow ? (
             <Card className="w-full max-w-md bg-background/90">
