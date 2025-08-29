@@ -51,7 +51,7 @@ const App = () => (
                   </ProtectedRoute>
                 }
               >
-                <Route index element={<SettingsPage />} /> {/* Default admin page */}
+                <Route index element={<Navigate to="/admin/settings" replace />} /> {/* Redirect to default admin page */}
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="powers" element={<PowersPage />} />
                 <Route path="conversations" element={<ConversationsPage />} />
