@@ -11,7 +11,7 @@ import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Mic, X } from "lucide-react";
-import { IframeModal } from "./IframeModal"; // Importar o novo modal de iframe
+import { UrlIframeModal } from "./UrlIframeModal"; // Importar o novo componente
 
 // Interfaces
 interface VoiceAssistantProps {
@@ -48,7 +48,7 @@ interface Power {
 interface ClientAction {
   id: string;
   trigger_phrase: string;
-  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL'; // Adicionado novo tipo
+  action_type: 'OPEN_URL' | 'SHOW_IMAGE';
   action_payload: {
     url?: string;
     imageUrl?: string;
@@ -95,7 +95,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [powers, setPowers] = useState<Power[]>([]);
   const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const [imageToShow, setImageToShow] = useState<ClientAction['action_payload'] | null>(null);
-  const [iframeToShow, setIframeToShow] = useState<{ url: string } | null>(null); // Novo estado para iframe
+  const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null); // Novo estado para o iframe
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -123,7 +123,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [workspace]);
 
   const startListening = () => {
-    if (recognitionRef.current && !isRecognitionActive.current && !isSpeakingRef.current) {
+    // Só inicia a escuta se o assistente estiver aberto, não estiver falando e nenhum modal (imagem ou iframe) estiver ativo
+    if (recognitionRef.current && !isRecognitionActive.current && !isSpeakingRef.current && !imageToShow && !urlToOpenInIframe) {
       try {
         recognitionRef.current.start();
       } catch (error) {
@@ -154,6 +155,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setIsOpen(false);
     setAiResponse("");
     setTranscript("");
+    setImageToShow(null); // Garante que o modal de imagem seja fechado
+    setUrlToOpenInIframe(null); // Garante que o modal de iframe seja fechado
   };
 
   const speak = async (text: string, onEndCallback?: () => void) => {
@@ -195,7 +198,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       }
     } catch (error) {
       console.error("Erro durante a fala:", error);
-      onSpeechEnd(); // Garante que o estado de 'speaking' seja resetado mesmo em caso de erro
+      onEndCallback(); // Garante que o estado de 'speaking' seja resetado mesmo em caso de erro
     }
   };
 
@@ -204,8 +207,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       case 'OPEN_URL':
         if (action.action_payload.url) {
           speak(`Abrindo ${action.action_payload.url}`, () => {
-            window.open(action.action_payload.url, '_blank');
-            startListening(); // Reinicia a escuta após abrir a URL
+            setUrlToOpenInIframe(action.action_payload.url!); // Abre no iframe
+            // A escuta será reiniciada APENAS quando o iframe for fechado
           });
         }
         break;
@@ -214,14 +217,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           speak("Claro, aqui está a imagem.", () => {
             setImageToShow(action.action_payload);
             // A escuta será reiniciada APENAS quando o modal for fechado
-          });
-        }
-        break;
-      case 'OPEN_IFRAME_URL': // Novo tipo de ação
-        if (action.action_payload.url) {
-          speak(`Abrindo ${action.action_payload.url} em um overlay.`, () => {
-            setIframeToShow({ url: action.action_payload.url! });
-            // A escuta será reiniciada APENAS quando o iframe for fechado
           });
         }
         break;
@@ -308,7 +303,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       isRecognitionActive.current = false; 
       setIsListening(false); 
       // Reinicia a escuta explicitamente se o assistente estiver aberto, não falando E NENHUM modal (imagem ou iframe) estiver aberto
-      if (isOpen && !isSpeakingRef.current && !imageToShow && !iframeToShow) {
+      if (isOpen && !isSpeakingRef.current && !imageToShow && !urlToOpenInIframe) {
         startListening();
       }
     };
@@ -320,15 +315,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (isOpen) {
         // O comando "fechar" tem prioridade máxima.
-        if (transcript.includes(closePhrase)) { // Usar includes para maior flexibilidade
+        if (transcript.includes(closePhrase)) {
           closeAssistant();
           return;
         }
 
         const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
         if (matchedAction) {
-          // Parar de ouvir antes de executar a ação para evitar conflitos
-          stopListening();
+          stopListening(); // Parar de ouvir antes de executar a ação para evitar conflitos
           executeClientAction(matchedAction);
           return;
         }
@@ -351,7 +345,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     startListening(); // Inicia a escuta inicial
 
     return () => { stopListening(); stopSpeaking(); };
-  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables, imageToShow, iframeToShow]); // Adicionado iframeToShow às dependências
+  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables, imageToShow, urlToOpenInIframe]); // Adicionado urlToOpenInIframe às dependências
 
   const handleInit = () => {
     setIsInitialized(true);
@@ -380,11 +374,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           }}
         />
       )}
-      {iframeToShow && (
-        <IframeModal
-          url={iframeToShow.url}
+      {urlToOpenInIframe && (
+        <UrlIframeModal
+          url={urlToOpenInIframe}
           onClose={() => {
-            setIframeToShow(null);
+            setUrlToOpenInIframe(null);
             startListening(); // Reinicia a escuta ao fechar o modal de iframe
           }}
         />

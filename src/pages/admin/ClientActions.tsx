@@ -23,7 +23,7 @@ import { showError, showSuccess } from '@/utils/toast';
 interface ClientAction {
   id: string;
   trigger_phrase: string;
-  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL'; // Adicionado novo tipo
+  action_type: 'OPEN_URL' | 'SHOW_IMAGE';
   action_payload: {
     url?: string;
     imageUrl?: string;
@@ -34,15 +34,15 @@ interface ClientAction {
 const clientActionSchema = z.object({
   id: z.string().optional(),
   trigger_phrase: z.string().min(1, "Frase de gatilho é obrigatória"),
-  action_type: z.enum(['OPEN_URL', 'SHOW_IMAGE', 'OPEN_IFRAME_URL']), // Adicionado novo tipo
+  action_type: z.enum(['OPEN_URL', 'SHOW_IMAGE']),
   url: z.string().url("URL inválida").optional().nullable(),
   imageUrl: z.string().url("URL da imagem inválida").optional().nullable(),
   altText: z.string().optional().nullable(),
 }).superRefine((data, ctx) => {
-  if ((data.action_type === 'OPEN_URL' || data.action_type === 'OPEN_IFRAME_URL') && (!data.url || data.url.trim() === '')) {
+  if (data.action_type === 'OPEN_URL' && (!data.url || data.url.trim() === '')) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "URL é obrigatória para a ação 'Abrir URL' ou 'Abrir URL em Overlay'.",
+      message: "URL é obrigatória para a ação 'Abrir URL'.",
       path: ['url'],
     });
   }
@@ -105,7 +105,7 @@ const ClientActionsPage: React.FC = () => {
     if (!workspace) return;
 
     let payload = {};
-    if (formData.action_type === 'OPEN_URL' || formData.action_type === 'OPEN_IFRAME_URL') {
+    if (formData.action_type === 'OPEN_URL') {
       payload = { url: formData.url };
     } else if (formData.action_type === 'SHOW_IMAGE') {
       payload = { imageUrl: formData.imageUrl, altText: formData.altText };
@@ -185,13 +185,12 @@ const ClientActionsPage: React.FC = () => {
               <Select onValueChange={(value) => setValue("action_type", value as any)} value={actionType}>
                 <SelectTrigger id="action_type"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="OPEN_URL">Abrir URL em Nova Aba</SelectItem>
-                  <SelectItem value="OPEN_IFRAME_URL">Abrir URL em Overlay</SelectItem> {/* Nova opção */}
+                  <SelectItem value="OPEN_URL">Abrir URL</SelectItem>
                   <SelectItem value="SHOW_IMAGE">Mostrar Imagem</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            {(actionType === 'OPEN_URL' || actionType === 'OPEN_IFRAME_URL') && (
+            {actionType === 'OPEN_URL' && (
               <div>
                 <Label htmlFor="url">URL para Abrir</Label>
                 <Input id="url" type="url" placeholder="https://google.com" {...register("url")} />
@@ -225,11 +224,7 @@ const ClientActionsPage: React.FC = () => {
             <div key={action.id} className="flex justify-between items-center p-2 border rounded">
               <div>
                 <p className="font-semibold">{action.trigger_phrase}</p>
-                <p className="text-sm text-muted-foreground">
-                  {action.action_type === 'OPEN_URL' && `Abrir em Nova Aba: ${action.action_payload.url}`}
-                  {action.action_type === 'OPEN_IFRAME_URL' && `Abrir em Overlay: ${action.action_payload.url}`}
-                  {action.action_type === 'SHOW_IMAGE' && `Mostrar Imagem`}
-                </p>
+                <p className="text-sm text-muted-foreground">{action.action_type === 'OPEN_URL' ? `Abrir: ${action.action_payload.url}` : `Mostrar Imagem`}</p>
               </div>
               <div className="flex space-x-2">
                 <Button variant="outline" size="icon" onClick={() => onEdit(action)}><Edit className="h-4 w-4" /></Button>
