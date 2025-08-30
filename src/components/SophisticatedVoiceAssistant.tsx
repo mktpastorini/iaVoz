@@ -11,6 +11,7 @@ import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Mic, X } from "lucide-react";
+import { IframeModal } from "./IframeModal"; // Importar o novo modal de iframe
 
 // Interfaces
 interface VoiceAssistantProps {
@@ -47,7 +48,7 @@ interface Power {
 interface ClientAction {
   id: string;
   trigger_phrase: string;
-  action_type: 'OPEN_URL' | 'SHOW_IMAGE';
+  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL'; // Adicionado novo tipo
   action_payload: {
     url?: string;
     imageUrl?: string;
@@ -61,7 +62,7 @@ const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 
 // Modal Component
 const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?: string; onClose: () => void }) => (
-  <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70" onClick={onClose}> {/* AUMENTADO O Z-INDEX AQUI */}
+  <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70" onClick={onClose}>
     <div className="relative max-w-4xl max-h-full p-4" onClick={(e) => e.stopPropagation()}>
       <img src={imageUrl} alt={altText || 'Imagem exibida pelo assistente'} className="max-w-full max-h-[80vh] rounded-lg shadow-2xl" />
       <Button variant="destructive" size="icon" className="absolute -top-2 -right-2 rounded-full" onClick={onClose}><X /></Button>
@@ -94,6 +95,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [powers, setPowers] = useState<Power[]>([]);
   const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const [imageToShow, setImageToShow] = useState<ClientAction['action_payload'] | null>(null);
+  const [iframeToShow, setIframeToShow] = useState<{ url: string } | null>(null); // Novo estado para iframe
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -215,6 +217,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           });
         }
         break;
+      case 'OPEN_IFRAME_URL': // Novo tipo de ação
+        if (action.action_payload.url) {
+          speak(`Abrindo ${action.action_payload.url} em um overlay.`, () => {
+            setIframeToShow({ url: action.action_payload.url! });
+            // A escuta será reiniciada APENAS quando o iframe for fechado
+          });
+        }
+        break;
     }
   };
 
@@ -297,8 +307,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onend = () => { 
       isRecognitionActive.current = false; 
       setIsListening(false); 
-      // Reinicia a escuta explicitamente se o assistente estiver aberto, não falando E NENHUM modal de imagem estiver aberto
-      if (isOpen && !isSpeakingRef.current && !imageToShow) {
+      // Reinicia a escuta explicitamente se o assistente estiver aberto, não falando E NENHUM modal (imagem ou iframe) estiver aberto
+      if (isOpen && !isSpeakingRef.current && !imageToShow && !iframeToShow) {
         startListening();
       }
     };
@@ -341,7 +351,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     startListening(); // Inicia a escuta inicial
 
     return () => { stopListening(); stopSpeaking(); };
-  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables, imageToShow]); // Adicionado imageToShow às dependências
+  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables, imageToShow, iframeToShow]); // Adicionado iframeToShow às dependências
 
   const handleInit = () => {
     setIsInitialized(true);
@@ -367,6 +377,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           onClose={() => {
             setImageToShow(null);
             startListening(); // Reinicia a escuta ao fechar o modal de imagem
+          }}
+        />
+      )}
+      {iframeToShow && (
+        <IframeModal
+          url={iframeToShow.url}
+          onClose={() => {
+            setIframeToShow(null);
+            startListening(); // Reinicia a escuta ao fechar o modal de iframe
           }}
         />
       )}
