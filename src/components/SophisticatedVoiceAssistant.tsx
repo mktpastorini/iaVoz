@@ -100,7 +100,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const isRecognitionActive = useRef(false);
+  const isRecognitionActive = useRef(false); // Controla se o reconhecimento está *tecnicamente* ativo
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -121,6 +121,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   }, [workspace]);
 
+  // Função para iniciar a escuta (apenas se não estiver ativa)
   const startListening = () => {
     if (recognitionRef.current && !isRecognitionActive.current) {
       try {
@@ -131,12 +132,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   };
 
+  // Função para parar a escuta (apenas se estiver ativa)
   const stopListening = () => {
     if (recognitionRef.current && isRecognitionActive.current) {
       recognitionRef.current.stop();
     }
   };
 
+  // Função para parar a fala
   const stopSpeaking = () => {
     if (synthRef.current?.speaking) synthRef.current.cancel();
     if (audioRef.current && !audioRef.current.paused) {
@@ -146,6 +149,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setIsSpeaking(false);
   };
 
+  // Função para fechar o assistente completamente
   const closeAssistant = () => {
     stopListening();
     stopSpeaking();
@@ -156,18 +160,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setIframeToShow(null);
   };
 
+  // Função para o assistente falar
   const speak = async (text: string, onEndCallback?: () => void) => {
     if (!text) {
       onEndCallback?.();
       return;
     }
-    stopSpeaking();
+    stopSpeaking(); // Garante que qualquer fala anterior seja interrompida
     setIsSpeaking(true);
     setAiResponse(text);
 
     const handleSpeechEnd = () => {
       setIsSpeaking(false);
-      onEndCallback?.();
+      onEndCallback?.(); // Chama o callback APENAS quando a fala realmente termina
     };
 
     try {
@@ -189,15 +194,17 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         audioRef.current.onended = () => { handleSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         audioRef.current.play();
       } else {
-        handleSpeechEnd();
+        console.warn("[VA] Modelo de voz não suportado ou chave API ausente. Pulando fala.");
+        handleSpeechEnd(); // Sinaliza que a fala "terminou" imediatamente
       }
     } catch (error) {
       console.error("Erro durante a fala:", error);
       showError("Erro ao gerar áudio da resposta.");
-      handleSpeechEnd();
+      handleSpeechEnd(); // Garante que o estado seja resetado mesmo em caso de erro
     }
   };
 
+  // Executa uma ação do cliente
   const executeClientAction = (action: ClientAction) => {
     switch (action.action_type) {
       case 'OPEN_URL':
@@ -224,12 +231,13 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   };
 
+  // Lógica principal da conversa com a IA
   const runConversation = async (userInput: string) => {
     if (!openAiApiKey) {
-      speak("Chave API OpenAI não configurada.", startListening);
+      speak("Chave API OpenAI não configurada."); // Removido startListening
       return;
     }
-    stopListening();
+    stopListening(); // Parar de ouvir antes de enviar para a IA
     setTranscript(userInput);
     setAiResponse("Pensando...");
     const newHistory = [...messageHistory, { role: "user" as const, content: userInput }];
@@ -275,18 +283,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const secondData = await secondResponse.json();
         const finalMessage = secondData.choices?.[0]?.message?.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        speak(finalMessage, startListening);
+        speak(finalMessage); // Removido startListening
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        speak(assistantMessage, startListening);
+        speak(assistantMessage); // Removido startListening
       }
     } catch (error) {
       console.error(error);
-      speak("Desculpe, ocorreu um erro.", startListening);
+      speak("Desculpe, ocorreu um erro."); // Removido startListening
     }
   };
 
+  // Efeito principal para gerenciar o ciclo de vida do reconhecimento de voz
   useEffect(() => {
     if (!isInitialized) return;
 
@@ -296,72 +305,122 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "pt-BR";
-    recognitionRef.current = recognition;
+    // Inicializa a instância de reconhecimento se ainda não existir
+    if (!recognitionRef.current) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = "pt-BR";
+      recognitionRef.current = recognition;
 
-    recognition.onstart = () => {
-      isRecognitionActive.current = true;
-      setIsListening(true);
-    };
+      recognition.onstart = () => {
+        isRecognitionActive.current = true;
+        setIsListening(true);
+      };
 
-    recognition.onerror = (e) => {
-      console.error(`Erro de reconhecimento: ${e.error}`);
-      isRecognitionActive.current = false;
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      isRecognitionActive.current = false;
-      setIsListening(false);
-      // Lógica de reinício autossuficiente
-      if (isOpen && !isSpeaking && !imageToShow && !iframeToShow) {
-        setTimeout(() => startListening(), 100); // Pequeno delay para evitar erros
-      }
-    };
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      const closePhrase = "fechar";
-
-      if (isOpen) {
-        if (transcript.includes(closePhrase)) {
-          closeAssistant();
-          return;
+      recognition.onerror = (e) => {
+        console.error(`Erro de reconhecimento: ${e.error}`);
+        isRecognitionActive.current = false;
+        setIsListening(false);
+        // Tenta reiniciar a escuta após um erro, exceto 'no-speech'
+        if (isOpen && !isSpeaking && !imageToShow && !iframeToShow && e.error !== 'no-speech') {
+          setTimeout(() => {
+            if (recognitionRef.current && !isRecognitionActive.current) {
+              recognitionRef.current.start();
+            }
+          }, 500); // Atraso maior para recuperação de erro
         }
-        const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
-        if (matchedAction) {
-          executeClientAction(matchedAction);
-          return;
-        }
-        runConversation(transcript);
-      } else {
-        if (transcript.includes(activationPhrase.toLowerCase())) {
-          setIsOpen(true);
-          speak(welcomeMessage, startListening);
-        }
-      }
-    };
+      };
 
-    if ("speechSynthesis" in window) {
-      synthRef.current = window.speechSynthesis;
+      recognition.onend = () => {
+        isRecognitionActive.current = false;
+        setIsListening(false);
+        // Lógica de reinício autossuficiente: se as condições forem atendidas, reinicia a escuta
+        if (isOpen && !isSpeaking && !imageToShow && !iframeToShow) {
+          setTimeout(() => {
+            if (recognitionRef.current && !isRecognitionActive.current) {
+              recognitionRef.current.start();
+            }
+          }, 100); // Pequeno atraso para evitar erros de reinício rápido
+        }
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+        const closePhrase = "fechar";
+
+        if (isOpen) {
+          if (transcript.includes(closePhrase)) {
+            closeAssistant();
+            return;
+          }
+          const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
+          if (matchedAction) {
+            // Parar explicitamente a escuta antes de executar a ação
+            if (recognitionRef.current && isRecognitionActive.current) {
+              recognitionRef.current.stop(); // Isso irá disparar o onend
+            }
+            executeClientAction(matchedAction);
+            return;
+          }
+          runConversation(transcript);
+        } else {
+          if (transcript.includes(activationPhrase.toLowerCase())) {
+            setIsOpen(true);
+            // Parar a sessão de reconhecimento atual antes de falar
+            if (recognitionRef.current && isRecognitionActive.current) {
+              recognitionRef.current.stop(); // Isso irá disparar o onend
+            }
+            speak(welcomeMessage); // Removido startListening
+          }
+          // Se não for a frase de ativação, o onend já cuidará de reiniciar a escuta
+        }
+      };
     }
 
-    // Inicia a escuta inicial
-    startListening();
+    // Garante que a síntese de voz esteja disponível
+    if (!synthRef.current && "speechSynthesis" in window) {
+      synthRef.current = window.speechSynthesis;
+    } else if (!("speechSynthesis" in window)) {
+      showError("Síntese de voz não suportada.");
+    }
 
+    // Lógica principal para controlar o estado de escuta com base nas dependências
+    const shouldBeListening = isOpen && !isSpeaking && !imageToShow && !iframeToShow;
+
+    if (shouldBeListening && !isRecognitionActive.current) {
+      // Inicia apenas se não estiver ativo
+      try {
+        recognitionRef.current?.start();
+      } catch (error) {
+        console.error("[VA] Erro ao iniciar reconhecimento:", error);
+      }
+    } else if (!shouldBeListening && isRecognitionActive.current) {
+      // Para apenas se estiver ativo
+      try {
+        recognitionRef.current?.stop();
+      } catch (error) {
+        console.error("[VA] Erro ao parar reconhecimento:", error);
+      }
+    }
+
+    // Função de limpeza
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.onresult = null;
         recognitionRef.current.onend = null;
         recognitionRef.current.onerror = null;
         recognitionRef.current.onstart = null;
-        stopListening();
+        recognitionRef.current.stop(); // Garante que seja parado ao desmontar/mudar dependências
+        recognitionRef.current = null; // Limpa a referência
+      }
+      if (synthRef.current) {
+        synthRef.current.cancel();
+        synthRef.current = null;
       }
     };
-  }, [isInitialized, isOpen, isSpeaking, imageToShow, iframeToShow, activationPhrase, clientActions, powers, systemVariables]);
+  }, [isInitialized, isOpen, isSpeaking, imageToShow, iframeToShow, activationPhrase, clientActions, powers, systemVariables, welcomeMessage, speak, executeClientAction, runConversation, closeAssistant]);
+
 
   const handleInit = () => {
     setIsInitialized(true);
