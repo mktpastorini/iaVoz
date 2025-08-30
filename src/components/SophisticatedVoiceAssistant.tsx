@@ -11,7 +11,7 @@ import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Mic, X } from "lucide-react";
-import { IframeModal } from "./IframeModal"; // Importar o novo modal de iframe
+import { IframeModal } from "@/components/IframeModal"; // Caminho de importação corrigido
 
 // Interfaces
 interface VoiceAssistantProps {
