@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/contexts/SessionContext";
@@ -11,7 +11,7 @@ import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Mic, X } from "lucide-react";
-import { IframeModal } from "@/components/IframeModal";
+import { UrlIframeModal } from "./UrlIframeModal"; // Importar o novo componente
 
 // Interfaces
 interface VoiceAssistantProps {
@@ -48,7 +48,7 @@ interface Power {
 interface ClientAction {
   id: string;
   trigger_phrase: string;
-  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL';
+  action_type: 'OPEN_URL' | 'SHOW_IMAGE';
   action_payload: {
     url?: string;
     imageUrl?: string;
@@ -95,32 +95,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [powers, setPowers] = useState<Power[]>([]);
   const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const [imageToShow, setImageToShow] = useState<ClientAction['action_payload'] | null>(null);
-  const [iframeToShow, setIframeToShow] = useState<{ url: string } | null>(null);
+  const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null); // Novo estado para o iframe
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const isRecognitionActive = useRef(false); // Controla se recognition.start() foi chamado
+  const isRecognitionActive = useRef(false);
+  const isSpeakingRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
-
-  // Refs para acessar o estado mais recente dentro dos callbacks do SpeechRecognition
-  const isOpenRef = useRef(isOpen);
-  const isSpeakingRef = useRef(isSpeaking);
-  const imageToShowRef = useRef(imageToShow);
-  const iframeToShowRef = useRef(iframeToShow);
-  const clientActionsRef = useRef(clientActions);
-  const activationPhraseRef = useRef(activationPhrase);
-  const welcomeMessageRef = useRef(welcomeMessage);
-
-  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
-  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
-  useEffect(() => { imageToShowRef.current = imageToShow; }, [imageToShow]);
-  useEffect(() => { iframeToShowRef.current = iframeToShow; }, [iframeToShow]);
-  useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
-  useEffect(() => { activationPhraseRef.current = activationPhrase; }, [activationPhrase]);
-  useEffect(() => { welcomeMessageRef.current = welcomeMessage; }, [welcomeMessage]);
-
 
   useEffect(() => {
     if (workspace?.id) {
@@ -139,64 +122,56 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   }, [workspace]);
 
-  // Funções de controle de escuta e fala
-  const startListening = useCallback(() => {
-    if (recognitionRef.current && !isRecognitionActive.current) {
+  const startListening = () => {
+    // Só inicia a escuta se o assistente estiver aberto, não estiver falando e nenhum modal (imagem ou iframe) estiver ativo
+    if (recognitionRef.current && !isRecognitionActive.current && !isSpeakingRef.current && !imageToShow && !urlToOpenInIframe) {
       try {
         recognitionRef.current.start();
-        console.log("[VA] Recognition started.");
       } catch (error) {
         console.error("[VA] Erro ao iniciar reconhecimento:", error);
-        if (error instanceof DOMException && error.name === "InvalidStateError") {
-          console.warn("[VA] Recognition already active or in invalid state, not restarting.");
-        } else if (error instanceof DOMException && error.name === "NotAllowedError") {
-          showError("Permissão de microfone negada ou bloqueada.");
-        }
       }
     }
-  }, []);
+  };
 
-  const stopListening = useCallback(() => {
+  const stopListening = () => {
     if (recognitionRef.current && isRecognitionActive.current) {
-      try {
-        recognitionRef.current.stop();
-        console.log("[VA] Recognition stopped.");
-      } catch (error) {
-        console.error("[VA] Erro ao parar reconhecimento:", error);
-      }
+      recognitionRef.current.stop();
     }
-  }, []);
+  };
 
-  const stopSpeaking = useCallback(() => {
+  const stopSpeaking = () => {
     if (synthRef.current?.speaking) synthRef.current.cancel();
     if (audioRef.current && !audioRef.current.paused) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
     setIsSpeaking(false);
-  }, []);
+    isSpeakingRef.current = false;
+  };
 
-  const closeAssistant = useCallback(() => {
+  const closeAssistant = () => {
     stopListening();
     stopSpeaking();
     setIsOpen(false);
     setAiResponse("");
     setTranscript("");
-    setImageToShow(null);
-    setIframeToShow(null);
-  }, [stopListening, stopSpeaking]);
+    setImageToShow(null); // Garante que o modal de imagem seja fechado
+    setUrlToOpenInIframe(null); // Garante que o modal de iframe seja fechado
+  };
 
-  const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
+  const speak = async (text: string, onEndCallback?: () => void) => {
     if (!text) {
       onEndCallback?.();
       return;
     }
     stopSpeaking();
     setIsSpeaking(true);
+    isSpeakingRef.current = true;
     setAiResponse(text);
 
-    const handleSpeechEnd = () => {
+    const onSpeechEnd = () => {
       setIsSpeaking(false);
+      isSpeakingRef.current = false;
       onEndCallback?.();
     };
 
@@ -204,7 +179,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       if (voiceModel === "browser" && synthRef.current) {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
-        utterance.onend = handleSpeechEnd;
+        utterance.onend = onSpeechEnd;
         synthRef.current.speak(utterance);
       } else if (voiceModel === "openai-tts" && openAiApiKey) {
         const response = await fetch(OPENAI_TTS_API_URL, {
@@ -216,24 +191,24 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = () => { handleSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         audioRef.current.play();
       } else {
-        handleSpeechEnd();
+        onEndCallback?.();
       }
     } catch (error) {
       console.error("Erro durante a fala:", error);
-      showError("Erro ao gerar áudio da resposta.");
-      handleSpeechEnd();
+      onEndCallback(); // Garante que o estado de 'speaking' seja resetado mesmo em caso de erro
     }
-  }, [voiceModel, openAiApiKey, openaiTtsVoice, stopSpeaking]);
+  };
 
-  const executeClientAction = useCallback((action: ClientAction) => {
+  const executeClientAction = (action: ClientAction) => {
     switch (action.action_type) {
       case 'OPEN_URL':
         if (action.action_payload.url) {
           speak(`Abrindo ${action.action_payload.url}`, () => {
-            window.open(action.action_payload.url, '_blank');
+            setUrlToOpenInIframe(action.action_payload.url!); // Abre no iframe
+            // A escuta será reiniciada APENAS quando o iframe for fechado
           });
         }
         break;
@@ -241,25 +216,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (action.action_payload.imageUrl) {
           speak("Claro, aqui está a imagem.", () => {
             setImageToShow(action.action_payload);
-          });
-        }
-        break;
-      case 'OPEN_IFRAME_URL':
-        if (action.action_payload.url) {
-          speak(`Abrindo ${action.action_payload.url} em um overlay.`, () => {
-            setIframeToShow({ url: action.action_payload.url! });
+            // A escuta será reiniciada APENAS quando o modal for fechado
           });
         }
         break;
     }
-  }, [speak]);
+  };
 
-  const runConversation = useCallback(async (userInput: string) => {
+  const runConversation = async (userInput: string) => {
     if (!openAiApiKey) {
-      speak("Chave API OpenAI não configurada.");
+      speak("Chave API OpenAI não configurada.", startListening);
       return;
     }
-    stopListening();
     setTranscript(userInput);
     setAiResponse("Pensando...");
     const newHistory = [...messageHistory, { role: "user" as const, content: userInput }];
@@ -305,19 +273,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const secondData = await secondResponse.json();
         const finalMessage = secondData.choices?.[0]?.message?.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        speak(finalMessage);
+        speak(finalMessage, startListening);
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        speak(assistantMessage);
+        speak(assistantMessage, startListening);
       }
     } catch (error) {
       console.error(error);
-      speak("Desculpe, ocorreu um erro.");
+      speak("Desculpe, ocorreu um erro.", startListening);
     }
-  }, [openAiApiKey, stopListening, messageHistory, powers, systemVariables, systemPrompt, assistantPrompt, conversationMemoryLength, model, speak]);
+  };
 
-  // Efeito principal para configurar o reconhecimento de voz (roda apenas uma vez na inicialização)
   useEffect(() => {
     if (!isInitialized) return;
 
@@ -326,108 +293,59 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       showError("Reconhecimento de voz não suportado.");
       return;
     }
+    recognitionRef.current = new SpeechRecognition();
+    recognitionRef.current.continuous = false;
+    recognitionRef.current.interimResults = false;
+    recognitionRef.current.lang = "pt-BR";
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "pt-BR";
-    recognitionRef.current = recognition;
-
-    recognition.onstart = () => {
-      isRecognitionActive.current = true;
-      setIsListening(true);
-      console.log("[VA] onstart: Listening active.");
-    };
-
-    recognition.onerror = (e) => {
-      console.error(`[VA] onerror: Erro de reconhecimento: ${e.error}`);
-      isRecognitionActive.current = false;
-      setIsListening(false);
-      if (e.error !== 'no-speech' && e.error !== 'aborted') {
-        showError(`Erro de voz: ${e.error}`);
-      }
-      // Tenta reiniciar a escuta após um erro, se as condições permitirem
-      if (isOpenRef.current && !isSpeakingRef.current && !imageToShowRef.current && !iframeToShowRef.current) {
-        setTimeout(() => startListening(), 500);
+    recognitionRef.current.onstart = () => { isRecognitionActive.current = true; setIsListening(true); };
+    recognitionRef.current.onend = () => { 
+      isRecognitionActive.current = false; 
+      setIsListening(false); 
+      // Reinicia a escuta explicitamente se o assistente estiver aberto, não falando E NENHUM modal (imagem ou iframe) estiver aberto
+      if (isOpen && !isSpeakingRef.current && !imageToShow && !urlToOpenInIframe) {
+        startListening();
       }
     };
+    recognitionRef.current.onerror = (e) => { console.error(`Erro de reconhecimento: ${e.error}`); if (e.error !== 'no-speech') showError(`Erro de voz: ${e.error}`); };
 
-    recognition.onend = () => {
-      isRecognitionActive.current = false;
-      setIsListening(false);
-      console.log("[VA] onend: Listening inactive.");
-      // Lógica de reinício autossuficiente: se as condições forem atendidas, reinicia a escuta
-      if (isOpenRef.current && !isSpeakingRef.current && !imageToShowRef.current && !iframeToShowRef.current) {
-        setTimeout(() => startListening(), 100); // Pequeno atraso para evitar erros de reinício rápido
-      }
-    };
-
-    recognition.onresult = (event) => {
+    recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      console.log("[VA] onresult: Transcript:", transcript);
-
-      // Parar a escuta imediatamente após um resultado para processá-lo
-      stopListening(); // Isso irá disparar o onend
-
       const closePhrase = "fechar";
 
-      if (isOpenRef.current) { // Usar ref para o estado mais recente
+      if (isOpen) {
+        // O comando "fechar" tem prioridade máxima.
         if (transcript.includes(closePhrase)) {
           closeAssistant();
           return;
         }
-        const matchedAction = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase));
+
+        const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
         if (matchedAction) {
+          stopListening(); // Parar de ouvir antes de executar a ação para evitar conflitos
           executeClientAction(matchedAction);
           return;
         }
+
         runConversation(transcript);
       } else {
-        if (transcript.includes(activationPhraseRef.current.toLowerCase())) {
+        if (transcript.includes(activationPhrase.toLowerCase())) {
           setIsOpen(true);
-          speak(welcomeMessageRef.current); // speak irá definir isSpeaking, onend irá reiniciar a escuta
+          speak(welcomeMessage, startListening);
+        } else {
+          // Se não for a palavra de ativação, reinicia a escuta para a próxima tentativa
+          startListening();
         }
-        // Se não for a frase de ativação, o onend já cuidará de reiniciar a escuta se necessário
       }
     };
 
-    // Garante que a síntese de voz esteja disponível
-    if (!synthRef.current && "speechSynthesis" in window) {
-      synthRef.current = window.speechSynthesis;
-    } else if (!("speechSynthesis" in window)) {
-      showError("Síntese de voz não suportada.");
-    }
+    if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
+    else showError("Síntese de voz não suportada.");
 
-    // Função de limpeza para este useEffect
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onstart = null;
-        recognitionRef.current.stop(); // Garante que seja parado ao desmontar/mudar dependências
-        recognitionRef.current = null; // Limpa a referência
-      }
-      if (synthRef.current) {
-        synthRef.current.cancel();
-        synthRef.current = null;
-      }
-    };
-  }, [isInitialized, startListening, stopListening, closeAssistant, speak, executeClientAction, runConversation]); // Dependências para reconfigurar apenas quando necessário
+    startListening(); // Inicia a escuta inicial
 
-  // Efeito separado para controlar o estado de escuta com base nas mudanças de estado
-  useEffect(() => {
-    if (!isInitialized) return;
-
-    const shouldBeListening = isOpen && !isSpeaking && !imageToShow && !iframeToShow;
-
-    if (shouldBeListening && !isRecognitionActive.current) {
-      startListening();
-    } else if (!shouldBeListening && isRecognitionActive.current) {
-      stopListening();
-    }
-  }, [isOpen, isSpeaking, imageToShow, iframeToShow, isInitialized, startListening, stopListening]);
-
+    return () => { stopListening(); stopSpeaking(); };
+  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables, imageToShow, urlToOpenInIframe]); // Adicionado urlToOpenInIframe às dependências
 
   const handleInit = () => {
     setIsInitialized(true);
@@ -450,13 +368,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         <ImageModal
           imageUrl={imageToShow.imageUrl!}
           altText={imageToShow.altText}
-          onClose={() => setImageToShow(null)}
+          onClose={() => {
+            setImageToShow(null);
+            startListening(); // Reinicia a escuta ao fechar o modal de imagem
+          }}
         />
       )}
-      {iframeToShow && (
-        <IframeModal
-          url={iframeToShow.url}
-          onClose={() => setIframeToShow(null)}
+      {urlToOpenInIframe && (
+        <UrlIframeModal
+          url={urlToOpenInIframe}
+          onClose={() => {
+            setUrlToOpenInIframe(null);
+            startListening(); // Reinicia a escuta ao fechar o modal de iframe
+          }}
         />
       )}
       <div className={cn(
