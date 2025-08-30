@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom"; // Importar useNavigate
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/contexts/SessionContext";
@@ -12,7 +11,7 @@ import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Mic, X } from "lucide-react";
-import { IframeModal } from "./IframeModal";
+import { UrlIframeModal } from "./UrlIframeModal"; // Importar o novo componente
 
 // Interfaces
 interface VoiceAssistantProps {
@@ -49,21 +48,12 @@ interface Power {
 interface ClientAction {
   id: string;
   trigger_phrase: string;
-  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL';
+  action_type: 'OPEN_URL' | 'SHOW_IMAGE';
   action_payload: {
     url?: string;
     imageUrl?: string;
     altText?: string;
   };
-}
-
-interface ProductService {
-  id: string;
-  name: string;
-  description: string | null;
-  page_url: string | null;
-  image_url: string | null;
-  video_url: string | null;
 }
 
 // Constants
@@ -92,8 +82,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   openaiTtsVoice = "alloy",
   activationPhrase,
 }) => {
-  const navigate = useNavigate(); // Hook para navegação
   const { workspace } = useSession();
+  const { systemVariables } = useSystem();
 
   const [isInitialized, setIsInitialized] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -104,9 +94,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
   const [powers, setPowers] = useState<Power[]>([]);
   const [clientActions, setClientActions] = useState<ClientAction[]>([]);
-  const [productsServices, setProductsServices] = useState<ProductService[]>([]); // Novo estado
   const [imageToShow, setImageToShow] = useState<ClientAction['action_payload'] | null>(null);
-  const [iframeToShow, setIframeToShow] = useState<{ url: string } | null>(null);
+  const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null); // Novo estado para o iframe
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -117,39 +106,25 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
   useEffect(() => {
-    // Garante que workspace não é nulo/indefinido e tem um id antes de prosseguir
-    if (!workspace?.id) {
-      console.log("SophisticatedVoiceAssistant: Pulando busca de dados, workspace ou workspace.id está faltando.");
-      return;
+    if (workspace?.id) {
+      const fetchPowers = async () => {
+        const { data, error } = await supabase.from('powers').select('*').eq('workspace_id', workspace.id);
+        if (error) showError("Erro ao carregar os poderes da IA.");
+        else setPowers(data || []);
+      };
+      const fetchClientActions = async () => {
+        const { data, error } = await supabase.from('client_actions').select('*').eq('workspace_id', workspace.id);
+        if (error) showError("Erro ao carregar ações do cliente.");
+        else setClientActions(data || []);
+      };
+      fetchPowers();
+      fetchClientActions();
     }
-
-    // Neste ponto, TypeScript e o runtime sabem que workspace é um objeto Workspace
-    const currentWorkspaceId = workspace.id; // Captura explicitamente para segurança
-
-    const fetchPowers = async () => {
-      const { data, error } = await supabase.from('powers').select('*').eq('workspace_id', currentWorkspaceId);
-      if (error) showError("Erro ao carregar os poderes da IA.");
-      else setPowers(data || []);
-    };
-    const fetchClientActions = async () => {
-      const { data, error } = await supabase.from('client_actions').select('*').eq('workspace_id', currentWorkspaceId);
-      if (error) showError("Erro ao carregar ações do cliente.");
-      else setClientActions(data || []);
-    };
-    const fetchProductsServices = async () => { // Nova função para buscar produtos/serviços
-      const { data, error } = await supabase.from('products_services').select('*').eq('workspace_id', currentWorkspaceId);
-      if (error) showError("Erro ao carregar produtos e serviços.");
-      else setProductsServices(data || []);
-    };
-
-    fetchPowers();
-    fetchClientActions();
-    fetchProductsServices(); // Chamar a nova função
   }, [workspace]);
 
   const startListening = () => {
     // Só inicia a escuta se o assistente estiver aberto, não estiver falando e nenhum modal (imagem ou iframe) estiver ativo
-    if (recognitionRef.current && !isRecognitionActive.current && !isSpeakingRef.current && !imageToShow && !iframeToShow) {
+    if (recognitionRef.current && !isRecognitionActive.current && !isSpeakingRef.current && !imageToShow && !urlToOpenInIframe) {
       try {
         recognitionRef.current.start();
       } catch (error) {
@@ -181,7 +156,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setAiResponse("");
     setTranscript("");
     setImageToShow(null); // Garante que o modal de imagem seja fechado
-    setIframeToShow(null); // Garante que o modal de iframe seja fechado
+    setUrlToOpenInIframe(null); // Garante que o modal de iframe seja fechado
   };
 
   const speak = async (text: string, onEndCallback?: () => void) => {
@@ -232,8 +207,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       case 'OPEN_URL':
         if (action.action_payload.url) {
           speak(`Abrindo ${action.action_payload.url}`, () => {
-            window.open(action.action_payload.url, '_blank');
-            startListening();
+            setUrlToOpenInIframe(action.action_payload.url!); // Abre no iframe
+            // A escuta será reiniciada APENAS quando o iframe for fechado
           });
         }
         break;
@@ -245,37 +220,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           });
         }
         break;
-      case 'OPEN_IFRAME_URL':
-        if (action.action_payload.url) {
-          speak(`Abrindo ${action.action_payload.url} em um overlay.`, () => {
-            setIframeToShow({ url: action.action_payload.url! });
-            // A escuta será reiniciada APENAS quando o iframe for fechado
-          });
-        }
-        break;
-    }
-  };
-
-  const executeProductServiceAction = (item: ProductService) => {
-    // Prioridade: URL da página > URL do vídeo > Descrição > Imagem
-    if (item.page_url) {
-      speak(`Navegando para a página de ${item.name}.`, () => {
-        window.location.href = item.page_url!; // Navega para a URL na mesma aba
-        // O assistente será reinicializado na nova página, mas o GlobalVoiceAssistant permanece
-      });
-    } else if (item.video_url) {
-      speak(`Mostrando o vídeo de ${item.name}.`, () => {
-        setIframeToShow({ url: item.video_url! });
-      });
-    } else if (item.description) {
-      speak(item.description, startListening);
-    } else if (item.image_url) {
-      speak(`Mostrando imagem de ${item.name}.`, () => {
-        setImageToShow({ imageUrl: item.image_url! });
-        // A escuta será reiniciada APENAS quando o modal for fechado
-      });
-    } else {
-      speak(`Não encontrei informações detalhadas para ${item.name}.`, startListening);
     }
   };
 
@@ -358,8 +302,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onend = () => { 
       isRecognitionActive.current = false; 
       setIsListening(false); 
-      // Reinicia a escuta explicitamente se o assistente estiver aberto, não falando E NENHUM modal (imagem ou iframe) estiver ativo
-      if (isOpen && !isSpeakingRef.current && !imageToShow && !iframeToShow) {
+      // Reinicia a escuta explicitamente se o assistente estiver aberto, não falando E NENHUM modal (imagem ou iframe) estiver aberto
+      if (isOpen && !isSpeakingRef.current && !imageToShow && !urlToOpenInIframe) {
         startListening();
       }
     };
@@ -370,29 +314,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       const closePhrase = "fechar";
 
       if (isOpen) {
-        // 1. Comando "fechar" tem prioridade máxima
+        // O comando "fechar" tem prioridade máxima.
         if (transcript.includes(closePhrase)) {
           closeAssistant();
           return;
         }
 
-        // 2. Verificar Ações do Cliente
-        const matchedClientAction = clientActions.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
-        if (matchedClientAction) {
+        const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
+        if (matchedAction) {
           stopListening(); // Parar de ouvir antes de executar a ação para evitar conflitos
-          executeClientAction(matchedClientAction);
+          executeClientAction(matchedAction);
           return;
         }
 
-        // 3. Verificar Produtos/Serviços
-        const matchedProductService = productsServices.find(p => transcript.includes(p.name.toLowerCase()));
-        if (matchedProductService) {
-          stopListening(); // Parar de ouvir antes de executar a ação
-          executeProductServiceAction(matchedProductService);
-          return;
-        }
-
-        // 4. Se nada acima, enviar para a IA
         runConversation(transcript);
       } else {
         if (transcript.includes(activationPhrase.toLowerCase())) {
@@ -411,7 +345,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     startListening(); // Inicia a escuta inicial
 
     return () => { stopListening(); stopSpeaking(); };
-  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, productsServices, systemVariables, imageToShow, iframeToShow]);
+  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables, imageToShow, urlToOpenInIframe]); // Adicionado urlToOpenInIframe às dependências
 
   const handleInit = () => {
     setIsInitialized(true);
@@ -440,11 +374,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           }}
         />
       )}
-      {iframeToShow && (
-        <IframeModal
-          url={iframeToShow.url}
+      {urlToOpenInIframe && (
+        <UrlIframeModal
+          url={urlToOpenInIframe}
           onClose={() => {
-            setIframeToShow(null);
+            setUrlToOpenInIframe(null);
             startListening(); // Reinicia a escuta ao fechar o modal de iframe
           }}
         />
