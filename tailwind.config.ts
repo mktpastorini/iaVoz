@@ -89,11 +89,26 @@ export default {
           '0%, 100%': { transform: 'scaleY(0.25)', opacity: '0.5' },
           '50%': { transform: 'scaleY(1)', opacity: '1' },
         },
+        "blob": {
+          "0%": {
+            transform: "translate(0px, 0px) scale(1)",
+          },
+          "33%": {
+            transform: "translate(30px, -50px) scale(1.1)",
+          },
+          "66%": {
+            transform: "translate(-20px, 20px) scale(0.9)",
+          },
+          "100%": {
+            transform: "translate(0px, 0px) scale(1)",
+          },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "wave": "wave 1.5s infinite ease-in-out",
+        "blob": "blob 7s infinite cubic-bezier(0.6, -0.28, 0.735, 0.045)",
       },
     },
   },
