@@ -357,7 +357,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       showError("Síntese de voz não suportada.");
     }
 
-    startListening();
+    // Não inicia a escuta aqui, será iniciada após a permissão do microfone
+    // startListening(); 
     showSuccess("Assistente pronto! Diga a palavra de ativação.");
   }, [isOpen, clientActions, settings, startListening, speak, stopSpeaking, runConversation, executeClientAction, hasBeenActivated]);
 
@@ -370,8 +371,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
+        // Se a permissão já foi concedida e o assistente não foi ativado,
+        // podemos considerar que é a primeira vez e falar a mensagem de boas-vindas.
+        // No entanto, para evitar o NotAllowedError, vamos esperar a ativação por voz.
       } else if (permissionStatus.state === 'prompt') {
-        // Don't speak here to avoid autoplay restrictions
+        // Não fala aqui para evitar restrições de autoplay
         setIsPermissionModalOpen(true);
       } else {
         showError("Permissão para microfone negada. Habilite nas configurações do seu navegador.");
@@ -394,6 +398,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.log('[VA] Acesso ao microfone concedido pelo usuário.');
       setMicPermission('granted');
       initializeAssistant();
+      // Após a permissão e inicialização, o assistente está pronto para ouvir.
+      // A primeira fala (welcome_message) será disparada pela palavra de ativação.
+      // Não chamamos speak() aqui para evitar o NotAllowedError se o navegador ainda não considerar a interação suficiente.
+      // A lógica de `hasBeenActivated` no `onresult` cuidará da primeira fala.
     } catch (error) {
       console.error("[VA] Usuário negou a permissão do microfone:", error);
       setMicPermission('denied');
