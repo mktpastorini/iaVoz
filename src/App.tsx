@@ -10,7 +10,7 @@ import SettingsPage from "./pages/admin/Settings";
 import PowersPage from "./pages/admin/Powers";
 import ConversationsPage from "./pages/admin/Conversations";
 import SystemPowersPage from "./pages/admin/SystemPowers";
-import ClientActionsPage from "./pages/admin/ClientActions"; // Importar nova página
+import ClientActionsPage from "./pages/admin/ClientActions";
 import Login from "./pages/Login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
@@ -27,60 +27,53 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// Componente para carregar configurações e renderizar o assistente
-const GlobalVoiceAssistant = () => {
+const App = () => {
   const [settings, setSettings] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingSettings, setLoadingSettings] = useState(true);
 
   useEffect(() => {
     const fetchSettings = async () => {
       const { data } = await supabase.from("settings").select("*").limit(1).single();
       setSettings(data);
-      setLoading(false);
+      setLoadingSettings(false);
     };
     fetchSettings();
   }, []);
 
-  // Pass the entire settings object and loading state as props
-  // This prevents the component from unmounting and remounting
   return (
-    <SophisticatedVoiceAssistant
-      settings={settings}
-      isLoading={loading}
-    />
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <SessionContextProvider>
+            <SystemContextProvider>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/login" element={<Login />} />
+                <Route
+                  path="/admin"
+                  element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
+                >
+                  <Route index element={<Navigate to="/admin/settings" replace />} />
+                  <Route path="settings" element={<SettingsPage />} />
+                  <Route path="powers" element={<PowersPage />} />
+                  <Route path="conversations" element={<ConversationsPage />} />
+                  <Route path="system-powers" element={<SystemPowersPage />} />
+                  <Route path="client-actions" element={<ClientActionsPage />} />
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+              <SophisticatedVoiceAssistant
+                settings={settings}
+                isLoading={loadingSettings}
+              />
+            </SystemContextProvider>
+          </SessionContextProvider>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
   );
 };
-
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <SessionContextProvider>
-          <SystemContextProvider>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/login" element={<Login />} />
-              <Route
-                path="/admin"
-                element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
-              >
-                <Route index element={<Navigate to="/admin/settings" replace />} />
-                <Route path="settings" element={<SettingsPage />} />
-                <Route path="powers" element={<PowersPage />} />
-                <Route path="conversations" element={<ConversationsPage />} />
-                <Route path="system-powers" element={<SystemPowersPage />} />
-                <Route path="client-actions" element={<ClientActionsPage />} /> {/* Nova rota */}
-              </Route>
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-            <GlobalVoiceAssistant /> {/* Assistente global */}
-          </SystemContextProvider>
-        </SessionContextProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
 
 export default App;

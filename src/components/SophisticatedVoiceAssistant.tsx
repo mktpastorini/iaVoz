@@ -364,7 +364,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
       } else if (permissionStatus.state === 'prompt') {
-        // Don't speak here to avoid autoplay restrictions
         setIsPermissionModalOpen(true);
       } else {
         showError("Permissão para microfone negada. Habilite nas configurações do seu navegador.");
