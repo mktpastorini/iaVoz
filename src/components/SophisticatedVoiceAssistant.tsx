@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/contexts/SessionContext";
@@ -11,7 +11,8 @@ import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Mic, X } from "lucide-react";
-import { UrlIframeModal } from "./UrlIframeModal"; // Importar o novo componente
+import { UrlIframeModal } from "./UrlIframeModal";
+import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 
 // Interfaces
 interface VoiceAssistantProps {
@@ -48,7 +49,7 @@ interface Power {
 interface ClientAction {
   id: string;
   trigger_phrase: string;
-  action_type: 'OPEN_URL' | 'SHOW_IMAGE';
+  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL';
   action_payload: {
     url?: string;
     imageUrl?: string;
@@ -95,76 +96,43 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [powers, setPowers] = useState<Power[]>([]);
   const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const [imageToShow, setImageToShow] = useState<ClientAction['action_payload'] | null>(null);
-  const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null); // Novo estado para o iframe
+  const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null);
+  const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const isRecognitionActive = useRef(false);
+  const stopPermanentlyRef = useRef(false);
   const isSpeakingRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
-  useEffect(() => {
-    if (workspace?.id) {
-      const fetchPowers = async () => {
-        const { data, error } = await supabase.from('powers').select('*').eq('workspace_id', workspace.id);
-        if (error) showError("Erro ao carregar os poderes da IA.");
-        else setPowers(data || []);
-      };
-      const fetchClientActions = async () => {
-        const { data, error } = await supabase.from('client_actions').select('*').eq('workspace_id', workspace.id);
-        if (error) showError("Erro ao carregar ações do cliente.");
-        else setClientActions(data || []);
-      };
-      fetchPowers();
-      fetchClientActions();
+  const startListening = useCallback(() => {
+    if (recognitionRef.current && !recognitionRef.current.onstart) {
+      console.warn("[VA] Tentativa de iniciar escuta em reconhecimento não configurado.");
+      return;
     }
-  }, [workspace]);
-
-  const startListening = () => {
-    // Só inicia a escuta se o assistente estiver aberto, não estiver falando e nenhum modal (imagem ou iframe) estiver ativo
-    if (recognitionRef.current && !isRecognitionActive.current && !isSpeakingRef.current && !imageToShow && !urlToOpenInIframe) {
-      try {
-        recognitionRef.current.start();
-      } catch (error) {
+    try {
+      recognitionRef.current?.start();
+    } catch (error) {
+      // Ignora o erro "already started", que é comum em reinicializações rápidas.
+      if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
         console.error("[VA] Erro ao iniciar reconhecimento:", error);
       }
     }
-  };
+  }, []);
 
-  const stopListening = () => {
-    if (recognitionRef.current && isRecognitionActive.current) {
-      recognitionRef.current.stop();
+  const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
+    if (!text) {
+      onEndCallback?.();
+      return;
     }
-  };
-
-  const stopSpeaking = () => {
     if (synthRef.current?.speaking) synthRef.current.cancel();
     if (audioRef.current && !audioRef.current.paused) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
-    setIsSpeaking(false);
-    isSpeakingRef.current = false;
-  };
-
-  const closeAssistant = () => {
-    stopListening();
-    stopSpeaking();
-    setIsOpen(false);
-    setAiResponse("");
-    setTranscript("");
-    setImageToShow(null); // Garante que o modal de imagem seja fechado
-    setUrlToOpenInIframe(null); // Garante que o modal de iframe seja fechado
-  };
-
-  const speak = async (text: string, onEndCallback?: () => void) => {
-    if (!text) {
-      onEndCallback?.();
-      return;
-    }
-    stopSpeaking();
     setIsSpeaking(true);
     isSpeakingRef.current = true;
     setAiResponse(text);
@@ -192,32 +160,152 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.play();
+        await audioRef.current.play();
       } else {
-        onEndCallback?.();
+        onSpeechEnd();
       }
     } catch (error) {
       console.error("Erro durante a fala:", error);
-      onEndCallback(); // Garante que o estado de 'speaking' seja resetado mesmo em caso de erro
+      onSpeechEnd();
+    }
+  }, [openAiApiKey, openaiTtsVoice, voiceModel]);
+
+  const initializeAssistant = useCallback(() => {
+    if (isInitialized) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showError("Reconhecimento de voz não suportado.");
+      setMicPermission('denied');
+      return;
+    }
+    recognitionRef.current = new SpeechRecognition();
+    recognitionRef.current.continuous = false;
+    recognitionRef.current.interimResults = false;
+    recognitionRef.current.lang = "pt-BR";
+
+    recognitionRef.current.onstart = () => setIsListening(true);
+    recognitionRef.current.onend = () => {
+      setIsListening(false);
+      if (!stopPermanentlyRef.current) {
+        setTimeout(() => startListening(), 100);
+      }
+    };
+    recognitionRef.current.onerror = (e) => {
+      if (e.error !== 'no-speech' && e.error !== 'aborted') {
+        console.error(`Erro de reconhecimento: ${e.error}`);
+      }
+    };
+    recognitionRef.current.onresult = (event) => {
+      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
+
+      if (isOpen) {
+        if (closePhrases.some(phrase => transcript.includes(phrase))) {
+          setIsOpen(false);
+          setAiResponse("");
+          setTranscript("");
+          return;
+        }
+        const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
+        if (matchedAction) {
+          executeClientAction(matchedAction);
+          return;
+        }
+        runConversation(transcript);
+      } else {
+        if (transcript.includes(activationPhrase.toLowerCase())) {
+          setIsOpen(true);
+          speak(welcomeMessage);
+        }
+      }
+    };
+
+    if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
+    else showError("Síntese de voz não suportada.");
+
+    setIsInitialized(true);
+    startListening();
+    showSuccess("Assistente pronto! Diga a palavra de ativação.");
+  }, [isInitialized, startListening, isOpen, clientActions, activationPhrase, speak, welcomeMessage]);
+
+  const checkAndRequestMicPermission = useCallback(async () => {
+    try {
+      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      setMicPermission(permissionStatus.state);
+
+      if (permissionStatus.state === 'granted') {
+        initializeAssistant();
+      } else if (permissionStatus.state === 'prompt') {
+        speak(welcomeMessage, () => setIsPermissionModalOpen(true));
+      } else {
+        showError("Permissão para microfone negada. Habilite nas configurações do seu navegador.");
+      }
+      permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
+    } catch (error) {
+      console.error("Erro ao verificar permissão do microfone:", error);
+      showError("Não foi possível verificar a permissão do microfone.");
+    }
+  }, [initializeAssistant, speak, welcomeMessage]);
+
+  const handleAllowMic = async () => {
+    setIsPermissionModalOpen(false);
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicPermission('granted');
+      initializeAssistant();
+    } catch (error) {
+      console.error("Usuário negou permissão para o microfone:", error);
+      setMicPermission('denied');
+      showError("Você precisa permitir o uso do microfone para continuar.");
     }
   };
+
+  useEffect(() => {
+    checkAndRequestMicPermission();
+    return () => {
+      stopPermanentlyRef.current = true;
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+      if (synthRef.current?.speaking) synthRef.current.cancel();
+    };
+  }, [checkAndRequestMicPermission]);
+
+  useEffect(() => {
+    if (workspace?.id) {
+      const fetchPowers = async () => {
+        const { data, error } = await supabase.from('powers').select('*').eq('workspace_id', workspace.id);
+        if (error) showError("Erro ao carregar os poderes da IA.");
+        else setPowers(data || []);
+      };
+      const fetchClientActions = async () => {
+        const { data, error } = await supabase.from('client_actions').select('*').eq('workspace_id', workspace.id);
+        if (error) showError("Erro ao carregar ações do cliente.");
+        else setClientActions(data || []);
+      };
+      fetchPowers();
+      fetchClientActions();
+    }
+  }, [workspace]);
 
   const executeClientAction = (action: ClientAction) => {
     switch (action.action_type) {
       case 'OPEN_URL':
         if (action.action_payload.url) {
           speak(`Abrindo ${action.action_payload.url}`, () => {
-            setUrlToOpenInIframe(action.action_payload.url!); // Abre no iframe
-            // A escuta será reiniciada APENAS quando o iframe for fechado
+            window.open(action.action_payload.url, '_blank');
           });
+        }
+        break;
+      case 'OPEN_IFRAME_URL':
+        if (action.action_payload.url) {
+          speak("Ok, abrindo conteúdo.", () => setUrlToOpenInIframe(action.action_payload.url!));
         }
         break;
       case 'SHOW_IMAGE':
         if (action.action_payload.imageUrl) {
-          speak("Claro, aqui está a imagem.", () => {
-            setImageToShow(action.action_payload);
-            // A escuta será reiniciada APENAS quando o modal for fechado
-          });
+          speak("Claro, aqui está a imagem.", () => setImageToShow(action.action_payload));
         }
         break;
     }
@@ -225,7 +313,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const runConversation = async (userInput: string) => {
     if (!openAiApiKey) {
-      speak("Chave API OpenAI não configurada.", startListening);
+      speak("Chave API OpenAI não configurada.");
       return;
     }
     setTranscript(userInput);
@@ -273,121 +361,50 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const secondData = await secondResponse.json();
         const finalMessage = secondData.choices?.[0]?.message?.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        speak(finalMessage, startListening);
+        speak(finalMessage);
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        speak(assistantMessage, startListening);
+        speak(assistantMessage);
       }
     } catch (error) {
       console.error(error);
-      speak("Desculpe, ocorreu um erro.", startListening);
+      speak("Desculpe, ocorreu um erro.");
     }
   };
-
-  useEffect(() => {
-    if (!isInitialized) return;
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      showError("Reconhecimento de voz não suportado.");
-      return;
-    }
-    recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = false;
-    recognitionRef.current.interimResults = false;
-    recognitionRef.current.lang = "pt-BR";
-
-    recognitionRef.current.onstart = () => { isRecognitionActive.current = true; setIsListening(true); };
-    recognitionRef.current.onend = () => { 
-      isRecognitionActive.current = false; 
-      setIsListening(false); 
-      // Reinicia a escuta explicitamente se o assistente estiver aberto, não falando E NENHUM modal (imagem ou iframe) estiver aberto
-      if (isOpen && !isSpeakingRef.current && !imageToShow && !urlToOpenInIframe) {
-        startListening();
-      }
-    };
-    recognitionRef.current.onerror = (e) => { console.error(`Erro de reconhecimento: ${e.error}`); if (e.error !== 'no-speech') showError(`Erro de voz: ${e.error}`); };
-
-    recognitionRef.current.onresult = (event) => {
-      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      const closePhrase = "fechar";
-
-      if (isOpen) {
-        // O comando "fechar" tem prioridade máxima.
-        if (transcript.includes(closePhrase)) {
-          closeAssistant();
-          return;
-        }
-
-        const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
-        if (matchedAction) {
-          stopListening(); // Parar de ouvir antes de executar a ação para evitar conflitos
-          executeClientAction(matchedAction);
-          return;
-        }
-
-        runConversation(transcript);
-      } else {
-        if (transcript.includes(activationPhrase.toLowerCase())) {
-          setIsOpen(true);
-          speak(welcomeMessage, startListening);
-        } else {
-          // Se não for a palavra de ativação, reinicia a escuta para a próxima tentativa
-          startListening();
-        }
-      }
-    };
-
-    if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-    else showError("Síntese de voz não suportada.");
-
-    startListening(); // Inicia a escuta inicial
-
-    return () => { stopListening(); stopSpeaking(); };
-  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables, imageToShow, urlToOpenInIframe]); // Adicionado urlToOpenInIframe às dependências
-
-  const handleInit = () => {
-    setIsInitialized(true);
-    showSuccess("Assistente ativado! Diga a palavra de ativação.");
-  };
-
-  if (!isInitialized) {
-    return (
-      <div className="fixed bottom-4 right-4 md:bottom-8 md:right-8 z-50">
-        <Button onClick={handleInit} size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 shadow-lg transform hover:scale-110 transition-transform duration-200 flex items-center justify-center">
-          <Mic size={32} />
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <>
+      <MicrophonePermissionModal
+        isOpen={isPermissionModalOpen}
+        onAllow={handleAllowMic}
+        onClose={() => setIsPermissionModalOpen(false)}
+      />
+      {micPermission !== 'granted' && micPermission !== 'checking' && (
+        <div className="fixed bottom-4 right-4 md:bottom-8 md:right-8 z-50">
+          <Button onClick={checkAndRequestMicPermission} size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 shadow-lg transform hover:scale-110 transition-transform duration-200 flex items-center justify-center">
+            <Mic size={32} />
+          </Button>
+        </div>
+      )}
       {imageToShow && (
         <ImageModal
           imageUrl={imageToShow.imageUrl!}
           altText={imageToShow.altText}
-          onClose={() => {
-            setImageToShow(null);
-            startListening(); // Reinicia a escuta ao fechar o modal de imagem
-          }}
+          onClose={() => setImageToShow(null)}
         />
       )}
       {urlToOpenInIframe && (
         <UrlIframeModal
           url={urlToOpenInIframe}
-          onClose={() => {
-            setUrlToOpenInIframe(null);
-            startListening(); // Reinicia a escuta ao fechar o modal de iframe
-          }}
+          onClose={() => setUrlToOpenInIframe(null)}
         />
       )}
       <div className={cn(
         "fixed inset-0 z-50 flex flex-col items-center justify-center p-4 md:p-8 transition-all duration-500",
         isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
       )}>
-        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={closeAssistant}></div>
+        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={() => setIsOpen(false)}></div>
         <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
           <div className="flex-grow flex items-center justify-center">
             <p className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">
