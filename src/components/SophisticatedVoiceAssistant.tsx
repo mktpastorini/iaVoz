@@ -102,6 +102,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopPermanentlyRef = useRef(false);
   const isSpeakingRef = useRef(false);
+  const hasSpokenOnceRef = useRef(false); // Flag para a primeira fala
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -153,14 +154,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
     const onSpeechEnd = () => {
       console.log('[VA] Finalizou a fala.');
+      hasSpokenOnceRef.current = true; // Marca que a primeira fala já ocorreu
       setIsSpeaking(false);
       isSpeakingRef.current = false;
       onEndCallback?.();
     };
 
+    // Força o uso da voz do navegador na primeira interação para evitar o bloqueio de áudio
+    const useBrowserVoice = settings.voice_model === "browser" || !hasSpokenOnceRef.current;
+
     try {
-      if (settings.voice_model === "browser" && synthRef.current) {
-        console.log('[VA] Usando o modelo de voz do navegador.');
+      if (useBrowserVoice && synthRef.current) {
+        console.log('[VA] Usando o modelo de voz do navegador (forçado na primeira vez se necessário).');
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
