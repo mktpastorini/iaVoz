@@ -11,7 +11,7 @@ import PowersPage from "./pages/admin/Powers";
 import ConversationsPage from "./pages/admin/Conversations";
 import SystemPowersPage from "./pages/admin/SystemPowers";
 import ClientActionsPage from "./pages/admin/ClientActions";
-import Login from "./pages/Login";
+import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
 import React, { useEffect, useState } from "react";
