@@ -162,7 +162,7 @@ const UserDataFieldsPage: React.FC = () => {
             Estes campos podem ser preenchidos e consultados pela IA através de "Poderes Internos" que serão configurados na próxima etapa.
           </p>
           <p className="p-2 bg-gray-100 dark:bg-gray-800 rounded-md">
-            Exemplo de uso pela IA: "Qual o nome do cliente?" ou "Salvar o email do cliente como {email_cliente}".
+            Exemplo de uso pela IA: "Qual o nome do cliente?" ou "Salvar o email do cliente como {'{email_cliente}'}".
           </p>
         </CardContent>
       </Card>
