@@ -102,7 +102,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopPermanentlyRef = useRef(false);
   const isSpeakingRef = useRef(false);
-  const hasSpokenOnceRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -154,17 +153,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
     const onSpeechEnd = () => {
       console.log('[VA] Finalizou a fala.');
-      hasSpokenOnceRef.current = true;
       setIsSpeaking(false);
       isSpeakingRef.current = false;
       onEndCallback?.();
     };
 
-    const useBrowserVoice = settings.voice_model === "browser" || !hasSpokenOnceRef.current;
-
     try {
-      if (useBrowserVoice && synthRef.current) {
-        console.log('[VA] Usando o modelo de voz do navegador (forçado na primeira vez se necessário).');
+      if (settings.voice_model === "browser" && synthRef.current) {
+        console.log('[VA] Usando o modelo de voz do navegador.');
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
@@ -304,15 +300,13 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.log('[VA] Reconhecimento de voz iniciado.');
       setIsListening(true);
     };
-
     recognitionRef.current.onend = () => {
       console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
       if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
-        setTimeout(() => startListening(), 250);
+        startListening();
       }
     };
-
     recognitionRef.current.onerror = (e) => {
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
         console.error(`[VA] Erro no reconhecimento de voz: ${e.error}`);
@@ -370,6 +364,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
       } else if (permissionStatus.state === 'prompt') {
+        // Don't speak here to avoid autoplay restrictions
         setIsPermissionModalOpen(true);
       } else {
         showError("Permissão para microfone negada. Habilite nas configurações do seu navegador.");
@@ -400,21 +395,16 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   };
 
   useEffect(() => {
-    if (isLoading) {
-      return;
-    }
+    if (isLoading) return;
     console.log('[VA] Configurações carregadas. Iniciando verificação de permissão.');
     checkAndRequestMicPermission();
-
     return () => {
       console.log('[VA] Desmontando componente. Limpando...');
       stopPermanentlyRef.current = true;
       recognitionRef.current?.abort();
-      if (synthRef.current?.speaking) {
-        synthRef.current.cancel();
-      }
+      if (synthRef.current?.speaking) synthRef.current.cancel();
     };
-  }, [isLoading]);
+  }, [isLoading, checkAndRequestMicPermission]);
 
   useEffect(() => {
     if (workspace?.id) {
@@ -435,7 +425,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [workspace]);
 
   if (isLoading || !settings) {
-    return null;
+    return null; // Render nothing until settings are loaded
   }
 
   return (
