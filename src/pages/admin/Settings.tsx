@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -90,6 +90,7 @@ const SettingsPage: React.FC = () => {
     handleSubmit,
     setValue,
     watch,
+    getValues, // Adicionado getValues para a função insertAtCursor
     formState: { errors, isSubmitting },
   } = useForm<SettingsFormData>({
     resolver: zodResolver(settingsSchema),
@@ -116,18 +117,19 @@ const SettingsPage: React.FC = () => {
         showError("Erro ao carregar configurações.");
         console.error(settingsError);
       } else if (settingsData) {
-        setValue("system_prompt", settingsData.system_prompt || defaultValues.system_prompt);
-        setValue("assistant_prompt", settingsData.assistant_prompt || defaultValues.assistant_prompt);
-        setValue("ai_model", settingsData.ai_model || defaultValues.ai_model);
-        setValue("voice_model", settingsData.voice_model || defaultValues.voice_model);
-        setValue("openai_tts_voice", settingsData.openai_tts_voice || defaultValues.openai_tts_voice);
+        // Usar ?? para garantir que valores nulos/indefinidos usem os defaults
+        setValue("system_prompt", settingsData.system_prompt ?? defaultValues.system_prompt);
+        setValue("assistant_prompt", settingsData.assistant_prompt ?? defaultValues.assistant_prompt);
+        setValue("ai_model", settingsData.ai_model ?? defaultValues.ai_model);
+        setValue("voice_model", settingsData.voice_model ?? defaultValues.voice_model);
+        setValue("openai_tts_voice", settingsData.openai_tts_voice ?? defaultValues.openai_tts_voice);
         setValue("voice_sensitivity", settingsData.voice_sensitivity ?? defaultValues.voice_sensitivity);
-        setValue("openai_api_key", settingsData.openai_api_key || defaultValues.openai_api_key);
-        setValue("gemini_api_key", settingsData.gemini_api_key || defaultValues.gemini_api_key);
+        setValue("openai_api_key", settingsData.openai_api_key ?? defaultValues.openai_api_key);
+        setValue("gemini_api_key", settingsData.gemini_api_key ?? defaultValues.gemini_api_key);
         setValue("conversation_memory_length", settingsData.conversation_memory_length ?? defaultValues.conversation_memory_length);
-        setValue("activation_phrase", settingsData.activation_phrase || defaultValues.activation_phrase);
-        setValue("welcome_message", settingsData.welcome_message || defaultValues.welcome_message);
-        setValue("continuation_phrase", settingsData.continuation_phrase || defaultValues.continuation_phrase);
+        setValue("activation_phrase", settingsData.activation_phrase ?? defaultValues.activation_phrase);
+        setValue("welcome_message", settingsData.welcome_message ?? defaultValues.welcome_message);
+        setValue("continuation_phrase", settingsData.continuation_phrase ?? defaultValues.continuation_phrase);
       }
 
       // Fetch User Data Fields
@@ -152,69 +154,34 @@ const SettingsPage: React.FC = () => {
     }
   }, [workspace, loading, setValue]);
 
-  const onSubmit = async (formData: SettingsFormData) => {
-    if (!workspace) {
-      showError("Workspace não encontrado.");
-      return;
-    }
-
-    const { error } = await supabase.from("settings").upsert(
-      {
-        workspace_id: workspace.id,
-        system_prompt: formData.system_prompt,
-        assistant_prompt: formData.assistant_prompt,
-        ai_model: formData.ai_model,
-        voice_model: formData.voice_model,
-        openai_tts_voice: formData.openai_tts_voice || null,
-        voice_sensitivity: formData.voice_sensitivity,
-        openai_api_key: formData.openai_api_key || null,
-        gemini_api_key: formData.gemini_api_key || null,
-        conversation_memory_length: formData.conversation_memory_length,
-        activation_phrase: formData.activation_phrase,
-        welcome_message: formData.welcome_message || null,
-        continuation_phrase: formData.continuation_phrase || null,
-      },
-      { onConflict: "workspace_id" }
-    );
-
-    if (error) {
-      showError("Erro ao salvar configurações.");
-      console.error(error);
-    } else {
-      showSuccess("Configurações salvas com sucesso!");
-    }
-  };
-
   // Função para inserir texto na posição do cursor
-  const insertAtCursor = (textareaRef: React.RefObject<HTMLTextAreaElement>, textToInsert: string) => {
+  const insertAtCursor = useCallback((textareaRef: React.RefObject<HTMLTextAreaElement>, textToInsert: string, fieldName: keyof SettingsFormData) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    const value = textarea.value;
+    const value = getValues(fieldName) as string; // Obter o valor atual do estado do RHF
 
-    textarea.value = value.substring(0, start) + textToInsert + value.substring(end);
+    const newValue = value.substring(0, start) + textToInsert + value.substring(end);
 
-    // Move o cursor para o final do texto inserido
-    textarea.selectionStart = textarea.selectionEnd = start + textToInsert.length;
+    setValue(fieldName, newValue, { shouldValidate: true });
 
-    // Dispara manualmente o evento 'input' para que o React Hook Form detecte a mudança
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-  };
+    // Definir a posição do cursor após a atualização do DOM pelo React
+    // Um pequeno atraso pode ser necessário para garantir que o DOM foi atualizado
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
+    }, 0);
+  }, [getValues, setValue]);
+
 
   const handleInsertSystemPromptField = (fieldName: string) => {
-    const placeholder = `{${fieldName}}`;
-    insertAtCursor(systemPromptRef, placeholder);
-    // Atualiza o valor no React Hook Form
-    setValue("system_prompt", systemPromptRef.current?.value || "", { shouldValidate: true });
+    insertAtCursor(systemPromptRef, `{${fieldName}}`, "system_prompt");
   };
 
   const handleInsertAssistantPromptField = (fieldName: string) => {
-    const placeholder = `{${fieldName}}`;
-    insertAtCursor(assistantPromptRef, placeholder);
-    // Atualiza o valor no React Hook Form
-    setValue("assistant_prompt", assistantPromptRef.current?.value || "", { shouldValidate: true });
+    insertAtCursor(assistantPromptRef, `{${fieldName}}`, "assistant_prompt");
   };
 
   if (loading || loadingSettings) {
@@ -270,10 +237,15 @@ const SettingsPage: React.FC = () => {
           </div>
           <Textarea
             id="system_prompt"
-            {...register("system_prompt")}
+            {...register("system_prompt", {
+              // Combinar a ref do RHF com a sua ref personalizada
+              ref: (e) => {
+                systemPromptRef.current = e; // Sua ref personalizada
+                register("system_prompt").ref(e); // Ref interna do RHF
+              }
+            })}
             rows={3}
             placeholder="Prompt do sistema para a IA"
-            ref={systemPromptRef} // Anexar a ref
           />
           {errors.system_prompt && (
             <p className="text-destructive text-sm mt-1">{errors.system_prompt.message}</p>
@@ -292,10 +264,15 @@ const SettingsPage: React.FC = () => {
           </div>
           <Textarea
             id="assistant_prompt"
-            {...register("assistant_prompt")}
+            {...register("assistant_prompt", {
+              // Combinar a ref do RHF com a sua ref personalizada
+              ref: (e) => {
+                assistantPromptRef.current = e; // Sua ref personalizada
+                register("assistant_prompt").ref(e); // Ref interna do RHF
+              }
+            })}
             rows={3}
             placeholder="Prompt do assistente para a IA"
-            ref={assistantPromptRef} // Anexar a ref
           />
           {errors.assistant_prompt && (
             <p className="text-destructive text-sm mt-1">{errors.assistant_prompt.message}</p>
