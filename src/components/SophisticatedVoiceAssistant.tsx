@@ -25,6 +25,7 @@ interface Settings {
   voice_model: "browser" | "openai-tts" | "gemini-tts";
   openai_tts_voice?: string;
   activation_phrase: string;
+  continuation_phrase?: string; // Adicionado aqui
 }
 
 interface VoiceAssistantProps {
@@ -96,6 +97,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null);
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
+  const [hasBeenActivated, setHasBeenActivated] = useState(false); // Novo estado para controlar a primeira ativação
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -338,7 +340,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (settings && transcript.includes(settings.activation_phrase.toLowerCase())) {
           console.log('[VA] Frase de ativação detectada. Abrindo assistente.');
           setIsOpen(true);
-          speak(settings.welcome_message, startListening);
+          // Usa a frase de continuação se já foi ativado, senão a de boas-vindas
+          const messageToSpeak = hasBeenActivated && settings.continuation_phrase
+            ? settings.continuation_phrase
+            : settings.welcome_message;
+          speak(messageToSpeak, startListening);
+          setHasBeenActivated(true); // Marca como ativado após a primeira vez
         }
       }
     };
@@ -352,7 +359,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
     startListening();
     showSuccess("Assistente pronto! Diga a palavra de ativação.");
-  }, [isOpen, clientActions, settings, startListening, speak, stopSpeaking, runConversation, executeClientAction]);
+  }, [isOpen, clientActions, settings, startListening, speak, stopSpeaking, runConversation, executeClientAction, hasBeenActivated]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log('[VA] Verificando permissão do microfone...');
