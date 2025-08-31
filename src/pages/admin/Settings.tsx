@@ -99,6 +99,40 @@ const SettingsPage: React.FC = () => {
 
   const voiceModel = watch("voice_model");
 
+  // Define onSubmit using useCallback
+  const onSubmit = useCallback(async (formData: SettingsFormData) => {
+    if (!workspace) {
+      showError("Workspace não encontrado.");
+      return;
+    }
+
+    const { error } = await supabase.from("settings").upsert(
+      {
+        workspace_id: workspace.id,
+        system_prompt: formData.system_prompt,
+        assistant_prompt: formData.assistant_prompt,
+        ai_model: formData.ai_model,
+        voice_model: formData.voice_model,
+        openai_tts_voice: formData.openai_tts_voice || null,
+        voice_sensitivity: formData.voice_sensitivity,
+        openai_api_key: formData.openai_api_key || null,
+        gemini_api_key: formData.gemini_api_key || null,
+        conversation_memory_length: formData.conversation_memory_length,
+        activation_phrase: formData.activation_phrase,
+        welcome_message: formData.welcome_message || null,
+        continuation_phrase: formData.continuation_phrase || null,
+      },
+      { onConflict: "workspace_id" }
+    );
+
+    if (error) {
+      showError("Erro ao salvar configurações.");
+      console.error(error);
+    } else {
+      showSuccess("Configurações salvas com sucesso!");
+    }
+  }, [workspace]); // Dependencies: workspace is used from outer scope
+
   // Efeito para carregar as configurações e os campos de dados do usuário
   useEffect(() => {
     const fetchSettingsAndFields = async () => {
