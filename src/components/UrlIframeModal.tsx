@@ -29,7 +29,8 @@ export const UrlIframeModal: React.FC<UrlIframeModalProps> = ({ url, onClose }) 
           className="flex-grow w-full h-full"
           style={{ border: 'none' }}
           allowFullScreen
-          sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-same-origin allow-scripts"
+          // Removido 'allow-same-origin' para evitar conflitos com conteúdo cross-origin
+          sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-scripts"
         ></iframe>
         <div className="p-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 flex justify-between items-center">
           <span>Alguns sites podem não carregar devido a restrições de segurança.</span>
