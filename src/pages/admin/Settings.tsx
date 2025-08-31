@@ -22,12 +22,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { FieldInsertPopover } from "@/components/FieldInsertPopover"; // Importar o novo componente
 
-// Interface para o tipo de dado do campo do usuário (repetida para clareza aqui)
+// Interface para o tipo de dado do campo do usuário
 interface UserDataField {
   id: string;
   name: string;
   description: string | null;
   type: 'string' | 'number' | 'boolean';
+}
+
+// Interface para o tipo de dado do Poder (simplificada para o popover)
+interface Power {
+  id: string;
+  name: string;
+  description: string | null;
 }
 
 const settingsSchema = z.object({
@@ -79,10 +86,11 @@ const OPENAI_TTS_VOICES = [
 const SettingsPage: React.FC = () => {
   const { workspace, loading } = useSession();
   const [loadingSettings, setLoadingSettings] = useState(true);
-  const [userDataFields, setUserDataFields] = useState<UserDataField[]>([]); // Novo estado para campos de dados do usuário
+  const [userDataFields, setUserDataFields] = useState<UserDataField[]>([]);
+  const [powers, setPowers] = useState<Power[]>([]); // Novo estado para poderes
 
-  const systemPromptRef = useRef<HTMLTextAreaElement>(null); // Ref para o textarea do prompt do sistema
-  const assistantPromptRef = useRef<HTMLTextAreaElement>(null); // Ref para o textarea do prompt do assistente
+  const systemPromptRef = useRef<HTMLTextAreaElement>(null);
+  const assistantPromptRef = useRef<HTMLTextAreaElement>(null);
 
   const {
     control,
@@ -90,7 +98,7 @@ const SettingsPage: React.FC = () => {
     handleSubmit,
     setValue,
     watch,
-    getValues, // Adicionado getValues para a função insertAtCursor
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<SettingsFormData>({
     resolver: zodResolver(settingsSchema),
@@ -99,7 +107,6 @@ const SettingsPage: React.FC = () => {
 
   const voiceModel = watch("voice_model");
 
-  // Define onSubmit using useCallback
   const onSubmit = useCallback(async (formData: SettingsFormData) => {
     if (!workspace) {
       showError("Workspace não encontrado.");
@@ -131,11 +138,10 @@ const SettingsPage: React.FC = () => {
     } else {
       showSuccess("Configurações salvas com sucesso!");
     }
-  }, [workspace]); // Dependencies: workspace is used from outer scope
+  }, [workspace]);
 
-  // Efeito para carregar as configurações e os campos de dados do usuário
   useEffect(() => {
-    const fetchSettingsAndFields = async () => {
+    const fetchSettingsAndFieldsAndPowers = async () => {
       if (!workspace?.id) return;
 
       setLoadingSettings(true);
@@ -151,7 +157,6 @@ const SettingsPage: React.FC = () => {
         showError("Erro ao carregar configurações.");
         console.error(settingsError);
       } else if (settingsData) {
-        // Usar ?? para garantir que valores nulos/indefinidos usem os defaults
         setValue("system_prompt", settingsData.system_prompt ?? defaultValues.system_prompt);
         setValue("assistant_prompt", settingsData.assistant_prompt ?? defaultValues.assistant_prompt);
         setValue("ai_model", settingsData.ai_model ?? defaultValues.ai_model);
@@ -180,31 +185,41 @@ const SettingsPage: React.FC = () => {
         setUserDataFields(fieldsData || []);
       }
 
+      // Fetch Powers
+      const { data: powersData, error: powersError } = await supabase
+        .from('powers')
+        .select('id, name, description') // Apenas os campos necessários para o popover
+        .eq('workspace_id', workspace.id)
+        .order('name', { ascending: true });
+
+      if (powersError) {
+        console.error("Erro ao carregar poderes:", powersError);
+        showError("Erro ao carregar poderes.");
+      } else {
+        setPowers(powersData || []);
+      }
+
       setLoadingSettings(false);
     };
 
     if (!loading && workspace) {
-      fetchSettingsAndFields();
+      fetchSettingsAndFieldsAndPowers();
     }
   }, [workspace, loading, setValue]);
 
-  // Função para inserir texto na posição do cursor
   const insertAtCursor = useCallback((textareaRef: React.RefObject<HTMLTextAreaElement>, textToInsert: string, fieldName: keyof SettingsFormData) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    const value = getValues(fieldName) as string; // Obter o valor atual do estado do RHF
+    const value = getValues(fieldName) as string;
 
     const newValue = value.substring(0, start) + textToInsert + value.substring(end);
 
     setValue(fieldName, newValue, { shouldValidate: true });
 
-    // Definir a posição do cursor após a atualização do DOM pelo React
-    // Um pequeno atraso pode ser necessário para garantir que o DOM foi atualizado
     setTimeout(() => {
-      // Re-check if the ref is still valid and points to an element
       if (textareaRef.current) {
         textareaRef.current.focus();
         textareaRef.current.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
@@ -212,13 +227,20 @@ const SettingsPage: React.FC = () => {
     }, 0);
   }, [getValues, setValue]);
 
-
   const handleInsertSystemPromptField = (fieldName: string) => {
     insertAtCursor(systemPromptRef, `{${fieldName}}`, "system_prompt");
   };
 
   const handleInsertAssistantPromptField = (fieldName: string) => {
     insertAtCursor(assistantPromptRef, `{${fieldName}}`, "assistant_prompt");
+  };
+
+  const handleInsertSystemPromptPower = (powerName: string) => {
+    insertAtCursor(systemPromptRef, `{power:${powerName}}`, "system_prompt");
+  };
+
+  const handleInsertAssistantPromptPower = (powerName: string) => {
+    insertAtCursor(assistantPromptRef, `{power:${powerName}}`, "assistant_prompt");
   };
 
   if (loading || loadingSettings) {
@@ -271,6 +293,7 @@ const SettingsPage: React.FC = () => {
           <div className="flex items-center mb-2">
             <Label htmlFor="system_prompt" className="sr-only">Prompt do Sistema</Label>
             <FieldInsertPopover fields={userDataFields} onInsert={handleInsertSystemPromptField} />
+            <FieldInsertPopover fields={powers} onInsert={handleInsertSystemPromptPower} /> {/* Novo popover para poderes */}
           </div>
           <Controller
             control={control}
@@ -278,12 +301,12 @@ const SettingsPage: React.FC = () => {
             render={({ field }) => (
               <Textarea
                 id="system_prompt"
-                {...field} // Isso passa value, onChange, onBlur, e ref do RHF
+                {...field}
                 rows={3}
                 placeholder="Prompt do sistema para a IA"
                 ref={(e) => {
-                  systemPromptRef.current = e; // Sua ref personalizada
-                  field.ref(e); // Ref interna do RHF
+                  systemPromptRef.current = e;
+                  field.ref(e);
                 }}
               />
             )}
@@ -302,6 +325,7 @@ const SettingsPage: React.FC = () => {
           <div className="flex items-center mb-2">
             <Label htmlFor="assistant_prompt" className="sr-only">Prompt do Assistente</Label>
             <FieldInsertPopover fields={userDataFields} onInsert={handleInsertAssistantPromptField} />
+            <FieldInsertPopover fields={powers} onInsert={handleInsertAssistantPromptPower} /> {/* Novo popover para poderes */}
           </div>
           <Controller
             control={control}
@@ -309,12 +333,12 @@ const SettingsPage: React.FC = () => {
             render={({ field }) => (
               <Textarea
                 id="assistant_prompt"
-                {...field} // Isso passa value, onChange, onBlur, e ref do RHF
+                {...field}
                 rows={3}
                 placeholder="Prompt do assistente para a IA"
                 ref={(e) => {
-                  assistantPromptRef.current = e; // Sua ref personalizada
-                  field.ref(e); // Ref interna do RHF
+                  assistantPromptRef.current = e;
+                  field.ref(e);
                 }}
               />
             )}
