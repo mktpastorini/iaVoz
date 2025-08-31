@@ -15,16 +15,21 @@ import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 
 // Interfaces
+interface Settings {
+  welcome_message?: string;
+  openai_api_key: string;
+  system_prompt?: string;
+  assistant_prompt?: string;
+  ai_model?: string;
+  conversation_memory_length: number;
+  voice_model: "browser" | "openai-tts" | "gemini-tts";
+  openai_tts_voice?: string;
+  activation_phrase: string;
+}
+
 interface VoiceAssistantProps {
-  welcomeMessage?: string;
-  openAiApiKey: string;
-  systemPrompt?: string;
-  assistantPrompt?: string;
-  model?: string;
-  conversationMemoryLength: number;
-  voiceModel: "browser" | "openai-tts" | "gemini-tts";
-  openaiTtsVoice?: string;
-  activationPhrase: string;
+  settings: Settings | null;
+  isLoading: boolean;
 }
 
 interface Message {
@@ -73,15 +78,8 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
 
 // Main Component
 const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
-  welcomeMessage = "Bem-vindo ao site! Diga 'ativar' para começar a conversar.",
-  openAiApiKey,
-  systemPrompt = "Você é Intra, a IA da Intratégica. Empresa de automações, desenvolvimento de IAs e sistemas.",
-  assistantPrompt = "Você é um assistente amigável e profissional que ajuda agências de tecnologia a automatizar processos e criar soluções de IA personalizadas.",
-  model = "gpt-4o-mini",
-  conversationMemoryLength,
-  voiceModel,
-  openaiTtsVoice = "alloy",
-  activationPhrase,
+  settings,
+  isLoading,
 }) => {
   const { workspace } = useSession();
   const { systemVariables } = useSystem();
@@ -142,7 +140,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, []);
 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
-    if (!text) {
+    if (!text || !settings) {
       onEndCallback?.();
       return;
     }
@@ -161,18 +159,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     };
 
     try {
-      if (voiceModel === "browser" && synthRef.current) {
+      if (settings.voice_model === "browser" && synthRef.current) {
         console.log('[VA] Using browser voice model.');
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
         synthRef.current.speak(utterance);
-      } else if (voiceModel === "openai-tts" && openAiApiKey) {
+      } else if (settings.voice_model === "openai-tts" && settings.openai_api_key) {
         console.log('[VA] Using OpenAI TTS voice model.');
         const response = await fetch(OPENAI_TTS_API_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiApiKey}` },
-          body: JSON.stringify({ model: "tts-1", voice: openaiTtsVoice || "alloy", input: text }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.openai_api_key}` },
+          body: JSON.stringify({ model: "tts-1", voice: settings.openai_tts_voice || "alloy", input: text }),
         });
         if (!response.ok) throw new Error("Falha na API OpenAI TTS");
         const audioBlob = await response.blob();
@@ -188,14 +186,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error("[VA] Error during speech:", error);
       onSpeechEnd();
     }
-  }, [openAiApiKey, openaiTtsVoice, voiceModel, stopSpeaking, stopListening]);
+  }, [settings, stopSpeaking, stopListening]);
 
   const runConversation = useCallback(async (userInput: string) => {
-    console.log(`[VA] Running conversation with input: "${userInput}"`);
-    if (!openAiApiKey) {
+    if (!settings || !settings.openai_api_key) {
       speak("Chave API OpenAI não configurada.", startListening);
       return;
     }
+    console.log(`[VA] Running conversation with input: "${userInput}"`);
     stopListening();
     setTranscript(userInput);
     setAiResponse("Pensando...");
@@ -203,14 +201,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setMessageHistory(newHistory);
 
     const tools = powers.map(p => ({ type: 'function' as const, function: { name: p.name, description: p.description, parameters: p.parameters_schema } }));
-    const messagesForApi = [{ role: "system" as const, content: systemPrompt }, { role: "assistant" as const, content: assistantPrompt }, ...newHistory.slice(-conversationMemoryLength)];
+    const messagesForApi = [{ role: "system" as const, content: settings.system_prompt }, { role: "assistant" as const, content: settings.assistant_prompt }, ...newHistory.slice(-settings.conversation_memory_length)];
 
     try {
       console.log('[VA] Sending request to OpenAI Chat Completions...');
       const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiApiKey}` },
-        body: JSON.stringify({ model, messages: messagesForApi, tools: tools.length > 0 ? tools : undefined, tool_choice: tools.length > 0 ? 'auto' : undefined }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.openai_api_key}` },
+        body: JSON.stringify({ model: settings.ai_model, messages: messagesForApi, tools: tools.length > 0 ? tools : undefined, tool_choice: tools.length > 0 ? 'auto' : undefined }),
       });
       if (!response.ok) throw new Error("Erro na API OpenAI");
       const data = await response.json();
@@ -240,8 +238,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         setMessageHistory(historyWithToolResults);
         const secondResponse = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiApiKey}` },
-          body: JSON.stringify({ model, messages: historyWithToolResults }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.openai_api_key}` },
+          body: JSON.stringify({ model: settings.ai_model, messages: historyWithToolResults }),
         });
         if (!secondResponse.ok) throw new Error("Erro na 2ª chamada OpenAI");
         const secondData = await secondResponse.json();
@@ -258,7 +256,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error('[VA] Error in conversation flow:', error);
       speak("Desculpe, ocorreu um erro.", startListening);
     }
-  }, [openAiApiKey, powers, systemVariables, messageHistory, conversationMemoryLength, model, systemPrompt, assistantPrompt, speak, startListening, stopListening]);
+  }, [settings, powers, systemVariables, messageHistory, speak, startListening, stopListening]);
 
   const executeClientAction = useCallback((action: ClientAction) => {
     console.log(`[VA] Executing client action: ${action.action_type}`);
@@ -337,10 +335,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         console.log('[VA] No client action matched. Starting conversation turn.');
         runConversation(transcript);
       } else {
-        if (transcript.includes(activationPhrase.toLowerCase())) {
+        if (transcript.includes(settings!.activation_phrase.toLowerCase())) {
           console.log('[VA] Activation phrase detected. Opening assistant.');
           setIsOpen(true);
-          speak(welcomeMessage, startListening);
+          speak(settings!.welcome_message, startListening);
         }
       }
     };
@@ -354,7 +352,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
     startListening();
     showSuccess("Assistente pronto! Diga a palavra de ativação.");
-  }, [isOpen, clientActions, activationPhrase, welcomeMessage, startListening, speak, stopSpeaking, runConversation, executeClientAction]);
+  }, [isOpen, clientActions, settings, startListening, speak, stopSpeaking, runConversation, executeClientAction]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log('[VA] Checking microphone permission...');
@@ -366,7 +364,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
       } else if (permissionStatus.state === 'prompt') {
-        speak(welcomeMessage, () => setIsPermissionModalOpen(true));
+        // Don't speak here to avoid autoplay restrictions
+        setIsPermissionModalOpen(true);
       } else {
         showError("Permissão para microfone negada. Habilite nas configurações do seu navegador.");
       }
@@ -378,7 +377,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error("[VA] Error checking microphone permission:", error);
       showError("Não foi possível verificar a permissão do microfone.");
     }
-  }, [initializeAssistant, speak, welcomeMessage]);
+  }, [initializeAssistant]);
 
   const handleAllowMic = async () => {
     console.log('[VA] User clicked "Allow Mic".');
@@ -396,7 +395,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   };
 
   useEffect(() => {
-    console.log('[VA] Component mounted. Starting permission check.');
+    if (isLoading) return;
+    console.log('[VA] Settings loaded. Starting permission check.');
     checkAndRequestMicPermission();
     return () => {
       console.log('[VA] Component unmounting. Cleaning up...');
@@ -404,7 +404,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
     };
-  }, [checkAndRequestMicPermission]);
+  }, [isLoading, checkAndRequestMicPermission]);
 
   useEffect(() => {
     if (workspace?.id) {
@@ -423,6 +423,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       fetchClientActions();
     }
   }, [workspace]);
+
+  if (isLoading || !settings) {
+    return null; // Render nothing until settings are loaded
+  }
 
   return (
     <>

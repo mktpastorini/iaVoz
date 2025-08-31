@@ -41,21 +41,12 @@ const GlobalVoiceAssistant = () => {
     fetchSettings();
   }, []);
 
-  if (loading || !settings) {
-    return null; // Não renderiza nada até ter as configurações
-  }
-
+  // Pass the entire settings object and loading state as props
+  // This prevents the component from unmounting and remounting
   return (
     <SophisticatedVoiceAssistant
-      welcomeMessage={settings.welcome_message || "Olá! Como posso ajudar?"}
-      openAiApiKey={settings.openai_api_key || ""}
-      systemPrompt={settings.system_prompt}
-      assistantPrompt={settings.assistant_prompt}
-      model={settings.ai_model}
-      conversationMemoryLength={settings.conversation_memory_length}
-      voiceModel={settings.voice_model}
-      openaiTtsVoice={settings.openai_tts_voice || "alloy"}
-      activationPhrase={settings.activation_phrase}
+      settings={settings}
+      isLoading={loading}
     />
   );
 };
