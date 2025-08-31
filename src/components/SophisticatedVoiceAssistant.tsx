@@ -102,7 +102,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopPermanentlyRef = useRef(false);
   const isSpeakingRef = useRef(false);
-  const hasSpokenOnceRef = useRef(false); // Flag para a primeira fala
+  const hasSpokenOnceRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -140,9 +140,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     isSpeakingRef.current = false;
   }, []);
 
-  const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
+  const speak = useCallback(async (text: string) => {
     if (!text || !settings) {
-      onEndCallback?.();
       return;
     }
     console.log(`[VA] Preparando para falar: "${text}"`);
@@ -154,18 +153,17 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
     const onSpeechEnd = () => {
       console.log('[VA] Finalizou a fala.');
-      hasSpokenOnceRef.current = true; // Marca que a primeira fala já ocorreu
+      hasSpokenOnceRef.current = true;
       setIsSpeaking(false);
       isSpeakingRef.current = false;
-      onEndCallback?.();
+      // A lógica de reinício agora é centralizada no onend do recognition
     };
 
-    // Força o uso da voz do navegador na primeira interação para evitar o bloqueio de áudio
     const useBrowserVoice = settings.voice_model === "browser" || !hasSpokenOnceRef.current;
 
     try {
       if (useBrowserVoice && synthRef.current) {
-        console.log('[VA] Usando o modelo de voz do navegador (forçado na primeira vez se necessário).');
+        console.log('[VA] Usando o modelo de voz do navegador.');
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
@@ -195,7 +193,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const runConversation = useCallback(async (userInput: string) => {
     if (!settings || !settings.openai_api_key) {
-      speak("Chave API OpenAI não configurada.", startListening);
+      await speak("Chave API OpenAI não configurada.");
       return;
     }
     console.log(`[VA] Executando conversa com entrada: "${userInput}"`);
@@ -251,38 +249,38 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const finalMessage = secondData.choices?.[0]?.message?.content;
         console.log('[VA] Resposta final recebida da OpenAI:', finalMessage);
         setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        speak(finalMessage, startListening);
+        await speak(finalMessage);
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        speak(assistantMessage, startListening);
+        await speak(assistantMessage);
       }
     } catch (error) {
       console.error('[VA] Erro no fluxo da conversa:', error);
-      speak("Desculpe, ocorreu um erro.", startListening);
+      await speak("Desculpe, ocorreu um erro.");
     }
   }, [settings, powers, systemVariables, messageHistory, speak, startListening, stopListening]);
 
-  const executeClientAction = useCallback((action: ClientAction) => {
+  const executeClientAction = useCallback(async (action: ClientAction) => {
     console.log(`[VA] Executando ação do cliente: ${action.action_type}`);
     stopListening();
     switch (action.action_type) {
       case 'OPEN_URL':
         if (action.action_payload.url) {
-          speak(`Abrindo ${action.action_payload.url}`, () => {
-            window.open(action.action_payload.url, '_blank');
-            startListening();
-          });
+          await speak(`Abrindo ${action.action_payload.url}`);
+          window.open(action.action_payload.url, '_blank');
         }
         break;
       case 'OPEN_IFRAME_URL':
         if (action.action_payload.url) {
-          speak("Ok, abrindo conteúdo.", () => setUrlToOpenInIframe(action.action_payload.url!));
+          await speak("Ok, abrindo conteúdo.");
+          setUrlToOpenInIframe(action.action_payload.url!);
         }
         break;
       case 'SHOW_IMAGE':
         if (action.action_payload.imageUrl) {
-          speak("Claro, aqui está a imagem.", () => setImageToShow(action.action_payload));
+          await speak("Claro, aqui está a imagem.");
+          setImageToShow(action.action_payload);
         }
         break;
     }
@@ -305,13 +303,16 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.log('[VA] Reconhecimento de voz iniciado.');
       setIsListening(true);
     };
+
     recognitionRef.current.onend = () => {
       console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
-      if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
-        startListening();
+      if (!stopPermanentlyRef.current) {
+        // Lógica de reinicialização robusta com delay
+        setTimeout(() => startListening(), 250);
       }
     };
+
     recognitionRef.current.onerror = (e) => {
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
         console.error(`[VA] Erro no reconhecimento de voz: ${e.error}`);
@@ -343,7 +344,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (settings && transcript.includes(settings.activation_phrase.toLowerCase())) {
           console.log('[VA] Frase de ativação detectada. Abrindo assistente.');
           setIsOpen(true);
-          speak(settings.welcome_message, startListening);
+          speak(settings.welcome_message);
         }
       }
     };
@@ -413,7 +414,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         synthRef.current.cancel();
       }
     };
-  }, [isLoading]); // A dependência agora é apenas `isLoading`
+  }, [isLoading]);
 
   useEffect(() => {
     if (workspace?.id) {
@@ -434,7 +435,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [workspace]);
 
   if (isLoading || !settings) {
-    return null; // Render nothing until settings are loaded
+    return null;
   }
 
   return (
