@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Mic, X } from "lucide-react";
 import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
+import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 
 // Interfaces
 interface Settings {
@@ -25,7 +26,7 @@ interface Settings {
   voice_model: "browser" | "openai-tts" | "gemini-tts";
   openai_tts_voice?: string;
   activation_phrase: string;
-  continuation_phrase?: string; // Adicionado aqui
+  continuation_phrase?: string;
 }
 
 interface VoiceAssistantProps {
@@ -84,6 +85,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 }) => {
   const { workspace } = useSession();
   const { systemVariables } = useSystem();
+  const { activationTrigger } = useVoiceAssistant();
 
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -97,13 +99,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null);
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
-  const [hasBeenActivated, setHasBeenActivated] = useState(false); // Novo estado para controlar a primeira ativação
+  const [hasBeenActivated, setHasBeenActivated] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopPermanentlyRef = useRef(false);
   const isSpeakingRef = useRef(false);
+  const activationTriggerRef = useRef(0);
+  const activationRequestedViaButton = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -340,12 +344,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (settings && transcript.includes(settings.activation_phrase.toLowerCase())) {
           console.log('[VA] Frase de ativação detectada. Abrindo assistente.');
           setIsOpen(true);
-          // Usa a frase de continuação se já foi ativado, senão a de boas-vindas
           const messageToSpeak = hasBeenActivated && settings.continuation_phrase
             ? settings.continuation_phrase
             : settings.welcome_message;
           speak(messageToSpeak, startListening);
-          setHasBeenActivated(true); // Marca como ativado após a primeira vez
+          setHasBeenActivated(true);
         }
       }
     };
@@ -393,12 +396,47 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.log('[VA] Acesso ao microfone concedido pelo usuário.');
       setMicPermission('granted');
       initializeAssistant();
+
+      if (activationRequestedViaButton.current) {
+        activationRequestedViaButton.current = false;
+        setTimeout(() => {
+          setIsOpen(true);
+          const messageToSpeak = hasBeenActivated && settings?.continuation_phrase
+            ? settings.continuation_phrase
+            : settings?.welcome_message;
+          speak(messageToSpeak, startListening);
+          setHasBeenActivated(true);
+        }, 100);
+      }
     } catch (error) {
       console.error("[VA] Usuário negou a permissão do microfone:", error);
       setMicPermission('denied');
       showError("Você precisa permitir o uso do microfone para continuar.");
     }
   };
+
+  const handleManualActivation = useCallback(() => {
+    if (isOpen) return;
+
+    if (micPermission !== 'granted') {
+      activationRequestedViaButton.current = true;
+      checkAndRequestMicPermission();
+    } else {
+      setIsOpen(true);
+      const messageToSpeak = hasBeenActivated && settings?.continuation_phrase
+        ? settings.continuation_phrase
+        : settings?.welcome_message;
+      speak(messageToSpeak, startListening);
+      setHasBeenActivated(true);
+    }
+  }, [isOpen, micPermission, checkAndRequestMicPermission, hasBeenActivated, settings, speak, startListening]);
+
+  useEffect(() => {
+    if (activationTrigger > activationTriggerRef.current) {
+      activationTriggerRef.current = activationTrigger;
+      handleManualActivation();
+    }
+  }, [activationTrigger, handleManualActivation]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -431,7 +469,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [workspace]);
 
   if (isLoading || !settings) {
-    return null; // Render nothing until settings are loaded
+    return null;
   }
 
   return (

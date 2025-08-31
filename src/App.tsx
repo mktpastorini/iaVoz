@@ -10,13 +10,14 @@ import SettingsPage from "./pages/admin/Settings";
 import PowersPage from "./pages/admin/Powers";
 import ConversationsPage from "./pages/admin/Conversations";
 import SystemPowersPage from "./pages/admin/SystemPowers";
-import ClientActionsPage from "./pages/admin/ClientActions"; // Importar nova página
+import ClientActionsPage from "./pages/admin/ClientActions";
 import Login from "./pages/Login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
 import React, { useEffect, useState } from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { supabase } from "./integrations/supabase/client";
+import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
 
 const queryClient = new QueryClient();
 
@@ -27,7 +28,6 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// Componente para carregar configurações e renderizar o assistente
 const GlobalVoiceAssistant = () => {
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -41,8 +41,6 @@ const GlobalVoiceAssistant = () => {
     fetchSettings();
   }, []);
 
-  // Pass the entire settings object and loading state as props
-  // This prevents the component from unmounting and remounting
   return (
     <SophisticatedVoiceAssistant
       settings={settings}
@@ -59,23 +57,25 @@ const App = () => (
       <BrowserRouter>
         <SessionContextProvider>
           <SystemContextProvider>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/login" element={<Login />} />
-              <Route
-                path="/admin"
-                element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
-              >
-                <Route index element={<Navigate to="/admin/settings" replace />} />
-                <Route path="settings" element={<SettingsPage />} />
-                <Route path="powers" element={<PowersPage />} />
-                <Route path="conversations" element={<ConversationsPage />} />
-                <Route path="system-powers" element={<SystemPowersPage />} />
-                <Route path="client-actions" element={<ClientActionsPage />} /> {/* Nova rota */}
-              </Route>
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-            <GlobalVoiceAssistant /> {/* Assistente global */}
+            <VoiceAssistantProvider>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/login" element={<Login />} />
+                <Route
+                  path="/admin"
+                  element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
+                >
+                  <Route index element={<Navigate to="/admin/settings" replace />} />
+                  <Route path="settings" element={<SettingsPage />} />
+                  <Route path="powers" element={<PowersPage />} />
+                  <Route path="conversations" element={<ConversationsPage />} />
+                  <Route path="system-powers" element={<SystemPowersPage />} />
+                  <Route path="client-actions" element={<ClientActionsPage />} />
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+              <GlobalVoiceAssistant />
+            </VoiceAssistantProvider>
           </SystemContextProvider>
         </SessionContextProvider>
       </BrowserRouter>
