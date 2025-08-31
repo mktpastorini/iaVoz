@@ -86,7 +86,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const { workspace } = useSession();
   const { systemVariables } = useSystem();
 
-  const [isInitialized, setIsInitialized] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -104,23 +103,31 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopPermanentlyRef = useRef(false);
-  const isSpeakingRef = useRef(false);
+  const isRecognitionActiveRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
   const startListening = useCallback(() => {
-    if (recognitionRef.current && !recognitionRef.current.onstart) {
-      console.warn("[VA] Tentativa de iniciar escuta em reconhecimento não configurado.");
-      return;
-    }
-    try {
-      recognitionRef.current?.start();
-    } catch (error) {
-      // Ignora o erro "already started", que é comum em reinicializações rápidas.
-      if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
-        console.error("[VA] Erro ao iniciar reconhecimento:", error);
+    if (recognitionRef.current && !isRecognitionActiveRef.current) {
+      try {
+        recognitionRef.current.start();
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
+          console.error("[VA] Erro ao iniciar reconhecimento:", error);
+        }
       }
     }
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    if (synthRef.current?.speaking) {
+      synthRef.current.cancel();
+    }
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsSpeaking(false);
   }, []);
 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
@@ -128,18 +135,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       onEndCallback?.();
       return;
     }
-    if (synthRef.current?.speaking) synthRef.current.cancel();
-    if (audioRef.current && !audioRef.current.paused) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
+    stopSpeaking();
     setIsSpeaking(true);
-    isSpeakingRef.current = true;
     setAiResponse(text);
 
     const onSpeechEnd = () => {
       setIsSpeaking(false);
-      isSpeakingRef.current = false;
       onEndCallback?.();
     };
 
@@ -168,11 +169,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error("Erro durante a fala:", error);
       onSpeechEnd();
     }
-  }, [openAiApiKey, openaiTtsVoice, voiceModel]);
+  }, [openAiApiKey, openaiTtsVoice, voiceModel, stopSpeaking]);
 
   const initializeAssistant = useCallback(() => {
-    if (isInitialized) return;
-
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       showError("Reconhecimento de voz não suportado.");
@@ -184,11 +183,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
 
-    recognitionRef.current.onstart = () => setIsListening(true);
+    recognitionRef.current.onstart = () => {
+      isRecognitionActiveRef.current = true;
+      setIsListening(true);
+    };
     recognitionRef.current.onend = () => {
+      isRecognitionActiveRef.current = false;
       setIsListening(false);
       if (!stopPermanentlyRef.current) {
-        setTimeout(() => startListening(), 100);
+        setTimeout(() => startListening(), 250);
       }
     };
     recognitionRef.current.onerror = (e) => {
@@ -205,6 +208,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           setIsOpen(false);
           setAiResponse("");
           setTranscript("");
+          stopSpeaking();
           return;
         }
         const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
@@ -224,10 +228,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
     else showError("Síntese de voz não suportada.");
 
-    setIsInitialized(true);
     startListening();
     showSuccess("Assistente pronto! Diga a palavra de ativação.");
-  }, [isInitialized, startListening, isOpen, clientActions, activationPhrase, speak, welcomeMessage]);
+  }, [startListening, isOpen, clientActions, activationPhrase, speak, welcomeMessage, stopSpeaking]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
