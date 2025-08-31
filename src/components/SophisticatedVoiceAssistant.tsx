@@ -11,7 +11,7 @@ import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Mic, X } from "lucide-react";
-import { UrlIframeModal } from "./UrlIframeModal";
+import { UrlIframeModal } from "./UrlIframeModal"; // Importar o novo componente
 
 // Interfaces
 interface VoiceAssistantProps {
@@ -48,7 +48,7 @@ interface Power {
 interface ClientAction {
   id: string;
   trigger_phrase: string;
-  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL';
+  action_type: 'OPEN_URL' | 'SHOW_IMAGE';
   action_payload: {
     url?: string;
     imageUrl?: string;
@@ -95,14 +95,13 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [powers, setPowers] = useState<Power[]>([]);
   const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const [imageToShow, setImageToShow] = useState<ClientAction['action_payload'] | null>(null);
-  const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null);
+  const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null); // Novo estado para o iframe
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const isRecognitionActive = useRef(false);
   const isSpeakingRef = useRef(false);
-  const assistantManuallyClosed = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -124,9 +123,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [workspace]);
 
   const startListening = () => {
-    if (recognitionRef.current && !isRecognitionActive.current) {
+    // Só inicia a escuta se o assistente estiver aberto, não estiver falando e nenhum modal (imagem ou iframe) estiver ativo
+    if (recognitionRef.current && !isRecognitionActive.current && !isSpeakingRef.current && !imageToShow && !urlToOpenInIframe) {
       try {
-        assistantManuallyClosed.current = false;
         recognitionRef.current.start();
       } catch (error) {
         console.error("[VA] Erro ao iniciar reconhecimento:", error);
@@ -151,14 +150,13 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   };
 
   const closeAssistant = () => {
-    assistantManuallyClosed.current = true;
     stopListening();
     stopSpeaking();
     setIsOpen(false);
     setAiResponse("");
     setTranscript("");
-    setImageToShow(null);
-    setUrlToOpenInIframe(null);
+    setImageToShow(null); // Garante que o modal de imagem seja fechado
+    setUrlToOpenInIframe(null); // Garante que o modal de iframe seja fechado
   };
 
   const speak = async (text: string, onEndCallback?: () => void) => {
@@ -196,11 +194,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         audioRef.current.play();
       } else {
-        onSpeechEnd();
+        onEndCallback?.();
       }
     } catch (error) {
       console.error("Erro durante a fala:", error);
-      onSpeechEnd();
+      onEndCallback(); // Garante que o estado de 'speaking' seja resetado mesmo em caso de erro
     }
   };
 
@@ -209,14 +207,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       case 'OPEN_URL':
         if (action.action_payload.url) {
           speak(`Abrindo ${action.action_payload.url}`, () => {
-            window.open(action.action_payload.url, '_blank');
-          });
-        }
-        break;
-      case 'OPEN_IFRAME_URL':
-        if (action.action_payload.url) {
-          speak("Ok, abrindo conteúdo.", () => {
-            setUrlToOpenInIframe(action.action_payload.url!);
+            setUrlToOpenInIframe(action.action_payload.url!); // Abre no iframe
+            // A escuta será reiniciada APENAS quando o iframe for fechado
           });
         }
         break;
@@ -224,6 +216,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (action.action_payload.imageUrl) {
           speak("Claro, aqui está a imagem.", () => {
             setImageToShow(action.action_payload);
+            // A escuta será reiniciada APENAS quando o modal for fechado
           });
         }
         break;
@@ -232,7 +225,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const runConversation = async (userInput: string) => {
     if (!openAiApiKey) {
-      speak("Chave API OpenAI não configurada.");
+      speak("Chave API OpenAI não configurada.", startListening);
       return;
     }
     setTranscript(userInput);
@@ -280,15 +273,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const secondData = await secondResponse.json();
         const finalMessage = secondData.choices?.[0]?.message?.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        speak(finalMessage);
+        speak(finalMessage, startListening);
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        speak(assistantMessage);
+        speak(assistantMessage, startListening);
       }
     } catch (error) {
       console.error(error);
-      speak("Desculpe, ocorreu um erro.");
+      speak("Desculpe, ocorreu um erro.", startListening);
     }
   };
 
@@ -306,41 +299,42 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.lang = "pt-BR";
 
     recognitionRef.current.onstart = () => { isRecognitionActive.current = true; setIsListening(true); };
-    
-    recognitionRef.current.onend = () => {
-      isRecognitionActive.current = false;
-      setIsListening(false);
-      if (!assistantManuallyClosed.current && !imageToShow && !urlToOpenInIframe) {
-        setTimeout(() => startListening(), 250);
+    recognitionRef.current.onend = () => { 
+      isRecognitionActive.current = false; 
+      setIsListening(false); 
+      // Reinicia a escuta explicitamente se o assistente estiver aberto, não falando E NENHUM modal (imagem ou iframe) estiver aberto
+      if (isOpen && !isSpeakingRef.current && !imageToShow && !urlToOpenInIframe) {
+        startListening();
       }
     };
-
-    recognitionRef.current.onerror = (e) => {
-      console.error(`Erro de reconhecimento: ${e.error}`);
-      if (e.error !== 'no-speech' && e.error !== 'aborted') {
-        showError(`Erro de voz: ${e.error}`);
-      }
-    };
+    recognitionRef.current.onerror = (e) => { console.error(`Erro de reconhecimento: ${e.error}`); if (e.error !== 'no-speech') showError(`Erro de voz: ${e.error}`); };
 
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
+      const closePhrase = "fechar";
 
       if (isOpen) {
-        if (closePhrases.some(phrase => transcript.includes(phrase))) {
+        // O comando "fechar" tem prioridade máxima.
+        if (transcript.includes(closePhrase)) {
           closeAssistant();
           return;
         }
+
         const matchedAction = clientActions.find(a => transcript.includes(a.trigger_phrase));
         if (matchedAction) {
+          stopListening(); // Parar de ouvir antes de executar a ação para evitar conflitos
           executeClientAction(matchedAction);
           return;
         }
+
         runConversation(transcript);
       } else {
         if (transcript.includes(activationPhrase.toLowerCase())) {
           setIsOpen(true);
-          speak(welcomeMessage);
+          speak(welcomeMessage, startListening);
+        } else {
+          // Se não for a palavra de ativação, reinicia a escuta para a próxima tentativa
+          startListening();
         }
       }
     };
@@ -348,16 +342,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
     else showError("Síntese de voz não suportada.");
 
-    startListening();
+    startListening(); // Inicia a escuta inicial
 
-    return () => {
-      assistantManuallyClosed.current = true;
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
-      stopSpeaking();
-    };
-  }, [isInitialized]);
+    return () => { stopListening(); stopSpeaking(); };
+  }, [isInitialized, isOpen, activationPhrase, welcomeMessage, powers, clientActions, systemVariables, imageToShow, urlToOpenInIframe]); // Adicionado urlToOpenInIframe às dependências
 
   const handleInit = () => {
     setIsInitialized(true);
@@ -382,7 +370,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           altText={imageToShow.altText}
           onClose={() => {
             setImageToShow(null);
-            startListening();
+            startListening(); // Reinicia a escuta ao fechar o modal de imagem
           }}
         />
       )}
@@ -391,7 +379,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           url={urlToOpenInIframe}
           onClose={() => {
             setUrlToOpenInIframe(null);
-            startListening();
+            startListening(); // Reinicia a escuta ao fechar o modal de iframe
           }}
         />
       )}
