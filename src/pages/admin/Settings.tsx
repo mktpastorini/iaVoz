@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -20,6 +20,15 @@ import { Button } from "@/components/ui/button";
 import { useSession } from "@/contexts/SessionContext";
 import { supabase } from "@/integrations/supabase/client";
 import { showSuccess, showError } from "@/utils/toast";
+import { FieldInsertPopover } from "@/components/FieldInsertPopover"; // Importar o novo componente
+
+// Interface para o tipo de dado do campo do usuário (repetida para clareza aqui)
+interface UserDataField {
+  id: string;
+  name: string;
+  description: string | null;
+  type: 'string' | 'number' | 'boolean';
+}
 
 const settingsSchema = z.object({
   system_prompt: z.string().min(10, "Prompt do sistema é obrigatório"),
@@ -33,7 +42,7 @@ const settingsSchema = z.object({
   conversation_memory_length: z.number().min(0).max(10),
   activation_phrase: z.string().min(1, "Frase de ativação é obrigatória"),
   welcome_message: z.string().optional().nullable(),
-  continuation_phrase: z.string().optional().nullable(), // Novo campo
+  continuation_phrase: z.string().optional().nullable(),
 });
 
 type SettingsFormData = z.infer<typeof settingsSchema>;
@@ -52,10 +61,9 @@ const defaultValues: SettingsFormData = {
   conversation_memory_length: 5,
   activation_phrase: "ativar",
   welcome_message: "Bem-vindo ao site! Diga 'ativar' para começar a conversar.",
-  continuation_phrase: "Pode falar.", // Valor padrão
+  continuation_phrase: "Pode falar.",
 };
 
-// Lista corrigida de vozes OpenAI TTS válidas para o parâmetro 'voice' da API
 const OPENAI_TTS_VOICES = [
   { value: "nova", label: "Nova" },
   { value: "shimmer", label: "Shimmer" },
@@ -71,6 +79,10 @@ const OPENAI_TTS_VOICES = [
 const SettingsPage: React.FC = () => {
   const { workspace, loading } = useSession();
   const [loadingSettings, setLoadingSettings] = useState(true);
+  const [userDataFields, setUserDataFields] = useState<UserDataField[]>([]); // Novo estado para campos de dados do usuário
+
+  const systemPromptRef = useRef<HTMLTextAreaElement>(null); // Ref para o textarea do prompt do sistema
+  const assistantPromptRef = useRef<HTMLTextAreaElement>(null); // Ref para o textarea do prompt do assistente
 
   const {
     control,
@@ -86,37 +98,57 @@ const SettingsPage: React.FC = () => {
 
   const voiceModel = watch("voice_model");
 
+  // Efeito para carregar as configurações e os campos de dados do usuário
   useEffect(() => {
-    if (!loading && workspace && workspace.id) {
+    const fetchSettingsAndFields = async () => {
+      if (!workspace?.id) return;
+
       setLoadingSettings(true);
-      supabase
+
+      // Fetch Settings
+      const { data: settingsData, error: settingsError } = await supabase
         .from("settings")
         .select("*")
         .eq("workspace_id", workspace.id)
-        .single()
-        .then(({ data, error }) => {
-          if (error && error.code !== "PGRST116") {
-            showError("Erro ao carregar configurações.");
-            console.error(error);
-            setLoadingSettings(false);
-            return;
-          }
-          if (data) {
-            setValue("system_prompt", data.system_prompt || defaultValues.system_prompt);
-            setValue("assistant_prompt", data.assistant_prompt || defaultValues.assistant_prompt);
-            setValue("ai_model", data.ai_model || defaultValues.ai_model);
-            setValue("voice_model", data.voice_model || defaultValues.voice_model);
-            setValue("openai_tts_voice", data.openai_tts_voice || defaultValues.openai_tts_voice);
-            setValue("voice_sensitivity", data.voice_sensitivity ?? defaultValues.voice_sensitivity);
-            setValue("openai_api_key", data.openai_api_key || defaultValues.openai_api_key);
-            setValue("gemini_api_key", data.gemini_api_key || defaultValues.gemini_api_key);
-            setValue("conversation_memory_length", data.conversation_memory_length ?? defaultValues.conversation_memory_length);
-            setValue("activation_phrase", data.activation_phrase || defaultValues.activation_phrase);
-            setValue("welcome_message", data.welcome_message || defaultValues.welcome_message);
-            setValue("continuation_phrase", data.continuation_phrase || defaultValues.continuation_phrase); // Novo campo
-          }
-          setLoadingSettings(false);
-        });
+        .single();
+
+      if (settingsError && settingsError.code !== "PGRST116") {
+        showError("Erro ao carregar configurações.");
+        console.error(settingsError);
+      } else if (settingsData) {
+        setValue("system_prompt", settingsData.system_prompt || defaultValues.system_prompt);
+        setValue("assistant_prompt", settingsData.assistant_prompt || defaultValues.assistant_prompt);
+        setValue("ai_model", settingsData.ai_model || defaultValues.ai_model);
+        setValue("voice_model", settingsData.voice_model || defaultValues.voice_model);
+        setValue("openai_tts_voice", settingsData.openai_tts_voice || defaultValues.openai_tts_voice);
+        setValue("voice_sensitivity", settingsData.voice_sensitivity ?? defaultValues.voice_sensitivity);
+        setValue("openai_api_key", settingsData.openai_api_key || defaultValues.openai_api_key);
+        setValue("gemini_api_key", settingsData.gemini_api_key || defaultValues.gemini_api_key);
+        setValue("conversation_memory_length", settingsData.conversation_memory_length ?? defaultValues.conversation_memory_length);
+        setValue("activation_phrase", settingsData.activation_phrase || defaultValues.activation_phrase);
+        setValue("welcome_message", settingsData.welcome_message || defaultValues.welcome_message);
+        setValue("continuation_phrase", settingsData.continuation_phrase || defaultValues.continuation_phrase);
+      }
+
+      // Fetch User Data Fields
+      const { data: fieldsData, error: fieldsError } = await supabase
+        .from('user_data_fields')
+        .select('id, name, description, type')
+        .eq('workspace_id', workspace.id)
+        .order('name', { ascending: true });
+
+      if (fieldsError) {
+        console.error("Erro ao carregar campos de dados do usuário:", fieldsError);
+        showError("Erro ao carregar campos de dados do usuário.");
+      } else {
+        setUserDataFields(fieldsData || []);
+      }
+
+      setLoadingSettings(false);
+    };
+
+    if (!loading && workspace) {
+      fetchSettingsAndFields();
     }
   }, [workspace, loading, setValue]);
 
@@ -140,7 +172,7 @@ const SettingsPage: React.FC = () => {
         conversation_memory_length: formData.conversation_memory_length,
         activation_phrase: formData.activation_phrase,
         welcome_message: formData.welcome_message || null,
-        continuation_phrase: formData.continuation_phrase || null, // Novo campo
+        continuation_phrase: formData.continuation_phrase || null,
       },
       { onConflict: "workspace_id" }
     );
@@ -151,6 +183,38 @@ const SettingsPage: React.FC = () => {
     } else {
       showSuccess("Configurações salvas com sucesso!");
     }
+  };
+
+  // Função para inserir texto na posição do cursor
+  const insertAtCursor = (textareaRef: React.RefObject<HTMLTextAreaElement>, textToInsert: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const value = textarea.value;
+
+    textarea.value = value.substring(0, start) + textToInsert + value.substring(end);
+
+    // Move o cursor para o final do texto inserido
+    textarea.selectionStart = textarea.selectionEnd = start + textToInsert.length;
+
+    // Dispara manualmente o evento 'input' para que o React Hook Form detecte a mudança
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  const handleInsertSystemPromptField = (fieldName: string) => {
+    const placeholder = `{${fieldName}}`;
+    insertAtCursor(systemPromptRef, placeholder);
+    // Atualiza o valor no React Hook Form
+    setValue("system_prompt", systemPromptRef.current?.value || "", { shouldValidate: true });
+  };
+
+  const handleInsertAssistantPromptField = (fieldName: string) => {
+    const placeholder = `{${fieldName}}`;
+    insertAtCursor(assistantPromptRef, placeholder);
+    // Atualiza o valor no React Hook Form
+    setValue("assistant_prompt", assistantPromptRef.current?.value || "", { shouldValidate: true });
   };
 
   if (loading || loadingSettings) {
@@ -200,10 +264,16 @@ const SettingsPage: React.FC = () => {
           <CardTitle>Prompt do Sistema</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="flex items-center mb-2">
+            <Label htmlFor="system_prompt" className="sr-only">Prompt do Sistema</Label>
+            <FieldInsertPopover fields={userDataFields} onInsert={handleInsertSystemPromptField} />
+          </div>
           <Textarea
+            id="system_prompt"
             {...register("system_prompt")}
             rows={3}
             placeholder="Prompt do sistema para a IA"
+            ref={systemPromptRef} // Anexar a ref
           />
           {errors.system_prompt && (
             <p className="text-destructive text-sm mt-1">{errors.system_prompt.message}</p>
@@ -216,10 +286,16 @@ const SettingsPage: React.FC = () => {
           <CardTitle>Prompt do Assistente</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="flex items-center mb-2">
+            <Label htmlFor="assistant_prompt" className="sr-only">Prompt do Assistente</Label>
+            <FieldInsertPopover fields={userDataFields} onInsert={handleInsertAssistantPromptField} />
+          </div>
           <Textarea
+            id="assistant_prompt"
             {...register("assistant_prompt")}
             rows={3}
             placeholder="Prompt do assistente para a IA"
+            ref={assistantPromptRef} // Anexar a ref
           />
           {errors.assistant_prompt && (
             <p className="text-destructive text-sm mt-1">{errors.assistant_prompt.message}</p>
