@@ -335,10 +335,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         console.log('[VA] No client action matched. Starting conversation turn.');
         runConversation(transcript);
       } else {
-        if (transcript.includes(settings!.activation_phrase.toLowerCase())) {
+        if (settings && transcript.includes(settings.activation_phrase.toLowerCase())) {
           console.log('[VA] Activation phrase detected. Opening assistant.');
           setIsOpen(true);
-          speak(settings!.welcome_message, startListening);
+          speak(settings.welcome_message, startListening);
         }
       }
     };
