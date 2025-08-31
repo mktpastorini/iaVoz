@@ -324,10 +324,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      const closePhrase = "fechar";
+      const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
 
       if (isOpen) {
-        if (transcript.includes(closePhrase)) {
+        if (closePhrases.some(phrase => transcript.includes(phrase))) {
           closeAssistant();
           return;
         }
