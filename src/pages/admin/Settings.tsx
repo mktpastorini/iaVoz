@@ -204,8 +204,11 @@ const SettingsPage: React.FC = () => {
     // Definir a posição do cursor após a atualização do DOM pelo React
     // Um pequeno atraso pode ser necessário para garantir que o DOM foi atualizado
     setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
+      // Re-check if the ref is still valid and points to an element
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
+      }
     }, 0);
   }, [getValues, setValue]);
 
@@ -269,17 +272,21 @@ const SettingsPage: React.FC = () => {
             <Label htmlFor="system_prompt" className="sr-only">Prompt do Sistema</Label>
             <FieldInsertPopover fields={userDataFields} onInsert={handleInsertSystemPromptField} />
           </div>
-          <Textarea
-            id="system_prompt"
-            {...register("system_prompt", {
-              // Combinar a ref do RHF com a sua ref personalizada
-              ref: (e) => {
-                systemPromptRef.current = e; // Sua ref personalizada
-                register("system_prompt").ref(e); // Ref interna do RHF
-              }
-            })}
-            rows={3}
-            placeholder="Prompt do sistema para a IA"
+          <Controller
+            control={control}
+            name="system_prompt"
+            render={({ field }) => (
+              <Textarea
+                id="system_prompt"
+                {...field} // Isso passa value, onChange, onBlur, e ref do RHF
+                rows={3}
+                placeholder="Prompt do sistema para a IA"
+                ref={(e) => {
+                  systemPromptRef.current = e; // Sua ref personalizada
+                  field.ref(e); // Ref interna do RHF
+                }}
+              />
+            )}
           />
           {errors.system_prompt && (
             <p className="text-destructive text-sm mt-1">{errors.system_prompt.message}</p>
@@ -296,17 +303,21 @@ const SettingsPage: React.FC = () => {
             <Label htmlFor="assistant_prompt" className="sr-only">Prompt do Assistente</Label>
             <FieldInsertPopover fields={userDataFields} onInsert={handleInsertAssistantPromptField} />
           </div>
-          <Textarea
-            id="assistant_prompt"
-            {...register("assistant_prompt", {
-              // Combinar a ref do RHF com a sua ref personalizada
-              ref: (e) => {
-                assistantPromptRef.current = e; // Sua ref personalizada
-                register("assistant_prompt").ref(e); // Ref interna do RHF
-              }
-            })}
-            rows={3}
-            placeholder="Prompt do assistente para a IA"
+          <Controller
+            control={control}
+            name="assistant_prompt"
+            render={({ field }) => (
+              <Textarea
+                id="assistant_prompt"
+                {...field} // Isso passa value, onChange, onBlur, e ref do RHF
+                rows={3}
+                placeholder="Prompt do assistente para a IA"
+                ref={(e) => {
+                  assistantPromptRef.current = e; // Sua ref personalizada
+                  field.ref(e); // Ref interna do RHF
+                }}
+              />
+            )}
           />
           {errors.assistant_prompt && (
             <p className="text-destructive text-sm mt-1">{errors.assistant_prompt.message}</p>
