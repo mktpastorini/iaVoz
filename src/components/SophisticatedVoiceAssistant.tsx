@@ -108,7 +108,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
   const startListening = useCallback(() => {
-    if (recognitionRef.current) {
+    if (recognitionRef.current && !isSpeakingRef.current) {
       try {
         recognitionRef.current.start();
       } catch (error) {
@@ -283,7 +283,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onstart = () => setIsListening(true);
     recognitionRef.current.onend = () => {
       setIsListening(false);
-      if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
+      if (!stopPermanentlyRef.current) {
         startListening();
       }
     };
@@ -392,7 +392,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       />
       {micPermission !== 'granted' && micPermission !== 'checking' && (
         <div className="fixed bottom-4 right-4 md:bottom-8 md:right-8 z-50">
-          <Button onClick={checkAndRequestMicPermission} size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 shadow-lg transform hover:scale-110 transition-transform duration-200 flex items-center justify-center">
+          <Button onClick={checkAndRequestMicPermission} size="lg" className="rounded-full w-16 h-16 md:w-20 md-h-20 bg-gradient-to-br from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 shadow-lg transform hover:scale-110 transition-transform duration-200 flex items-center justify-center">
             <Mic size={32} />
           </Button>
         </div>
