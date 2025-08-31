@@ -394,16 +394,21 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   };
 
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading) {
+      return;
+    }
     console.log('[VA] Configurações carregadas. Iniciando verificação de permissão.');
     checkAndRequestMicPermission();
+
     return () => {
       console.log('[VA] Desmontando componente. Limpando...');
       stopPermanentlyRef.current = true;
       recognitionRef.current?.abort();
-      if (synthRef.current?.speaking) synthRef.current.cancel();
+      if (synthRef.current?.speaking) {
+        synthRef.current.cancel();
+      }
     };
-  }, [isLoading, checkAndRequestMicPermission]);
+  }, [isLoading]); // A dependência agora é apenas `isLoading`
 
   useEffect(() => {
     if (workspace?.id) {
