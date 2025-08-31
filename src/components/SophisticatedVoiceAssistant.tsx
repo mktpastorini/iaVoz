@@ -140,8 +140,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     isSpeakingRef.current = false;
   }, []);
 
-  const speak = useCallback(async (text: string) => {
+  const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
     if (!text || !settings) {
+      onEndCallback?.();
       return;
     }
     console.log(`[VA] Preparando para falar: "${text}"`);
@@ -156,14 +157,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       hasSpokenOnceRef.current = true;
       setIsSpeaking(false);
       isSpeakingRef.current = false;
-      // A lógica de reinício agora é centralizada no onend do recognition
+      onEndCallback?.();
     };
 
     const useBrowserVoice = settings.voice_model === "browser" || !hasSpokenOnceRef.current;
 
     try {
       if (useBrowserVoice && synthRef.current) {
-        console.log('[VA] Usando o modelo de voz do navegador.');
+        console.log('[VA] Usando o modelo de voz do navegador (forçado na primeira vez se necessário).');
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
@@ -193,7 +194,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const runConversation = useCallback(async (userInput: string) => {
     if (!settings || !settings.openai_api_key) {
-      await speak("Chave API OpenAI não configurada.");
+      speak("Chave API OpenAI não configurada.", startListening);
       return;
     }
     console.log(`[VA] Executando conversa com entrada: "${userInput}"`);
@@ -249,38 +250,38 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const finalMessage = secondData.choices?.[0]?.message?.content;
         console.log('[VA] Resposta final recebida da OpenAI:', finalMessage);
         setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        await speak(finalMessage);
+        speak(finalMessage, startListening);
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        await speak(assistantMessage);
+        speak(assistantMessage, startListening);
       }
     } catch (error) {
       console.error('[VA] Erro no fluxo da conversa:', error);
-      await speak("Desculpe, ocorreu um erro.");
+      speak("Desculpe, ocorreu um erro.", startListening);
     }
   }, [settings, powers, systemVariables, messageHistory, speak, startListening, stopListening]);
 
-  const executeClientAction = useCallback(async (action: ClientAction) => {
+  const executeClientAction = useCallback((action: ClientAction) => {
     console.log(`[VA] Executando ação do cliente: ${action.action_type}`);
     stopListening();
     switch (action.action_type) {
       case 'OPEN_URL':
         if (action.action_payload.url) {
-          await speak(`Abrindo ${action.action_payload.url}`);
-          window.open(action.action_payload.url, '_blank');
+          speak(`Abrindo ${action.action_payload.url}`, () => {
+            window.open(action.action_payload.url, '_blank');
+            startListening();
+          });
         }
         break;
       case 'OPEN_IFRAME_URL':
         if (action.action_payload.url) {
-          await speak("Ok, abrindo conteúdo.");
-          setUrlToOpenInIframe(action.action_payload.url!);
+          speak("Ok, abrindo conteúdo.", () => setUrlToOpenInIframe(action.action_payload.url!));
         }
         break;
       case 'SHOW_IMAGE':
         if (action.action_payload.imageUrl) {
-          await speak("Claro, aqui está a imagem.");
-          setImageToShow(action.action_payload);
+          speak("Claro, aqui está a imagem.", () => setImageToShow(action.action_payload));
         }
         break;
     }
@@ -307,8 +308,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onend = () => {
       console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
-      if (!stopPermanentlyRef.current) {
-        // Lógica de reinicialização robusta com delay
+      if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
         setTimeout(() => startListening(), 250);
       }
     };
@@ -344,7 +344,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (settings && transcript.includes(settings.activation_phrase.toLowerCase())) {
           console.log('[VA] Frase de ativação detectada. Abrindo assistente.');
           setIsOpen(true);
-          speak(settings.welcome_message);
+          speak(settings.welcome_message, startListening);
         }
       }
     };
