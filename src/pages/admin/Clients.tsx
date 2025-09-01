@@ -26,6 +26,7 @@ import {
 interface Client {
   id: string;
   name: string;
+  client_code: string | null;
   email: string | null;
   whatsapp: string | null;
   city: string | null;
@@ -262,9 +263,17 @@ const ClientsPage: React.FC = () => {
             <Accordion type="single" collapsible className="w-full">
               {clients.map(client => (
                 <AccordionItem value={client.id} key={client.id}>
-                  <AccordionTrigger>{client.name}</AccordionTrigger>
+                  <AccordionTrigger>
+                    <div className="flex items-center">
+                      <span>{client.name}</span>
+                      <span className="text-xs font-mono text-muted-foreground ml-2 px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded">
+                        {client.client_code || 'Sem código'}
+                      </span>
+                    </div>
+                  </AccordionTrigger>
                   <AccordionContent>
                     <div className="space-y-2">
+                      <p><strong>Código:</strong> {client.client_code || 'N/A'}</p>
                       <p><strong>E-mail:</strong> {client.email || 'N/A'}</p>
                       <p><strong>WhatsApp:</strong> {client.whatsapp || 'N/A'}</p>
                       <p><strong>Cidade:</strong> {client.city || 'N/A'}</p>
