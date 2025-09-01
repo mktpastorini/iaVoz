@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { showSuccess, showError } from "@/utils/toast";
-import { supabase, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/contexts/SessionContext";
 import { useSystem } from "@/contexts/SystemContext";
 import { replacePlaceholders } from "@/lib/utils";
@@ -205,10 +205,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = () => { onEndCallback?.(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         audioRef.current.onerror = () => {
           console.error('[VA] HTMLAudioElement error playing TTS.');
-          onEndCallback?.();
+          onSpeechEnd();
           URL.revokeObjectURL(audioUrl);
         };
         await audioRef.current.play();
@@ -277,7 +277,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           let processedHeaders = power.headers ? JSON.parse(replacePlaceholders(JSON.stringify(power.headers), { ...currentSystemVariables, ...args })) : {};
           let processedBody = (power.body && (power.method === "POST" || power.method === "PUT" || power.method === "PATCH")) 
             ? JSON.parse(replacePlaceholders(JSON.stringify(power.body), { ...currentSystemVariables, ...args })) 
-            : args;
+            : args; // Passar args como body se não houver body pré-definido
 
           const supabaseAccessToken = currentSession?.access_token;
           if (!supabaseAccessToken) {
@@ -287,7 +287,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           const headersWithAuth = {
             ...processedHeaders,
             'Authorization': `Bearer ${supabaseAccessToken}`,
-            'apikey': SUPABASE_PUBLISHABLE_KEY,
           };
 
           const payload = { url: processedUrl, method: power.method, headers: headersWithAuth, body: processedBody };
@@ -364,8 +363,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     
     recognitionRef.current.onend = () => {
       setIsListening(false);
+      // Correção: Reinicia o reconhecimento para manter a escuta em segundo plano,
+      // a menos que tenha sido instruído a parar permanentemente.
       if (!stopPermanentlyRef.current) {
-        setTimeout(() => startListening(), 100);
+        setTimeout(() => startListening(), 100); // Pequeno delay para evitar loops de erro
       } else {
         console.log("[VA] Reconhecimento encerrado intencionalmente.");
       }
@@ -451,7 +452,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const handleAllowMic = async () => {
     setIsPermissionModalOpen(false);
-    unlockAudio();
+    unlockAudio(); // Desbloqueia o áudio na interação
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       setMicPermission('granted');
@@ -477,7 +478,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   };
 
   const handleManualActivation = useCallback(() => {
-    unlockAudio();
+    unlockAudio(); // Desbloqueia o áudio na interação
     if (isOpenRef.current) return;
 
     if (micPermission !== 'granted') {

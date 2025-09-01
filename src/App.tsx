@@ -12,7 +12,7 @@ import ConversationsPage from "./pages/admin/Conversations";
 import SystemPowersPage from "./pages/admin/SystemPowers";
 import ClientActionsPage from "./pages/admin/ClientActions";
 import UserDataFieldsPage from "./pages/admin/UserDataFields";
-import ClientsPage from "./pages/admin/Clients"; // Importar a nova página
+import ClientsPage from "./pages/admin/Clients";
 import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
@@ -30,19 +30,37 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// Mova a definição de GlobalVoiceAssistant para fora do componente App
+// Wrapper component to load workspace-specific settings for the voice assistant
 const GlobalVoiceAssistantWrapper = () => {
+  const { workspace } = useSession();
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchSettings = async () => {
-      const { data } = await supabase.from("settings").select("*").limit(1).single();
+      setLoading(true);
+      let query = supabase.from("settings").select("*");
+
+      if (workspace?.id) {
+        // If user is logged in, get their specific settings
+        query = query.eq('workspace_id', workspace.id);
+      } else {
+        // If user is not logged in (e.g., on the landing page), get the first available setting as default
+        query = query.limit(1);
+      }
+
+      const { data, error } = await query.single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows, which is fine
+          console.error("Error fetching settings:", error);
+      }
+      
       setSettings(data);
       setLoading(false);
     };
+
     fetchSettings();
-  }, []);
+  }, [workspace]); // Re-fetch when workspace changes
 
   return (
     <SophisticatedVoiceAssistant
@@ -75,11 +93,11 @@ const App = () => (
                   <Route path="system-powers" element={<SystemPowersPage />} />
                   <Route path="client-actions" element={<ClientActionsPage />} />
                   <Route path="user-data-fields" element={<UserDataFieldsPage />} />
-                  <Route path="clients" element={<ClientsPage />} /> {/* Nova rota */}
+                  <Route path="clients" element={<ClientsPage />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>
-              <GlobalVoiceAssistantWrapper /> {/* Use o componente movido aqui */}
+              <GlobalVoiceAssistantWrapper />
             </VoiceAssistantProvider>
           </SystemContextProvider>
         </SessionContextProvider>
