@@ -29,7 +29,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-const GlobalVoiceAssistant = () => {
+// Mova a definição de GlobalVoiceAssistant para fora do componente App
+const GlobalVoiceAssistantWrapper = () => {
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -76,7 +77,7 @@ const App = () => (
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>
-              <GlobalVoiceAssistant />
+              <GlobalVoiceAssistantWrapper /> {/* Use o componente movido aqui */}
             </VoiceAssistantProvider>
           </SystemContextProvider>
         </SessionContextProvider>
