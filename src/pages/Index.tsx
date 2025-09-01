@@ -8,7 +8,7 @@ const Index = () => {
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
       <header className="text-center mb-12">
         <h1 className="text-5xl md:text-7xl font-extrabold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-purple-600">
-          Inteligência Artificial por Voz
+          Intra - Assistente de Voz
         </h1>
         <p className="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto">
           Automatize tarefas, interaja com sistemas e obtenha informações em tempo real, tudo através de comandos de voz simples e intuitivos.
