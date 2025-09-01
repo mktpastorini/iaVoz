@@ -365,10 +365,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     
     recognitionRef.current.onend = () => {
       setIsListening(false);
-      // AQUI: Removido !isSpeakingRef.current para permitir o reinício mesmo se o assistente estiver falando
-      if (isOpenRef.current && !stopPermanentlyRef.current) { 
-        console.log("[VA] Reconhecimento encerrado, tentando reiniciar...");
-        setTimeout(() => startListening(), 100);
+      // Correção: Reinicia o reconhecimento para manter a escuta em segundo plano,
+      // a menos que tenha sido instruído a parar permanentemente.
+      if (!stopPermanentlyRef.current) {
+        setTimeout(() => startListening(), 100); // Pequeno delay para evitar loops de erro
       } else {
         console.log("[VA] Reconhecimento encerrado intencionalmente.");
       }
