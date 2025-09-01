@@ -84,7 +84,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   settings,
   isLoading,
 }) => {
-  const { workspace, session } = useSession();
+  const { workspace } = useSession();
   const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
 
@@ -104,16 +104,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [conversationId, setConversationId] = useState<string | null>(null);
 
   const settingsRef = useRef(settings);
-  const isOpenRef = useRef(isOpen);
-  const isListeningRef = useRef(isListening);
-  const isSpeakingRef = useRef(isSpeaking);
-  const hasBeenActivatedRef = useRef(hasBeenActivated);
-  const powersRef = useRef(powers);
-  const clientActionsRef = useRef(clientActions);
-  const messageHistoryRef = useRef(messageHistory);
-  const systemVariablesRef = useRef(systemVariables);
-  const sessionRef = useRef(session);
-  const conversationIdRef = useRef(conversationId);
+  const stateRef = useRef({
+    isOpen, isListening, isSpeaking, hasBeenActivated, powers, clientActions, messageHistory, systemVariables, conversationId
+  });
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -126,19 +119,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
-  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
-  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
-  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
-  useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
-  useEffect(() => { powersRef.current = powers; }, [powers]);
-  useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
-  useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
-  useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
-  useEffect(() => { sessionRef.current = session; }, [session]);
-  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
+  useEffect(() => {
+    stateRef.current = { isOpen, isListening, isSpeaking, hasBeenActivated, powers, clientActions, messageHistory, systemVariables, conversationId };
+  }, [isOpen, isListening, isSpeaking, hasBeenActivated, powers, clientActions, messageHistory, systemVariables, conversationId]);
 
   const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) {
+    if (recognitionRef.current && !stateRef.current.isListening && !stateRef.current.isSpeaking) {
       try {
         recognitionRef.current.start();
       } catch (error) {
@@ -150,7 +136,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, []);
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current && isListeningRef.current) {
+    if (recognitionRef.current && stateRef.current.isListening) {
       recognitionRef.current.stop();
     }
   }, []);
@@ -181,7 +167,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     const onSpeechEnd = () => {
       setIsSpeaking(false);
       onEndCallback?.();
-      if (isOpenRef.current) {
+      if (stateRef.current.isOpen) {
         startListening();
       }
     };
@@ -223,14 +209,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [stopSpeaking, stopListening, startListening]);
 
   const saveMessage = useCallback(async (message: Message) => {
-    if (!conversationIdRef.current) {
+    if (!stateRef.current.conversationId) {
       console.error("[VA] Tentativa de salvar mensagem sem ID de conversa.");
       return;
     }
     const { error } = await supabase.from('messages').insert({
-      conversation_id: conversationIdRef.current,
+      conversation_id: stateRef.current.conversationId,
       role: message.role,
-      content: message, // Salva o objeto de mensagem inteiro no campo JSONB
+      content: message,
     });
     if (error) {
       console.error("[VA] Erro ao salvar mensagem no banco de dados:", error);
@@ -240,9 +226,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const runConversation = useCallback(async (userInput: string) => {
     const currentSettings = settingsRef.current;
-    const currentPowers = powersRef.current;
-    const currentSystemVariables = systemVariablesRef.current;
-
     if (!currentSettings || !currentSettings.openai_api_key) {
       speak("Chave API OpenAI não configurada.");
       return;
@@ -252,11 +235,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setAiResponse("Pensando...");
     
     const userMessage: Message = { role: "user", content: userInput };
-    const newHistory = [...messageHistoryRef.current, userMessage];
+    const newHistory = [...stateRef.current.messageHistory, userMessage];
     setMessageHistory(newHistory);
     await saveMessage(userMessage);
 
-    const tools = currentPowers.map(p => ({ type: 'function' as const, function: { name: p.name, description: p.description, parameters: p.parameters_schema } }));
+    const tools = stateRef.current.powers.map(p => ({ type: 'function' as const, function: { name: p.name, description: p.description, parameters: p.parameters_schema } }));
     
     const messagesForApi = [
       { role: "system" as const, content: currentSettings.system_prompt },
@@ -284,39 +267,35 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         await saveMessage(responseMessage);
 
         const toolOutputs = await Promise.all(responseMessage.tool_calls.map(async (toolCall: any) => {
-          const power = currentPowers.find(p => p.name === toolCall.function.name);
-          if (!power) {
-            return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: 'Poder não encontrado.' };
-          }
+          const power = stateRef.current.powers.find(p => p.name === toolCall.function.name);
+          if (!power) return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: 'Poder não encontrado.' };
           
           const args = JSON.parse(toolCall.function.arguments);
+          const allVars = { ...stateRef.current.systemVariables, ...args };
           
-          let processedUrl = replacePlaceholders(power.url || '', { ...currentSystemVariables, ...args });
-          let processedHeaders = power.headers ? JSON.parse(replacePlaceholders(JSON.stringify(power.headers), { ...currentSystemVariables, ...args })) : {};
+          let processedUrl = replacePlaceholders(power.url || '', allVars);
+          let processedHeaders = power.headers ? JSON.parse(replacePlaceholders(JSON.stringify(power.headers), allVars)) : {};
           let processedBody = (power.body && (power.method === "POST" || power.method === "PUT" || power.method === "PATCH")) 
-            ? JSON.parse(replacePlaceholders(JSON.stringify(power.body), { ...currentSystemVariables, ...args })) 
+            ? JSON.parse(replacePlaceholders(JSON.stringify(power.body), allVars)) 
             : args;
 
           const payload = { url: processedUrl, method: power.method, headers: processedHeaders, body: processedBody };
-          
           const { data, error } = await supabase.functions.invoke('proxy-api', { body: payload });
           
           if (error || (data && !data.ok)) {
             console.error(`[VA] Erro ao invocar poder '${power.name}':`, error || data.data);
-            return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: JSON.stringify({ error: (error?.message || data?.data?.error || 'Erro desconhecido na execução do poder.') }) };
+            return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: JSON.stringify({ error: (error?.message || data?.data?.error || 'Erro na execução do poder.') }) };
           }
           return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: JSON.stringify(data.data) };
         }));
 
-        for (const output of toolOutputs) {
-          await saveMessage(output);
-        }
+        for (const output of toolOutputs) { await saveMessage(output); }
         setMessageHistory(prev => [...prev, ...toolOutputs]);
         
         const secondResponse = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-          body: JSON.stringify({ model: currentSettings.ai_model, messages: [...messageHistoryRef.current] }),
+          body: JSON.stringify({ model: currentSettings.ai_model, messages: [...stateRef.current.messageHistory, ...toolOutputs] }),
         });
         if (!secondResponse.ok) throw new Error("Erro na 2ª chamada OpenAI");
         const secondData = await secondResponse.json();
@@ -340,169 +319,16 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     stopListening();
     switch (action.action_type) {
       case 'OPEN_URL':
-        if (action.action_payload.url) {
-          speak(`Abrindo ${action.action_payload.url}`, () => {
-            window.open(action.action_payload.url, '_blank');
-          });
-        }
+        if (action.action_payload.url) speak(`Abrindo ${action.action_payload.url}`, () => window.open(action.action_payload.url, '_blank'));
         break;
       case 'OPEN_IFRAME_URL':
-        if (action.action_payload.url) {
-          speak("Ok, abrindo conteúdo.", () => setUrlToOpenInIframe(action.action_payload.url!));
-        }
+        if (action.action_payload.url) speak("Ok, abrindo conteúdo.", () => setUrlToOpenInIframe(action.action_payload.url!));
         break;
       case 'SHOW_IMAGE':
-        if (action.action_payload.imageUrl) {
-          speak("Claro, aqui está a imagem.", () => setImageToShow(action.action_payload));
-        }
+        if (action.action_payload.imageUrl) speak("Claro, aqui está a imagem.", () => setImageToShow(action.action_payload));
         break;
     }
   }, [speak, stopListening]);
-
-  const initializeAssistant = useCallback(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      showError("Reconhecimento de voz não suportado.");
-      setMicPermission('denied');
-      return;
-    }
-    recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = true;
-    recognitionRef.current.interimResults = false;
-    recognitionRef.current.lang = "pt-BR";
-
-    recognitionRef.current.onstart = () => setIsListening(true);
-    
-    recognitionRef.current.onend = () => {
-      setIsListening(false);
-      // Apenas reinicia se o microfone não foi parado intencionalmente para falar ou para fechar.
-      if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
-        // Um pequeno delay para evitar reinícios frenéticos em alguns navegadores ou em caso de erros.
-        setTimeout(() => startListening(), 250);
-      }
-    };
-
-    recognitionRef.current.onerror = (e) => {
-      if (e.error !== 'no-speech' && e.error !== 'aborted') {
-        console.error(`[VA] Erro no reconhecimento de voz: ${e.error}`);
-      }
-      setIsListening(false);
-    };
-    
-    recognitionRef.current.onresult = (event) => {
-      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
-
-      if (isOpenRef.current) {
-        if (closePhrases.some(phrase => transcript.includes(phrase))) {
-          setIsOpen(false);
-          setAiResponse("");
-          setTranscript("");
-          stopSpeaking();
-          stopListening();
-          return;
-        }
-        const matchedAction = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase));
-        if (matchedAction) {
-          executeClientAction(matchedAction);
-          return;
-        }
-        runConversation(transcript);
-      } else {
-        if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
-          setIsOpen(true);
-          const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
-            ? settingsRef.current.continuation_phrase
-            : settingsRef.current.welcome_message;
-          
-          speak(messageToSpeak || "");
-          setHasBeenActivated(true);
-        }
-      }
-    };
-
-    if ("speechSynthesis" in window) {
-      synthRef.current = window.speechSynthesis;
-    } else {
-      showError("Síntese de voz não suportada.");
-    }
-  }, [speak, startListening, stopSpeaking, stopListening, runConversation, executeClientAction, setIsOpen, setAiResponse, setTranscript, setHasBeenActivated]);
-
-  const checkAndRequestMicPermission = useCallback(async () => {
-    try {
-      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-      setMicPermission(permissionStatus.state);
-
-      if (permissionStatus.state === 'granted') {
-        initializeAssistant();
-        startListening();
-      } else if (permissionStatus.state === 'prompt') {
-        setIsPermissionModalOpen(true);
-      } else {
-        showError("Permissão para microfone negada. Habilite nas configurações do seu navegador.");
-      }
-      permissionStatus.onchange = () => {
-        setMicPermission(permissionStatus.state);
-        if (permissionStatus.state === 'granted') {
-          initializeAssistant();
-          startListening();
-        }
-      };
-    } catch (error) {
-      showError("Não foi possível verificar a permissão do microfone.");
-    }
-  }, [initializeAssistant, startListening]);
-
-  const unlockAudio = () => {
-    if (audioContextUnlocked.current) return;
-    const sound = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
-    sound.play().catch(() => {});
-    audioContextUnlocked.current = true;
-  };
-
-  const handleAllowMic = async () => {
-    setIsPermissionModalOpen(false);
-    unlockAudio();
-    try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      setMicPermission('granted');
-      initializeAssistant();
-
-      if (activationRequestedViaButton.current) {
-        activationRequestedViaButton.current = false;
-        setTimeout(() => {
-          setIsOpen(true);
-          const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current?.continuation_phrase
-            ? settingsRef.current.continuation_phrase
-            : settingsRef.current?.welcome_message;
-          speak(messageToSpeak);
-          setHasBeenActivated(true);
-        }, 100);
-      } else {
-        startListening();
-      }
-    } catch (error) {
-      setMicPermission('denied');
-      showError("Você precisa permitir o uso do microfone para continuar.");
-    }
-  };
-
-  const handleManualActivation = useCallback(() => {
-    unlockAudio();
-    if (isOpenRef.current) return;
-
-    if (micPermission !== 'granted') {
-      activationRequestedViaButton.current = true;
-      checkAndRequestMicPermission();
-    } else {
-      setIsOpen(true);
-      const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current?.continuation_phrase
-        ? settingsRef.current.continuation_phrase
-        : settingsRef.current?.welcome_message;
-      speak(messageToSpeak);
-      setHasBeenActivated(true);
-    }
-  }, [micPermission, checkAndRequestMicPermission, speak, setIsOpen, setHasBeenActivated]);
 
   const startOrResumeConversation = useCallback(async () => {
     if (!workspace?.id) return;
@@ -511,10 +337,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     if (storedConversationId) {
       const { data, error } = await supabase.from('conversations').select('id').eq('id', storedConversationId).eq('workspace_id', workspace.id).single();
       if (data && !error) {
-        const { data: messagesData, error: messagesError } = await supabase.from('messages').select('content').eq('conversation_id', storedConversationId).order('created_at', { ascending: true });
-        if (messagesData) {
-          setMessageHistory(messagesData.map(m => m.content));
-        }
+        const { data: messagesData } = await supabase.from('messages').select('content').eq('conversation_id', storedConversationId).order('created_at', { ascending: true });
+        if (messagesData) setMessageHistory(messagesData.map(m => m.content));
         setConversationId(storedConversationId);
         showSuccess("Conversa anterior restaurada.");
         return;
@@ -531,6 +355,108 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error(error);
     }
   }, [workspace]);
+
+  const handleManualActivation = useCallback(() => {
+    unlockAudio();
+    if (stateRef.current.isOpen) return;
+
+    const activate = () => {
+      setIsOpen(true);
+      const messageToSpeak = stateRef.current.hasBeenActivated && settingsRef.current?.continuation_phrase
+        ? settingsRef.current.continuation_phrase
+        : settingsRef.current?.welcome_message;
+      speak(messageToSpeak);
+      setHasBeenActivated(true);
+    };
+
+    if (micPermission !== 'granted') {
+      activationRequestedViaButton.current = true;
+      setIsPermissionModalOpen(true);
+    } else {
+      activate();
+    }
+  }, [micPermission, speak]);
+
+  useEffect(() => {
+    const initialize = () => {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) return;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = "pt-BR";
+      recognitionRef.current.onstart = () => setIsListening(true);
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+        if (!stopPermanentlyRef.current) {
+          setTimeout(() => startListening(), 100);
+        }
+      };
+      recognitionRef.current.onerror = (e) => {
+        if (e.error !== 'no-speech' && e.error !== 'aborted') console.error(`[VA] Erro no reconhecimento: ${e.error}`);
+        setIsListening(false);
+      };
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+        const closePhrases = ["fechar", "encerrar", "desligar", "cancelar"];
+        if (stateRef.current.isOpen) {
+          if (closePhrases.some(p => transcript.includes(p))) {
+            setIsOpen(false);
+            setAiResponse("");
+            setTranscript("");
+            stopSpeaking();
+            stopListening();
+            return;
+          }
+          const action = stateRef.current.clientActions.find(a => transcript.includes(a.trigger_phrase));
+          if (action) executeClientAction(action);
+          else runConversation(transcript);
+        } else if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
+          handleManualActivation();
+        }
+      };
+      if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
+    };
+
+    const checkPermission = async () => {
+      try {
+        const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        setMicPermission(permission.state);
+        if (permission.state === 'granted') {
+          initialize();
+          startListening();
+        }
+        permission.onchange = () => {
+          if (permission.state === 'granted' && !recognitionRef.current) {
+            initialize();
+            startListening();
+          }
+          setMicPermission(permission.state);
+        };
+      } catch { showError("Não foi possível verificar permissão do microfone."); }
+    };
+
+    if (!isLoading) {
+      checkPermission();
+    }
+    return () => {
+      stopPermanentlyRef.current = true;
+      recognitionRef.current?.abort();
+      if (synthRef.current?.speaking) synthRef.current.cancel();
+    };
+  }, [isLoading, startListening, stopListening, stopSpeaking, runConversation, executeClientAction, handleManualActivation]);
+
+  const handleAllowMic = useCallback(async () => {
+    setIsPermissionModalOpen(false);
+    unlockAudio();
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (activationRequestedViaButton.current) {
+        activationRequestedViaButton.current = false;
+        handleManualActivation();
+      }
+    } catch { showError("Você precisa permitir o uso do microfone."); }
+  }, [handleManualActivation]);
 
   const handleNewConversation = useCallback(() => {
     localStorage.removeItem('conversation_id');
@@ -550,100 +476,55 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [activationTrigger, handleManualActivation]);
 
   useEffect(() => {
-    if (isLoading) return;
-    checkAndRequestMicPermission();
-    return () => {
-      stopPermanentlyRef.current = true;
-      recognitionRef.current?.abort();
-      if (synthRef.current?.speaking) synthRef.current.cancel();
-    };
-  }, [isLoading, checkAndRequestMicPermission]);
-
-  useEffect(() => {
-    if (workspace?.id && !conversationId) {
-      startOrResumeConversation();
-    }
+    if (workspace?.id && !conversationId) startOrResumeConversation();
   }, [workspace, conversationId, startOrResumeConversation]);
 
   useEffect(() => {
     if (workspace?.id) {
       const fetchPowers = async () => {
         const { data, error } = await supabase.from('powers').select('*').eq('workspace_id', workspace.id);
-        if (error) showError("Erro ao carregar os poderes da IA.");
-        else setPowers(data || []);
+        if (error) showError("Erro ao carregar poderes."); else setPowers(data || []);
       };
       const fetchClientActions = async () => {
         const { data, error } = await supabase.from('client_actions').select('*').eq('workspace_id', workspace.id);
-        if (error) showError("Erro ao carregar ações do cliente.");
-        else setClientActions(data || []);
+        if (error) showError("Erro ao carregar ações."); else setClientActions(data || []);
       };
       fetchPowers();
       fetchClientActions();
     }
   }, [workspace]);
 
-  if (isLoading || !settings) {
-    return null;
-  }
+  const unlockAudio = () => {
+    if (audioContextUnlocked.current) return;
+    const sound = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
+    sound.play().catch(() => {});
+    audioContextUnlocked.current = true;
+  };
+
+  if (isLoading || !settings) return null;
 
   return (
     <>
-      <MicrophonePermissionModal
-        isOpen={isPermissionModalOpen}
-        onAllow={handleAllowMic}
-        onClose={() => setIsPermissionModalOpen(false)}
-      />
+      <MicrophonePermissionModal isOpen={isPermissionModalOpen} onAllow={handleAllowMic} onClose={() => setIsPermissionModalOpen(false)} />
       {micPermission !== 'granted' && micPermission !== 'checking' && (
         <div className="fixed bottom-4 right-4 md:bottom-8 md:right-8 z-50">
-          <Button onClick={checkAndRequestMicPermission} size="lg" className="rounded-full w-16 h-16 md:w-20 md-h-20 bg-gradient-to-br from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 shadow-lg transform hover:scale-110 transition-transform duration-200 flex items-center justify-center">
+          <Button onClick={handleManualActivation} size="lg" className="rounded-full w-16 h-16 md:w-20 md-h-20 bg-gradient-to-br from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 shadow-lg transform hover:scale-110 transition-transform duration-200 flex items-center justify-center">
             <Mic size={32} />
           </Button>
         </div>
       )}
-      {imageToShow && (
-        <ImageModal
-          imageUrl={imageToShow.imageUrl!}
-          altText={imageToShow.altText}
-          onClose={() => {
-            setImageToShow(null);
-            startListening();
-          }}
-        />
-      )}
-      {urlToOpenInIframe && (
-        <UrlIframeModal
-          url={urlToOpenInIframe}
-          onClose={() => {
-            setUrlToOpenInIframe(null);
-            startListening();
-          }}
-        />
-      )}
-      <div className={cn(
-        "fixed inset-0 z-50 flex flex-col items-center justify-center p-4 md:p-8 transition-all duration-500",
-        isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
-      )}>
+      {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl!} altText={imageToShow.altText} onClose={() => { setImageToShow(null); startListening(); }} />}
+      {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
+      <div className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center p-4 md:p-8 transition-all duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
         <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={() => setIsOpen(false)}></div>
-        
         <div className="absolute top-4 right-4 z-20 flex space-x-2">
-          <Button variant="outline" size="icon" onClick={handleNewConversation} title="Nova Conversa">
-            <PlusSquare className="h-5 w-5" />
-          </Button>
-          <Button variant="destructive" size="icon" onClick={() => setIsOpen(false)} title="Fechar Assistente">
-            <X className="h-5 w-5" />
-          </Button>
+          <Button variant="outline" size="icon" onClick={handleNewConversation} title="Nova Conversa"><PlusSquare className="h-5 w-5" /></Button>
+          <Button variant="destructive" size="icon" onClick={() => setIsOpen(false)} title="Fechar Assistente"><X className="h-5 w-5" /></Button>
         </div>
-
         <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
-          <div className="flex-grow flex items-center justify-center">
-            <p className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">
-              {displayedAiResponse}
-            </p>
-          </div>
+          <div className="flex-grow flex items-center justify-center"><p className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">{displayedAiResponse}</p></div>
           <AudioVisualizer isSpeaking={isSpeaking} />
-          <div className="h-16">
-            <p className="text-gray-400 text-lg md:text-xl">{transcript}</p>
-          </div>
+          <div className="h-16"><p className="text-gray-400 text-lg md:text-xl">{transcript}</p></div>
         </div>
       </div>
     </>
