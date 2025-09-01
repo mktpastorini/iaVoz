@@ -382,11 +382,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onend = () => {
       console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
-      // Com continuous: true, onend só deve ser chamado em caso de erro ou stop explícito.
-      // Se parar inesperadamente (ex: erro), tentamos reiniciar se o assistente estiver aberto.
-      if (isOpenRef.current && !isSpeakingRef.current) {
-        console.log('[VA] Assistente aberto e não falando. Tentando reiniciar escuta após onend inesperado.');
-        startListening();
+      // Apenas reinicia se o assistente estiver aberto, não falando, e não tiver sido parado permanentemente.
+      if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+        console.log('[VA] Reiniciando escuta após onend...');
+        // Usa um pequeno timeout para evitar condições de corrida com o motor de reconhecimento do navegador.
+        setTimeout(() => startListening(), 100);
       }
     };
     recognitionRef.current.onerror = (e) => {
@@ -394,11 +394,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         console.error(`[VA] Erro no reconhecimento de voz: ${e.error}`);
       }
       setIsListening(false); // Garante que o estado de escuta seja atualizado em caso de erro
-      // Se o erro não for 'aborted' (que acontece ao chamar stop()), podemos tentar reiniciar
-      if (e.error !== 'aborted' && isOpenRef.current && !isSpeakingRef.current) {
-        console.log('[VA] Erro no reconhecimento, tentando reiniciar escuta...');
-        startListening();
-      }
     };
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
@@ -447,9 +442,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     } else {
       showError("Síntese de voz não suportada.");
     }
-
-    // Não iniciar a escuta aqui, será iniciada após a permissão ou ativação manual
-    // startListening(); 
   }, [speak, startListening, stopSpeaking, stopListening, runConversation, executeClientAction, setIsOpen, setAiResponse, setTranscript, setHasBeenActivated]); // Depende apenas de funções estáveis e setters de estado
 
   const checkAndRequestMicPermission = useCallback(async () => {
