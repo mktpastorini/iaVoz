@@ -384,12 +384,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         runConversation(transcript);
       } else {
         if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
+          // **NOVA LÓGICA DE ATIVAÇÃO**
           setIsOpen(true);
-          const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
+          const messageToDisplay = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
             ? settingsRef.current.continuation_phrase
             : settingsRef.current.welcome_message;
-          speak(messageToSpeak, startListening);
+          
+          setAiResponse(messageToDisplay || ""); // Apenas mostra a mensagem
           setHasBeenActivated(true);
+          // A escuta será reiniciada automaticamente pelo onend da detecção atual
         }
       }
     };
