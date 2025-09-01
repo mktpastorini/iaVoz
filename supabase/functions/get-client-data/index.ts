@@ -28,9 +28,9 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Invalid token' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { name } = await req.json();
-    if (!name) {
-      return new Response(JSON.stringify({ error: 'Client name is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const { name, client_code } = await req.json();
+    if (!name && !client_code) {
+      return new Response(JSON.stringify({ error: 'Client name or code is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     const { data: workspaceMember, error: wmError } = await supabaseClient
@@ -45,21 +45,26 @@ serve(async (req) => {
     }
     const workspaceId = workspaceMember.workspace_id;
 
-    // Busca o cliente pelo nome (case-insensitive) e seus campos customizados
-    const { data: client, error: findError } = await supabaseClient
+    let query = supabaseClient
       .from('clients')
       .select('*, client_field_values(value, user_data_fields(name))')
-      .eq('workspace_id', workspaceId)
-      .ilike('name', `%${name}%`) // Usando ilike para busca flexível
-      .limit(1)
-      .single();
+      .eq('workspace_id', workspaceId);
+
+    if (client_code) {
+      query = query.eq('client_code', client_code);
+    } else if (name) {
+      query = query.ilike('name', `%${name}%`);
+    }
+
+    const { data: client, error: findError } = await query.limit(1).single();
 
     if (findError && findError.code !== 'PGRST116') { // PGRST116 = no rows returned
       throw findError;
     }
 
     if (!client) {
-      return new Response(JSON.stringify({ message: `Nenhum cliente encontrado com o nome '${name}'.` }), {
+      const identifier = client_code ? `código '${client_code}'` : `nome '${name}'`;
+      return new Response(JSON.stringify({ message: `Nenhum cliente encontrado com o ${identifier}.` }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

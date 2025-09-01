@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { useSession } from "@/contexts/SessionContext";
 import { supabase } from "@/integrations/supabase/client";
 import { showSuccess, showError } from "@/utils/toast";
-import { FieldInsertPopover } from "@/components/FieldInsertPopover"; // Importar o novo componente
+import { FieldInsertPopover } from "@/components/FieldInsertPopover";
 
 // Interface para o tipo de dado do campo do usuário
 interface UserDataField {
@@ -56,7 +56,19 @@ type SettingsFormData = z.infer<typeof settingsSchema>;
 
 const defaultValues: SettingsFormData = {
   system_prompt:
-    "Você é Intra, a IA da Intratégica. Empresa de automações, desenvolvimento de IAs e sistemas.",
+    `Você é Intra, a IA da Intratégica.
+
+Regras de Clientes:
+- Clientes são identificados por um 'client_code' único (ex: CL000001) ou por 'name'. Sempre dê preferência ao 'client_code' se você o conhecer, pois é mais preciso.
+- Ao criar um novo cliente, um 'client_code' será gerado automaticamente. Informe o usuário sobre o código gerado.
+- Se o usuário fornecer informações de um cliente em partes, colete todos os detalhes antes de chamar 'save_client_data'.
+- Ao chamar 'save_client_data', inclua TODAS as informações do cliente que você coletou na conversa.
+
+Ferramentas Disponíveis (Poderes):
+- get_client_data: Use para buscar um cliente pelo 'client_code' ou 'name'.
+- save_client_data: Use para criar ou ATUALIZAR um cliente. Para atualizar, use o 'client_code' se souber, ou o 'name'.
+- get_user_field: Use para obter dados do usuário atual.
+- set_user_field: Use para salvar dados do usuário atual.`,
   assistant_prompt:
     "Você é um assistente amigável e profissional que ajuda agências de tecnologia a automatizar processos e criar soluções de IA personalizadas.",
   ai_model: "gpt-4o-mini",
@@ -87,7 +99,7 @@ const SettingsPage: React.FC = () => {
   const { workspace, loading } = useSession();
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [userDataFields, setUserDataFields] = useState<UserDataField[]>([]);
-  const [powers, setPowers] = useState<Power[]>([]); // Novo estado para poderes
+  const [powers, setPowers] = useState<Power[]>([]);
 
   const systemPromptRef = useRef<HTMLTextAreaElement>(null);
   const assistantPromptRef = useRef<HTMLTextAreaElement>(null);
@@ -188,7 +200,7 @@ const SettingsPage: React.FC = () => {
       // Fetch Powers
       const { data: powersData, error: powersError } = await supabase
         .from('powers')
-        .select('id, name, description') // Apenas os campos necessários para o popover
+        .select('id, name, description')
         .eq('workspace_id', workspace.id)
         .order('name', { ascending: true });
 
@@ -292,8 +304,8 @@ const SettingsPage: React.FC = () => {
         <CardContent>
           <div className="flex items-center mb-2">
             <Label htmlFor="system_prompt" className="sr-only">Prompt do Sistema</Label>
-            <FieldInsertPopover fields={userDataFields} onInsert={handleInsertSystemPromptField} />
-            <FieldInsertPopover fields={powers} onInsert={handleInsertSystemPromptPower} /> {/* Novo popover para poderes */}
+            <FieldInsertPopover fields={userDataFields} onInsert={handleInsertSystemPromptField} label="Inserir Campo" />
+            <FieldInsertPopover fields={powers} onInsert={handleInsertSystemPromptPower} label="Inserir Poder" />
           </div>
           <Controller
             control={control}
@@ -324,8 +336,8 @@ const SettingsPage: React.FC = () => {
         <CardContent>
           <div className="flex items-center mb-2">
             <Label htmlFor="assistant_prompt" className="sr-only">Prompt do Assistente</Label>
-            <FieldInsertPopover fields={userDataFields} onInsert={handleInsertAssistantPromptField} />
-            <FieldInsertPopover fields={powers} onInsert={handleInsertAssistantPromptPower} /> {/* Novo popover para poderes */}
+            <FieldInsertPopover fields={userDataFields} onInsert={handleInsertAssistantPromptField} label="Inserir Campo" />
+            <FieldInsertPopover fields={powers} onInsert={handleInsertAssistantPromptPower} label="Inserir Poder" />
           </div>
           <Controller
             control={control}

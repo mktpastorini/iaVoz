@@ -6,34 +6,33 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { PlusCircle } from 'lucide-react';
 
-// Interface para o tipo de dado do campo do usuário
-interface UserDataField {
+// Interface genérica para os itens do popover
+interface PopoverItem {
   id: string;
   name: string;
-  description: string | null;
-  type: 'string' | 'number' | 'boolean';
 }
 
 interface FieldInsertPopoverProps {
-  fields: UserDataField[];
+  fields: PopoverItem[];
   onInsert: (fieldName: string) => void;
+  label?: string; // Adicionar um label opcional para o botão
 }
 
-export const FieldInsertPopover: React.FC<FieldInsertPopoverProps> = ({ fields, onInsert }) => {
+export const FieldInsertPopover: React.FC<FieldInsertPopoverProps> = ({ fields, onInsert, label = "Inserir Campo" }) => {
   const [open, setOpen] = useState(false);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="ml-2 h-8">
-          <PlusCircle className="mr-2 h-4 w-4" /> Inserir Campo
+          <PlusCircle className="mr-2 h-4 w-4" /> {label}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[200px] p-0">
         <Command>
-          <CommandInput placeholder="Buscar campo..." />
+          <CommandInput placeholder="Buscar..." />
           <CommandList>
-            <CommandEmpty>Nenhum campo encontrado.</CommandEmpty>
+            <CommandEmpty>Nenhum item encontrado.</CommandEmpty>
             <CommandGroup>
               {fields.map((field) => (
                 <CommandItem
