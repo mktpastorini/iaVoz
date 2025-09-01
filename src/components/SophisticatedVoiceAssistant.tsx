@@ -173,14 +173,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     // Reordenar operações para evitar condição de corrida
     stopSpeaking();
     setIsSpeaking(true);
-    stopListening();
+    stopListening(); // Parar de ouvir antes de falar
     setAiResponse(text);
 
     const onSpeechEnd = () => {
       setIsSpeaking(false);
       onEndCallback?.();
       if (isOpenRef.current) {
-        startListening();
+        startListening(); // Reiniciar a escuta após a fala
       }
     };
 
@@ -365,7 +365,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     
     recognitionRef.current.onend = () => {
       setIsListening(false);
-      if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+      // AQUI: Removido !isSpeakingRef.current para permitir o reinício mesmo se o assistente estiver falando
+      if (isOpenRef.current && !stopPermanentlyRef.current) { 
         console.log("[VA] Reconhecimento encerrado, tentando reiniciar...");
         setTimeout(() => startListening(), 100);
       } else {
