@@ -141,9 +141,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       try {
         console.log('[VA] Tentando iniciar a escuta...');
         recognitionRef.current.start();
+        setIsListening(true); // Atualiza o estado imediatamente
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
           console.error("[VA] Erro ao iniciar reconhecimento:", error);
+        } else {
+          console.log("[VA] Reconhecimento já ativo ou em estado inválido, não reiniciando.");
         }
       }
     } else {
@@ -155,6 +158,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     if (recognitionRef.current && isListeningRef.current) {
       console.log('[VA] Parando a escuta...');
       recognitionRef.current.stop();
+      setIsListening(false); // Atualiza o estado imediatamente
     }
   }, []); // Sem dependências dinâmicas
 
@@ -191,7 +195,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       isSpeakingRef.current = false;
       onEndCallback?.();
       // After speaking, if the assistant is still open, restart listening
-      if (isOpenRef.current) {
+      if (isOpenRef.current && !stopPermanentlyRef.current) {
         console.log('[VA] Assistente aberto após fala, reiniciando escuta.');
         startListening();
       }
@@ -403,6 +407,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     if (!SpeechRecognition) {
       showError("Reconhecimento de voz não suportado.");
       setMicPermission('denied');
+      console.error('[VA] API de Reconhecimento de Fala não suportada neste navegador.');
       return;
     }
     recognitionRef.current = new SpeechRecognition();
@@ -425,8 +430,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onerror = (e) => {
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
         console.error(`[VA] Erro no reconhecimento de voz: ${e.error}`);
+      } else {
+        console.log(`[VA] Erro de reconhecimento de voz esperado: ${e.error}`);
       }
       setIsListening(false);
+      // Tenta reiniciar a escuta em caso de erro, a menos que seja uma parada permanente
+      if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+        console.log('[VA] Reiniciando escuta após erro...');
+        setTimeout(() => startListening(), 100);
+      }
     };
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
@@ -474,6 +486,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.log('[VA] Síntese de voz inicializada.');
     } else {
       showError("Síntese de voz não suportada.");
+      console.error('[VA] API de Síntese de Fala não suportada neste navegador.');
     }
   }, [speak, startListening, stopSpeaking, stopListening, runConversation, executeClientAction, setIsOpen, setAiResponse, setTranscript, setHasBeenActivated]);
 
@@ -486,12 +499,13 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
-        if (!isListeningRef.current) {
+        // Só inicia a escuta se o assistente não estiver aberto e não estiver falando
+        if (!isOpenRef.current && !isSpeakingRef.current) {
           startListening();
         }
       } else if (permissionStatus.state === 'prompt') {
         setIsPermissionModalOpen(true);
-      } else {
+      } else { // 'denied'
         showError("Permissão para microfone negada. Habilite nas configurações do seu navegador.");
       }
       permissionStatus.onchange = () => {
@@ -507,6 +521,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     } catch (error) {
       console.error("[VA] Erro ao verificar permissão do microfone:", error);
       showError("Não foi possível verificar a permissão do microfone.");
+      setMicPermission('denied'); // Assume denied if error
     }
   }, [initializeAssistant, startListening]);
 
