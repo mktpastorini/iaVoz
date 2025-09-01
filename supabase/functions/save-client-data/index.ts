@@ -75,9 +75,32 @@ serve(async (req) => {
       if (error) throw error;
       savedClient = data;
     } else {
-      const { data, error } = await supabaseClient.from('clients').insert(clientData).select('id, client_code').single();
-      if (error) throw error;
-      savedClient = data;
+      // Novo cliente: Adiciona lógica de re-tentativa para garantir código único
+      const MAX_RETRIES = 3;
+      for (let i = 0; i < MAX_RETRIES; i++) {
+        try {
+          // O client_code será gerado automaticamente pela função DEFAULT do banco de dados
+          const { data, error } = await supabaseClient.from('clients').insert(clientData).select('id, client_code').single();
+          if (error) {
+            // Se o erro for de violação de unicidade (código 23505), tenta novamente
+            if (error.code === '23505' && error.message.includes('clients_workspace_id_client_code_key')) {
+              console.warn(`[save-client-data] Código de cliente duplicado gerado, re-tentando... Tentativa ${i + 1}`);
+              continue; // Tenta novamente com um novo código gerado pelo DB
+            }
+            throw error; // Outro tipo de erro, re-lança
+          }
+          savedClient = data;
+          break; // Sucesso, sai do loop
+        } catch (e) {
+          if (i === MAX_RETRIES - 1) {
+            throw e; // Re-lança o erro se todas as re-tentativas falharem
+          }
+          // Para outros erros ou se for uma duplicata e não a última re-tentativa, continua
+        }
+      }
+      if (!savedClient) {
+        throw new Error('Falha ao criar cliente após múltiplas re-tentativas devido a código de cliente duplicado.');
+      }
     }
 
     if (custom_fields && typeof custom_fields === 'object' && Object.keys(custom_fields).length > 0) {
