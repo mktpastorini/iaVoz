@@ -216,7 +216,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     const currentSession = sessionRef.current;
 
     if (!currentSettings || !currentSettings.openai_api_key) {
-      speak("Chave API OpenAI não configurada.", startListening);
+      speak("Chave API OpenAI não configurada.");
       return;
     }
     stopListening();
@@ -302,17 +302,17 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const secondData = await secondResponse.json();
         const finalMessage = secondData.choices?.[0]?.message?.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        speak(finalMessage, startListening);
+        speak(finalMessage);
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        speak(assistantMessage, startListening);
+        speak(assistantMessage);
       }
     } catch (error) {
       console.error('[VA] Erro no fluxo da conversa:', error);
-      speak("Desculpe, ocorreu um erro.", startListening);
+      speak("Desculpe, ocorreu um erro.");
     }
-  }, [speak, startListening, stopListening, setMessageHistory]);
+  }, [speak, stopListening, setMessageHistory]);
 
   const executeClientAction = useCallback((action: ClientAction) => {
     stopListening();
@@ -321,7 +321,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (action.action_payload.url) {
           speak(`Abrindo ${action.action_payload.url}`, () => {
             window.open(action.action_payload.url, '_blank');
-            startListening();
           });
         }
         break;
@@ -336,7 +335,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         }
         break;
     }
-  }, [speak, startListening, stopListening]);
+  }, [speak, stopListening]);
 
   const initializeAssistant = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -384,15 +383,13 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         runConversation(transcript);
       } else {
         if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
-          // **NOVA LÓGICA DE ATIVAÇÃO**
           setIsOpen(true);
-          const messageToDisplay = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
+          const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
             ? settingsRef.current.continuation_phrase
             : settingsRef.current.welcome_message;
           
-          setAiResponse(messageToDisplay || ""); // Apenas mostra a mensagem
+          speak(messageToSpeak || "");
           setHasBeenActivated(true);
-          // A escuta será reiniciada automaticamente pelo onend da detecção atual
         }
       }
     };
@@ -451,7 +448,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current?.continuation_phrase
             ? settingsRef.current.continuation_phrase
             : settingsRef.current?.welcome_message;
-          speak(messageToSpeak, startListening);
+          speak(messageToSpeak);
           setHasBeenActivated(true);
         }, 100);
       } else {
@@ -475,10 +472,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current?.continuation_phrase
         ? settingsRef.current.continuation_phrase
         : settingsRef.current?.welcome_message;
-      speak(messageToSpeak, startListening);
+      speak(messageToSpeak);
       setHasBeenActivated(true);
     }
-  }, [micPermission, checkAndRequestMicPermission, speak, startListening, setIsOpen, setHasBeenActivated]);
+  }, [micPermission, checkAndRequestMicPermission, speak, setIsOpen, setHasBeenActivated]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
