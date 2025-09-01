@@ -169,9 +169,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       onEndCallback?.();
       return;
     }
-    stopListening();
+
+    // Reordenar operações para evitar condição de corrida
     stopSpeaking();
     setIsSpeaking(true);
+    stopListening();
     setAiResponse(text);
 
     const onSpeechEnd = () => {
@@ -187,6 +189,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
+        // Adicionar tratamento de erro robusto
         utterance.onerror = (event) => {
           console.error('[VA] SpeechSynthesisUtterance error:', event);
           onSpeechEnd();
