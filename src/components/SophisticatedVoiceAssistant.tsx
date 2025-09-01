@@ -105,7 +105,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   // Refs para estados e props dinâmicos
   const settingsRef = useRef(settings);
   const isOpenRef = useRef(isOpen);
-  const isListeningRef = useRef(isListening); // NEW: Ref for isListening
+  const isListeningRef = useRef(isListening);
   const isSpeakingRef = useRef(isSpeaking);
   const hasBeenActivatedRef = useRef(hasBeenActivated);
   const powersRef = useRef(powers);
@@ -126,7 +126,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   // Efeitos para sincronizar refs com estados/props
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
-  useEffect(() => { isListeningRef.current = isListening; }, [isListening]); // NEW: Sync isListening ref
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
   useEffect(() => { powersRef.current = powers; }, [powers]);
@@ -137,7 +137,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
 
   const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) { // Check isListeningRef
+    if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) {
       try {
         console.log('[VA] Tentando iniciar a escuta...');
         recognitionRef.current.start();
@@ -152,7 +152,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, []); // Sem dependências dinâmicas
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current && isListeningRef.current) { // Check isListeningRef
+    if (recognitionRef.current && isListeningRef.current) {
       console.log('[VA] Parando a escuta...');
       recognitionRef.current.stop();
     }
@@ -372,7 +372,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
     recognitionRef.current = new SpeechRecognition();
     recognitionRef.current.continuous = true; // Habilitar escuta contínua
-    recognitionRef.current.interimResults = false;
+    recognitionRef.current.interimResults = false; // Apenas resultados finais
     recognitionRef.current.lang = "pt-BR";
 
     recognitionRef.current.onstart = () => {
