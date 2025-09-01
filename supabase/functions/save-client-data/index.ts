@@ -28,7 +28,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Invalid token' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { name, email, whatsapp, city, state, custom_fields } = await req.json();
+    const { name, email, whatsapp, city, state, custom_fields, agendamento_solicitado } = await req.json();
     if (!name) {
       return new Response(JSON.stringify({ error: 'Client name is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -45,10 +45,9 @@ serve(async (req) => {
     }
     const workspaceId = workspaceMember.workspace_id;
 
-    // Tenta encontrar um cliente existente pelo nome
-    let { data: existingClient, error: findError } = await supabaseClient
+    let { data: existingClient } = await supabaseClient
       .from('clients')
-      .select('id')
+      .select('id, agendamento_solicitado') // Puxa o agendamento existente também
       .eq('workspace_id', workspaceId)
       .eq('name', name)
       .limit(1)
@@ -62,22 +61,20 @@ serve(async (req) => {
       whatsapp: whatsapp || existingClient?.whatsapp,
       city: city || existingClient?.city,
       state: state || existingClient?.state,
+      agendamento_solicitado: agendamento_solicitado || existingClient?.agendamento_solicitado, // Adiciona o novo campo
       updated_at: new Date().toISOString(),
     };
 
     if (existingClient) {
-      // Atualiza cliente existente
       const { data, error } = await supabaseClient.from('clients').update(clientData).eq('id', existingClient.id).select('id').single();
       if (error) throw error;
       clientId = data.id;
     } else {
-      // Cria novo cliente
       const { data, error } = await supabaseClient.from('clients').insert(clientData).select('id').single();
       if (error) throw error;
       clientId = data.id;
     }
 
-    // Processa campos customizados
     if (custom_fields && typeof custom_fields === 'object' && Object.keys(custom_fields).length > 0) {
       const { data: fieldDefs, error: fieldDefError } = await supabaseClient
         .from('user_data_fields')
