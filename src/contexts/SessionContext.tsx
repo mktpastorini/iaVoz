@@ -71,15 +71,16 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         lastUserIdRef.current = user.id;
 
         try {
+          // Using a more specific select to potentially avoid the 406 error
           const { data: profileData, error: profileError, status } = await supabase
             .from('profiles')
-            .select('*')
+            .select('id, first_name, last_name, avatar_url')
             .eq('id', user.id)
             .single();
 
           if (profileError) {
             if (profileError.code === 'PGRST116') {
-              // Nenhum perfil encontrado, não é erro crítico
+              // No profile found, not a critical error
               setProfile(null);
             } else {
               console.error('Error fetching profile:', profileError, 'Status:', status);
