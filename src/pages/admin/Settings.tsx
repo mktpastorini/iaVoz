@@ -60,11 +60,12 @@ const defaultValues: SettingsFormData = {
 
 Ferramentas Disponíveis (Poderes):
 - get_client_data: Use esta ferramenta para buscar informações sobre um cliente existente. Você precisa do nome do cliente. Parâmetro: "name" (string).
-- save_client_data: Use esta ferramenta para criar um novo cliente ou atualizar um existente. Você pode salvar nome, email, whatsapp, cidade, estado e campos personalizados.
-- get_user_field: Use para obter dados do usuário atual da conversa (ex: nome, email).
-- set_user_field: Use para salvar dados do usuário atual da conversa.
+- save_client_data: Use esta ferramenta para criar um novo cliente ou atualizar um existente. Você pode salvar nome, email, whatsapp, cidade, estado e campos personalizados. O nome é obrigatório. Para o nome da empresa, use o campo personalizado 'company_name' dentro de 'custom_fields'.
+- get_user_field: Use para obter dados específicos do usuário atual da conversa (ex: nome, email). Parâmetro: "field_name" (string).
+- set_user_field: Use para salvar dados específicos do usuário atual da conversa. Parâmetros: "field_name" (string) e "field_value" (string, number ou boolean).
 
-Sempre use essas ferramentas quando o usuário pedir para buscar, salvar ou interagir com dados de clientes. Seja proativo ao pedir as informações necessárias para usar as ferramentas.`,
+Sempre use essas ferramentas quando o usuário pedir para buscar, salvar ou interagir com dados de clientes ou do próprio usuário. Seja proativo ao pedir as informações necessárias para usar as ferramentas.
+Você também pode usar variáveis de sistema pré-carregadas em URLs, cabeçalhos ou corpos de requisição, como {ip_cliente}.`,
   assistant_prompt:
     "Você é um assistente amigável e profissional que ajuda agências de tecnologia a automatizar processos e criar soluções de IA personalizadas.",
   ai_model: "gpt-4o-mini",
