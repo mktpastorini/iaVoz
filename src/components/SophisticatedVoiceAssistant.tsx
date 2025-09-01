@@ -279,7 +279,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
             ? JSON.parse(replacePlaceholders(JSON.stringify(power.body), { ...currentSystemVariables, ...args })) 
             : args; // Passar args como body se não houver body pré-definido
 
-          // **FIX DE AUTENTICAÇÃO**
           const supabaseAccessToken = currentSession?.access_token;
           if (!supabaseAccessToken) {
             return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: 'Erro: Usuário não autenticado.' };
@@ -288,7 +287,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           const headersWithAuth = {
             ...processedHeaders,
             'Authorization': `Bearer ${supabaseAccessToken}`,
-            'apikey': supabase.functions.getHeaders()['apikey']
           };
 
           const payload = { url: processedUrl, method: power.method, headers: headersWithAuth, body: processedBody };
