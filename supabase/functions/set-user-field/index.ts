@@ -12,13 +12,6 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { 'x-client-info': 'supabase-edge-function' } } }
-    );
-
-    // Autenticação manual do usuário
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized: Missing Authorization header' }), {
@@ -27,8 +20,15 @@ serve(async (req) => {
       });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+    // Cria um cliente Supabase autenticado com o token do usuário
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    // Obtém o usuário a partir do cliente autenticado
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
 
     if (authError || !user) {
       console.error("[set-user-field] Auth error:", authError?.message);
@@ -47,7 +47,6 @@ serve(async (req) => {
       });
     }
 
-    // 1. Obter o workspace_id do usuário
     const { data: workspaceMember, error: wmError } = await supabaseClient
       .from('workspace_members')
       .select('workspace_id')
@@ -65,7 +64,6 @@ serve(async (req) => {
 
     const workspaceId = workspaceMember.workspace_id;
 
-    // 2. Encontrar a definição do campo de dados do usuário
     const { data: fieldDefinition, error: fieldDefError } = await supabaseClient
       .from('user_data_fields')
       .select('id, type')
@@ -82,7 +80,6 @@ serve(async (req) => {
       });
     }
 
-    // 3. Validar e formatar o valor de entrada
     let formattedValue: string;
     switch (fieldDefinition.type) {
       case 'number':
@@ -109,8 +106,7 @@ serve(async (req) => {
         break;
     }
 
-    // 4. Inserir ou atualizar o valor do campo para o usuário
-    const { data: upsertData, error: upsertError } = await supabaseClient
+    const { error: upsertError } = await supabaseClient
       .from('user_field_values')
       .upsert(
         {
@@ -119,7 +115,7 @@ serve(async (req) => {
           value: formattedValue,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: 'user_id,field_id' } // Conflito em user_id e field_id para atualizar
+        { onConflict: 'user_id,field_id' }
       );
 
     if (upsertError) {
