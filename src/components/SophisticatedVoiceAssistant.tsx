@@ -373,8 +373,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onend = () => {
       console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
-      if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
+      // NEW: Only restart if the assistant is currently open AND not speaking
+      if (isOpenRef.current && !isSpeakingRef.current) {
+        console.log('[VA] Assistente está aberto e não está falando. Reiniciando escuta...');
         startListening();
+      } else {
+        console.log('[VA] Não reiniciando escuta: assistente fechado ou falando.');
       }
     };
     recognitionRef.current.onerror = (e) => {
@@ -399,6 +403,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           setAiResponse("");
           setTranscript("");
           stopSpeaking();
+          stopListening(); // NEW: Explicitly stop listening when closing
           return;
         }
         const matchedAction = currentClientActions.find(a => transcript.includes(a.trigger_phrase));
