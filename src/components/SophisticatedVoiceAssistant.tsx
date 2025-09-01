@@ -567,3 +567,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       </div>
     </>
   );
+};
+
+export default SophisticatedVoiceAssistant;
