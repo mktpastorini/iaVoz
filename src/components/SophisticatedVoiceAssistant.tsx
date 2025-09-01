@@ -313,7 +313,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           const headersWithAuth = {
             ...processedHeaders,
             'Authorization': `Bearer ${supabaseAccessToken}`,
-            'apikey': supabase.functions.getHeaders()['apikey']
+            'apikey': supabase.anonKey // CORREÇÃO AQUI: Usando supabase.anonKey
           };
 
           const payload = { url: processedUrl, method: power.method, headers: headersWithAuth, body: processedBody };
@@ -403,7 +403,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         console.log("[VA] onend: Assistente aberto, tentando reiniciar escuta em 100ms...");
         // Adicionar um pequeno atraso para garantir que o estado isSpeaking seja totalmente atualizado no ref
         setTimeout(() => {
-          if (isOpenRef.current && !isSpeakingRef.current) {
+          if (isOpenRef.current && !isSpeakingRef.current) { // Verificar novamente antes de iniciar
             startListening();
           } else {
             console.log("[VA] onend: Não reiniciou a escuta (assistente fechado ou falando).");
