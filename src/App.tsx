@@ -38,17 +38,22 @@ const GlobalVoiceAssistantWrapper = () => {
 
   useEffect(() => {
     const fetchSettings = async () => {
-      // Don't fetch if there's no workspace
-      if (!workspace?.id) {
-        setLoading(false);
-        return;
+      setLoading(true);
+      let query = supabase.from("settings").select("*");
+
+      if (workspace?.id) {
+        // If user is logged in, get their specific settings
+        query = query.eq('workspace_id', workspace.id);
+      } else {
+        // If user is not logged in (e.g., on the landing page), get the first available setting as default
+        query = query.limit(1);
       }
-      // Fetch settings for the specific workspace
-      const { data } = await supabase
-        .from("settings")
-        .select("*")
-        .eq('workspace_id', workspace.id)
-        .single();
+
+      const { data, error } = await query.single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows, which is fine
+          console.error("Error fetching settings:", error);
+      }
       
       setSettings(data);
       setLoading(false);
@@ -56,9 +61,6 @@ const GlobalVoiceAssistantWrapper = () => {
 
     fetchSettings();
   }, [workspace]); // Re-fetch when workspace changes
-
-  // Don't render the assistant if still loading
-  if (loading) return null;
 
   return (
     <SophisticatedVoiceAssistant
