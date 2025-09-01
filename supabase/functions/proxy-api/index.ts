@@ -20,22 +20,12 @@ serve(async (req) => {
 
     const outgoingHeaders = new Headers(headers || {});
 
-    // **CORREÇÃO CRÍTICA:** Pega os cabeçalhos de autenticação da requisição original
-    // e os repassa para a requisição de destino. Isso conserta o erro 401 Unauthorized.
-    const authHeader = req.headers.get('Authorization');
-    const apiKeyHeader = req.headers.get('apikey');
-
-    if (authHeader) {
-      outgoingHeaders.set('Authorization', authHeader);
-    }
-    if (apiKeyHeader) {
-      outgoingHeaders.set('apikey', apiKeyHeader);
-    }
-
+    // Add a standard User-Agent header to appear as a browser
     if (!outgoingHeaders.has('User-Agent')) {
       outgoingHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
     }
 
+    // For GET requests, some servers reject a Content-Type header. Let's remove it.
     if (method.toUpperCase() === 'GET') {
       outgoingHeaders.delete('Content-Type');
     }
@@ -43,16 +33,21 @@ serve(async (req) => {
     const fetchOptions = {
       method,
       headers: outgoingHeaders,
+      // Ensure body is only sent for appropriate methods
       body: (method.toUpperCase() !== 'GET' && body) ? JSON.stringify(body) : undefined,
     };
 
+    console.log(`[Proxy-API] Fetching URL: ${url} with method: ${method}`); // Novo log
     const response = await fetch(url, fetchOptions);
     
     const responseText = await response.text();
+    console.log(`[Proxy-API] Raw responseText from ${url}:`, responseText); // Novo log
+
     let responseData;
     try {
       responseData = JSON.parse(responseText);
     } catch (e) {
+      console.warn(`[Proxy-API] Could not parse response as JSON for ${url}. Treating as plain text. Error: ${e.message}`); // Novo log
       responseData = responseText;
     }
 
