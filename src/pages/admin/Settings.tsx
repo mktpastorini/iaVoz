@@ -44,7 +44,6 @@ const settingsSchema = z.object({
     "openai-gpt4", 
     "openai-gpt3.5", 
     "gpt-4o-mini",
-    "gemini-pro", // Google Gemini Pro (modelo estável)
     "gemini-1.5-flash-latest", // Google Gemini Flash (ID de modelo atual)
     "gemini-1.5-pro-latest" // Google Gemini Pro (ID de modelo atual)
   ]),
@@ -374,9 +373,8 @@ const SettingsPage: React.FC = () => {
                   <SelectItem value="openai-gpt4">OpenAI GPT-4</SelectItem>
                   <SelectItem value="openai-gpt3.5">OpenAI GPT-3.5</SelectItem>
                   <SelectItem value="gpt-4o-mini">GPT-4o Mini</SelectItem>
-                  <SelectItem value="gemini-pro">Google Gemini Pro</SelectItem>
-                  <SelectItem value="gemini-1.5-flash-latest">Google Gemini Flash</SelectItem> {/* Rótulo atualizado */}
-                  <SelectItem value="gemini-1.5-pro-latest">Google Gemini Pro</SelectItem> {/* Rótulo atualizado */}
+                  <SelectItem value="gemini-1.5-flash-latest">Google Gemini Flash</SelectItem>
+                  <SelectItem value="gemini-1.5-pro-latest">Google Gemini Pro</SelectItem>
                 </SelectContent>
               </Select>
             )}
