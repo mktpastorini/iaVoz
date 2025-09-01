@@ -39,7 +39,7 @@ interface Message {
   content: string;
   tool_calls?: any[];
   tool_call_id?: string;
-  name?: string; // Adicionado para tool messages
+  name?: string;
 }
 
 interface Power {
@@ -51,7 +51,7 @@ interface Power {
   headers: Record<string, string> | null;
   body: Record<string, any> | null;
   api_key_id: string | null;
-  parameters_schema: Record<string, any> | null; // Alterado para Record<string, any>
+  parameters_schema: Record<string, any> | null;
 }
 
 interface ClientAction {
@@ -84,7 +84,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   settings,
   isLoading,
 }) => {
-  const { workspace, session } = useSession(); // Obter a sessão para o token JWT
+  const { workspace, session } = useSession();
   const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
 
@@ -135,13 +135,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
 
-
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) {
       try {
         console.log('[VA] Tentando iniciar a escuta...');
         recognitionRef.current.start();
-        setIsListening(true); // Atualiza o estado imediatamente
+        setIsListening(true);
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
           console.error("[VA] Erro ao iniciar reconhecimento:", error);
@@ -152,15 +151,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     } else {
       console.log('[VA] Não foi possível iniciar a escuta: já ouvindo ou falando.');
     }
-  }, []); // Sem dependências dinâmicas
+  }, []);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
       console.log('[VA] Parando a escuta...');
       recognitionRef.current.stop();
-      setIsListening(false); // Atualiza o estado imediatamente
+      setIsListening(false);
     }
-  }, []); // Sem dependências dinâmicas
+  }, []);
 
   const stopSpeaking = useCallback(() => {
     if (synthRef.current?.speaking) {
@@ -174,7 +173,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
     setIsSpeaking(false);
     isSpeakingRef.current = false;
-  }, []); // Sem dependências dinâmicas
+  }, []);
 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
     const currentSettings = settingsRef.current;
@@ -183,8 +182,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       return;
     }
     console.log(`[VA] Preparando para falar: "${text}"`);
-    stopListening(); // Stop listening before speaking
-    stopSpeaking(); // Ensure any previous speech is stopped
+    stopListening();
+    stopSpeaking();
     setIsSpeaking(true);
     isSpeakingRef.current = true;
     setAiResponse(text);
@@ -194,7 +193,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       setIsSpeaking(false);
       isSpeakingRef.current = false;
       onEndCallback?.();
-      // After speaking, if the assistant is still open, restart listening
       if (isOpenRef.current && !stopPermanentlyRef.current) {
         console.log('[VA] Assistente aberto após fala, reiniciando escuta.');
         startListening();
@@ -229,7 +227,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error("[VA] Erro durante a fala:", error);
       onSpeechEnd();
     }
-  }, [stopSpeaking, stopListening, startListening]); // Depende apenas de funções estáveis
+  }, [stopSpeaking, stopListening, startListening]);
 
   const runConversation = useCallback(async (userInput: string) => {
     const currentSettings = settingsRef.current;
@@ -249,14 +247,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     const newHistory = [...currentMessageHistory, { role: "user" as const, content: userInput }];
     setMessageHistory(newHistory);
 
-    // Ensure parameters_schema is a valid JSON object for OpenAI tools
     const tools = currentPowers.map(p => {
       let parameters: Record<string, any> = {};
       try {
         parameters = p.parameters_schema ? p.parameters_schema : { type: "object", properties: {} };
       } catch (e) {
         console.error(`[VA] Erro ao parsear parameters_schema para o poder '${p.name}':`, e);
-        // Fallback to an empty schema if parsing fails
         parameters = { type: "object", properties: {} };
       }
       return { type: 'function' as const, function: { name: p.name, description: p.description, parameters: parameters } };
@@ -307,12 +303,16 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
           if (isInternalFunction && functionName && (functionName === 'set-user-field' || functionName === 'get-user-field' || functionName === 'get-client-data' || functionName === 'save-client-data')) {
             console.log(`[VA] Invocando função interna '${functionName}' diretamente com args:`, args);
-            // Para funções internas, passamos o token de autenticação do usuário
+            
+            // Para usuários anônimos, não passamos o token de autenticação
+            const headers: Record<string, string> = {};
+            if (sessionRef.current?.access_token) {
+              headers.Authorization = `Bearer ${sessionRef.current.access_token}`;
+            }
+            
             const { data, error } = await supabase.functions.invoke(functionName, { 
               body: args,
-              headers: {
-                Authorization: `Bearer ${sessionRef.current?.access_token}`,
-              },
+              headers: Object.keys(headers).length > 0 ? headers : undefined,
             });
             
             if (error) {
@@ -371,7 +371,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       }
     } catch (error: any) {
       console.error('[VA] Erro no fluxo da conversa:', error);
-      showError(error.message || "Desculpe, ocorreu um erro."); // Exibe o erro detalhado
+      showError(error.message || "Desculpe, ocorreu um erro.");
       speak("Desculpe, ocorreu um erro.", startListening);
     }
   }, [speak, startListening, stopListening, setMessageHistory]);
@@ -434,7 +434,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         console.log(`[VA] Erro de reconhecimento de voz esperado: ${e.error}`);
       }
       setIsListening(false);
-      // Tenta reiniciar a escuta em caso de erro, a menos que seja uma parada permanente
       if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
         console.log('[VA] Reiniciando escuta após erro...');
         setTimeout(() => startListening(), 100);
@@ -499,13 +498,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
-        // Só inicia a escuta se o assistente não estiver aberto e não estiver falando
         if (!isOpenRef.current && !isSpeakingRef.current) {
           startListening();
         }
       } else if (permissionStatus.state === 'prompt') {
         setIsPermissionModalOpen(true);
-      } else { // 'denied'
+      } else {
         showError("Permissão para microfone negada. Habilite nas configurações do seu navegador.");
       }
       permissionStatus.onchange = () => {
@@ -521,7 +519,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     } catch (error) {
       console.error("[VA] Erro ao verificar permissão do microfone:", error);
       showError("Não foi possível verificar a permissão do microfone.");
-      setMicPermission('denied'); // Assume denied if error
+      setMicPermission('denied');
     }
   }, [initializeAssistant, startListening]);
 
@@ -598,22 +596,29 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [isLoading, checkAndRequestMicPermission]);
 
   useEffect(() => {
-    if (workspace?.id) {
-      console.log('[VA] Workspace detectado. Buscando poderes e ações do cliente...');
-      const fetchPowers = async () => {
-        const { data, error } = await supabase.from('powers').select('*').eq('workspace_id', workspace.id);
-        if (error) showError("Erro ao carregar os poderes da IA.");
-        else setPowers(data || []);
-      };
-      const fetchClientActions = async () => {
-        const { data, error } = await supabase.from('client_actions').select('*').eq('workspace_id', workspace.id);
-        if (error) showError("Erro ao carregar ações do cliente.");
-        else setClientActions(data || []);
-      };
-      fetchPowers();
-      fetchClientActions();
-    }
-  }, [workspace]);
+    // Buscar poderes e ações do cliente do workspace padrão (para usuários anônimos) ou do workspace do usuário
+    console.log('[VA] Buscando poderes e ações do cliente...');
+    const fetchPowers = async () => {
+      const { data, error } = await supabase.from('powers').select('*').order('created_at', { ascending: true }).limit(100);
+      if (error) {
+        console.error("Erro ao carregar os poderes da IA:", error);
+        showError("Erro ao carregar os poderes da IA.");
+      } else {
+        setPowers(data || []);
+      }
+    };
+    const fetchClientActions = async () => {
+      const { data, error } = await supabase.from('client_actions').select('*').order('created_at', { ascending: true }).limit(100);
+      if (error) {
+        console.error("Erro ao carregar ações do cliente:", error);
+        showError("Erro ao carregar ações do cliente.");
+      } else {
+        setClientActions(data || []);
+      }
+    };
+    fetchPowers();
+    fetchClientActions();
+  }, []); // Removemos a dependência do workspace para permitir acesso anônimo
 
   if (isLoading || !settings) {
     return null;

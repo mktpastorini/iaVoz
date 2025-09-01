@@ -13,37 +13,62 @@ serve(async (req) => {
 
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-
+    
+    // Criar cliente Supabase - pode ser com ou sem autenticação
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
+      authHeader ? { global: { headers: { Authorization: authHeader } } } : {}
     );
 
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Invalid token' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    let user = null;
+    let workspaceId = null;
+
+    // Tentar obter usuário autenticado, mas não falhar se não houver
+    if (authHeader) {
+      const { data: { user: authUser }, error: authError } = await supabaseClient.auth.getUser();
+      if (!authError && authUser) {
+        user = authUser;
+        
+        // Buscar workspace do usuário autenticado
+        const { data: workspaceMember, error: wmError } = await supabaseClient
+          .from('workspace_members')
+          .select('workspace_id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .single();
+
+        if (!wmError && workspaceMember) {
+          workspaceId = workspaceMember.workspace_id;
+        }
+      }
+    }
+
+    // Se não há usuário autenticado, usar o workspace padrão
+    if (!workspaceId) {
+      const { data: defaultWorkspace, error: dwError } = await supabaseClient
+        .from('workspaces')
+        .select('id')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
+
+      if (dwError || !defaultWorkspace) {
+        return new Response(JSON.stringify({ error: 'No workspace available for anonymous users' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      workspaceId = defaultWorkspace.id;
     }
 
     const { name, client_code } = await req.json();
     if (!name && !client_code) {
-      return new Response(JSON.stringify({ error: 'Client name or code is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ error: 'Client name or code is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
-
-    const { data: workspaceMember, error: wmError } = await supabaseClient
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single();
-
-    if (wmError || !workspaceMember) {
-      return new Response(JSON.stringify({ error: 'User not in a workspace' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-    const workspaceId = workspaceMember.workspace_id;
 
     let query = supabaseClient
       .from('clients')
@@ -58,27 +83,31 @@ serve(async (req) => {
 
     const { data: client, error: findError } = await query.limit(1).single();
 
-    if (findError && findError.code !== 'PGRST116') { // PGRST116 = no rows returned
+    if (findError && findError.code !== 'PGRST116') {
       throw findError;
     }
 
     if (!client) {
       const identifier = client_code ? `código '${client_code}'` : `nome '${name}'`;
-      return new Response(JSON.stringify({ message: `Nenhum cliente encontrado com o ${identifier}.` }), {
+      return new Response(JSON.stringify({ 
+        message: `Nenhum cliente encontrado com o ${identifier}.`,
+        is_anonymous: !user 
+      }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Formata os campos customizados para um objeto simples
+    // Formatar os campos customizados
     const formattedClient = {
       ...client,
       custom_fields: client.client_field_values.reduce((acc: any, cfv: any) => {
         acc[cfv.user_data_fields.name] = cfv.value;
         return acc;
       }, {}),
+      is_anonymous: !user
     };
-    delete formattedClient.client_field_values; // Limpa o array original
+    delete formattedClient.client_field_values;
 
     return new Response(JSON.stringify(formattedClient), {
       status: 200,

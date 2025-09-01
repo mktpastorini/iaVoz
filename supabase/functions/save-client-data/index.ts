@@ -13,37 +13,62 @@ serve(async (req) => {
 
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-
+    
+    // Criar cliente Supabase - pode ser com ou sem autenticação
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
+      authHeader ? { global: { headers: { Authorization: authHeader } } } : {}
     );
 
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Invalid token' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    let user = null;
+    let workspaceId = null;
+
+    // Tentar obter usuário autenticado, mas não falhar se não houver
+    if (authHeader) {
+      const { data: { user: authUser }, error: authError } = await supabaseClient.auth.getUser();
+      if (!authError && authUser) {
+        user = authUser;
+        
+        // Buscar workspace do usuário autenticado
+        const { data: workspaceMember, error: wmError } = await supabaseClient
+          .from('workspace_members')
+          .select('workspace_id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .single();
+
+        if (!wmError && workspaceMember) {
+          workspaceId = workspaceMember.workspace_id;
+        }
+      }
+    }
+
+    // Se não há usuário autenticado, usar o workspace padrão (primeiro workspace criado)
+    if (!workspaceId) {
+      const { data: defaultWorkspace, error: dwError } = await supabaseClient
+        .from('workspaces')
+        .select('id')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
+
+      if (dwError || !defaultWorkspace) {
+        return new Response(JSON.stringify({ error: 'No workspace available for anonymous users' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      workspaceId = defaultWorkspace.id;
     }
 
     const { client_code, name, email, whatsapp, city, state, custom_fields, agendamento_solicitado } = await req.json();
     if (!name && !client_code) {
-      return new Response(JSON.stringify({ error: 'Client name or code is required to save data' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ error: 'Client name or code is required to save data' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
-
-    const { data: workspaceMember, error: wmError } = await supabaseClient
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single();
-
-    if (wmError || !workspaceMember) {
-      return new Response(JSON.stringify({ error: 'User not in a workspace' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-    const workspaceId = workspaceMember.workspace_id;
 
     let existingClientQuery = supabaseClient
       .from('clients')
@@ -79,23 +104,20 @@ serve(async (req) => {
       const MAX_RETRIES = 3;
       for (let i = 0; i < MAX_RETRIES; i++) {
         try {
-          // O client_code será gerado automaticamente pela função DEFAULT do banco de dados
           const { data, error } = await supabaseClient.from('clients').insert(clientData).select('id, client_code').single();
           if (error) {
-            // Se o erro for de violação de unicidade (código 23505), tenta novamente
             if (error.code === '23505' && error.message.includes('clients_workspace_id_client_code_key')) {
               console.warn(`[save-client-data] Código de cliente duplicado gerado, re-tentando... Tentativa ${i + 1}`);
-              continue; // Tenta novamente com um novo código gerado pelo DB
+              continue;
             }
-            throw error; // Outro tipo de erro, re-lança
+            throw error;
           }
           savedClient = data;
-          break; // Sucesso, sai do loop
+          break;
         } catch (e) {
           if (i === MAX_RETRIES - 1) {
-            throw e; // Re-lança o erro se todas as re-tentativas falharem
+            throw e;
           }
-          // Para outros erros ou se for uma duplicata e não a última re-tentativa, continua
         }
       }
       if (!savedClient) {
@@ -125,7 +147,11 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ message: `Client '${clientData.name}' saved successfully.`, client_code: savedClient.client_code }), {
+    return new Response(JSON.stringify({ 
+      message: `Client '${clientData.name}' saved successfully.`, 
+      client_code: savedClient.client_code,
+      is_anonymous: !user 
+    }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

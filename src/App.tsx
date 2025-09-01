@@ -12,7 +12,7 @@ import ConversationsPage from "./pages/admin/Conversations";
 import SystemPowersPage from "./pages/admin/SystemPowers";
 import ClientActionsPage from "./pages/admin/ClientActions";
 import UserDataFieldsPage from "./pages/admin/UserDataFields";
-import ClientsPage from "./pages/admin/Clients"; // Importar a nova página
+import ClientsPage from "./pages/admin/Clients";
 import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
@@ -30,19 +30,59 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// Mova a definição de GlobalVoiceAssistant para fora do componente App
+// Componente para carregar configurações (funciona para usuários logados e anônimos)
 const GlobalVoiceAssistantWrapper = () => {
+  const { session } = useSession();
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchSettings = async () => {
-      const { data } = await supabase.from("settings").select("*").limit(1).single();
-      setSettings(data);
-      setLoading(false);
+      try {
+        // Tentar buscar configurações do workspace do usuário (se logado) ou do workspace padrão
+        let settingsData = null;
+        
+        if (session) {
+          // Usuário logado: buscar configurações do seu workspace
+          const { data: workspaceMember } = await supabase
+            .from('workspace_members')
+            .select('workspace_id')
+            .eq('user_id', session.user.id)
+            .limit(1)
+            .single();
+          
+          if (workspaceMember) {
+            const { data } = await supabase
+              .from("settings")
+              .select("*")
+              .eq('workspace_id', workspaceMember.workspace_id)
+              .limit(1)
+              .single();
+            settingsData = data;
+          }
+        }
+        
+        // Se não encontrou configurações do usuário ou é usuário anônimo, usar workspace padrão
+        if (!settingsData) {
+          const { data } = await supabase
+            .from("settings")
+            .select("*")
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single();
+          settingsData = data;
+        }
+        
+        setSettings(settingsData);
+      } catch (error) {
+        console.error("Erro ao carregar configurações:", error);
+      } finally {
+        setLoading(false);
+      }
     };
+    
     fetchSettings();
-  }, []);
+  }, [session]);
 
   return (
     <SophisticatedVoiceAssistant
@@ -75,11 +115,11 @@ const App = () => (
                   <Route path="system-powers" element={<SystemPowersPage />} />
                   <Route path="client-actions" element={<ClientActionsPage />} />
                   <Route path="user-data-fields" element={<UserDataFieldsPage />} />
-                  <Route path="clients" element={<ClientsPage />} /> {/* Nova rota */}
+                  <Route path="clients" element={<ClientsPage />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>
-              <GlobalVoiceAssistantWrapper /> {/* Use o componente movido aqui */}
+              <GlobalVoiceAssistantWrapper />
             </VoiceAssistantProvider>
           </SystemContextProvider>
         </SessionContextProvider>
