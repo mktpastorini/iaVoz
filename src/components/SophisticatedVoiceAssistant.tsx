@@ -362,7 +362,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       return;
     }
     recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = false;
+    recognitionRef.current.continuous = true; // ALTERADO PARA TRUE
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
 
@@ -373,17 +373,24 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onend = () => {
       console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
-      // NEW: Only restart if the assistant is currently open AND not speaking
-      if (isOpenRef.current && !isSpeakingRef.current) {
-        console.log('[VA] Assistente está aberto e não está falando. Reiniciando escuta...');
+      // Com continuous: true, onend só deve ser chamado em caso de erro ou stop explícito.
+      // Se for um erro, podemos tentar reiniciar, mas com cuidado para não criar loops.
+      // Por enquanto, vamos apenas logar e não reiniciar automaticamente aqui.
+      // A lógica de reinício após fala da IA será tratada no callback de `speak`.
+      if (!stopPermanentlyRef.current && isOpenRef.current && !isSpeakingRef.current) {
+        console.log('[VA] Assistente está aberto e não está falando. Reiniciando escuta (fallback)...');
         startListening();
-      } else {
-        console.log('[VA] Não reiniciando escuta: assistente fechado ou falando.');
       }
     };
     recognitionRef.current.onerror = (e) => {
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
         console.error(`[VA] Erro no reconhecimento de voz: ${e.error}`);
+      }
+      setIsListening(false); // Garante que o estado de escuta seja atualizado em caso de erro
+      // Se o erro não for 'aborted' (que acontece ao chamar stop()), podemos tentar reiniciar
+      if (e.error !== 'aborted' && !stopPermanentlyRef.current && isOpenRef.current && !isSpeakingRef.current) {
+        console.log('[VA] Erro no reconhecimento, tentando reiniciar escuta...');
+        startListening();
       }
     };
     recognitionRef.current.onresult = (event) => {
