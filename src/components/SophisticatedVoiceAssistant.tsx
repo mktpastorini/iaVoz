@@ -19,6 +19,7 @@ import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 interface Settings {
   welcome_message?: string;
   openai_api_key: string;
+  gemini_api_key: string; // Adicionado gemini_api_key
   system_prompt?: string;
   assistant_prompt?: string;
   ai_model?: string;
@@ -68,6 +69,7 @@ interface ClientAction {
 // Constants
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
+const GOOGLE_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
 // Modal Component
 const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?: string; onClose: () => void }) => (
@@ -246,8 +248,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     const currentSystemVariables = systemVariablesRef.current;
     const currentSession = sessionRef.current;
 
-    if (!currentSettings || !currentSettings.openai_api_key) {
-      speak("Chave API OpenAI não configurada.");
+    if (!currentSettings || (!currentSettings.openai_api_key && !currentSettings.gemini_api_key)) {
+      speak("Chave API OpenAI ou Gemini não configurada.");
       return;
     }
     stopListening();
@@ -258,29 +260,116 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     const newHistory = [...messageHistoryRef.current, { role: "user" as const, content: userInput }];
     setMessageHistory(newHistory);
 
+    const isGeminiModel = currentSettings.ai_model?.startsWith("gemini-");
+
+    // Prepare tools for both OpenAI and Gemini
     const tools = currentPowers.map(p => ({ type: 'function' as const, function: { name: p.name, description: p.description, parameters: p.parameters_schema } }));
-    
-    const messagesForApi = [
+    const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => t.function) }] : undefined;
+
+    // Prepare messages for OpenAI
+    const openAIMessages = [
       { role: "system" as const, content: currentSettings.system_prompt },
       { role: "assistant" as const, content: currentSettings.assistant_prompt },
       ...newHistory.slice(-currentSettings.conversation_memory_length) 
-    ].filter(msg => msg.content); // Filtrar mensagens com conteúdo nulo
+    ].filter(msg => msg.content);
+
+    // Prepare messages for Gemini
+    // Gemini does not have a 'system' role. System prompts are usually prepended to the first user message.
+    // Also, Gemini expects 'user' and 'model' roles, not 'assistant'.
+    const geminiContents: any[] = [];
+    if (currentSettings.system_prompt) {
+      geminiContents.push({ role: "user", parts: [{ text: currentSettings.system_prompt }] });
+      geminiContents.push({ role: "model", parts: [{ text: "Ok, entendi." }] }); // Acknowledge system prompt
+    }
+    if (currentSettings.assistant_prompt) {
+      geminiContents.push({ role: "user", parts: [{ text: currentSettings.assistant_prompt }] });
+      geminiContents.push({ role: "model", parts: [{ text: "Certo, estou pronto para ajudar." }] }); // Acknowledge assistant prompt
+    }
+
+    newHistory.slice(-currentSettings.conversation_memory_length).forEach(msg => {
+      if (msg.content) {
+        if (msg.role === "user") {
+          geminiContents.push({ role: "user", parts: [{ text: msg.content }] });
+        } else if (msg.role === "assistant") {
+          geminiContents.push({ role: "model", parts: [{ text: msg.content }] });
+        } else if (msg.role === "tool" && msg.tool_call_id && msg.name) {
+          // Gemini tool response format
+          geminiContents.push({
+            role: "function",
+            parts: [{
+              functionResponse: {
+                name: msg.name,
+                response: JSON.parse(msg.content) // Assuming content is stringified JSON
+              }
+            }]
+          });
+        }
+      }
+    });
 
     try {
-      console.log("[VA] Enviando requisição para OpenAI Chat Completions...");
-      const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-        body: JSON.stringify({ model: currentSettings.ai_model, messages: messagesForApi, tools: tools.length > 0 ? tools : undefined, tool_choice: tools.length > 0 ? 'auto' : undefined }),
-      });
-      if (!response.ok) {
-        const errorBody = await response.json();
-        console.error("Erro da API OpenAI:", errorBody);
-        throw new Error("Erro na API OpenAI");
+      let response;
+      let responseMessage: any;
+
+      if (isGeminiModel) {
+        if (!currentSettings.gemini_api_key) {
+          speak("Chave API Google Gemini não configurada.");
+          return;
+        }
+        console.log("[VA] Enviando requisição para Google Gemini Chat Completions...");
+        const geminiModelId = currentSettings.ai_model;
+        response = await fetch(`${GOOGLE_GEMINI_API_BASE_URL}${geminiModelId}:generateContent?key=${currentSettings.gemini_api_key}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: geminiContents,
+            tools: geminiTools,
+          }),
+        });
+        if (!response.ok) {
+          const errorBody = await response.json();
+          console.error("Erro da API Google Gemini:", errorBody);
+          throw new Error("Erro na API Google Gemini");
+        }
+        const data = await response.json();
+        responseMessage = data.candidates?.[0]?.content;
+        console.log("[VA] Resposta recebida da Google Gemini:", responseMessage);
+
+        if (responseMessage?.parts?.[0]?.functionCall) {
+          responseMessage.tool_calls = responseMessage.parts.map((part: any) => ({
+            id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // Generate a unique ID
+            function: {
+              name: part.functionCall.name,
+              arguments: JSON.stringify(part.functionCall.args),
+            },
+          }));
+          responseMessage.content = null; // Clear content for tool calls
+        } else if (responseMessage?.parts?.[0]?.text) {
+          responseMessage.content = responseMessage.parts[0].text;
+        } else {
+          responseMessage.content = "Não consegui gerar uma resposta.";
+        }
+
+      } else { // OpenAI models
+        if (!currentSettings.openai_api_key) {
+          speak("Chave API OpenAI não configurada.");
+          return;
+        }
+        console.log("[VA] Enviando requisição para OpenAI Chat Completions...");
+        response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+          body: JSON.stringify({ model: currentSettings.ai_model, messages: openAIMessages, tools: tools.length > 0 ? tools : undefined, tool_choice: tools.length > 0 ? 'auto' : undefined }),
+        });
+        if (!response.ok) {
+          const errorBody = await response.json();
+          console.error("Erro da API OpenAI:", errorBody);
+          throw new Error("Erro na API OpenAI");
+        }
+        const data = await response.json();
+        responseMessage = data.choices?.[0]?.message;
+        console.log("[VA] Resposta recebida da OpenAI:", responseMessage);
       }
-      const data = await response.json();
-      const responseMessage = data.choices?.[0]?.message;
-      console.log("[VA] Resposta recebida da OpenAI:", responseMessage);
 
       if (responseMessage.tool_calls) {
         setAiResponse("Executando ação...");
@@ -329,21 +418,52 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           return { tool_call_id: toolCall.id, role: 'tool' as const, name: power.name, content: JSON.stringify(data.data) };
         }));
 
-        console.log("[VA] Execução da ferramenta finalizada. Enviando resultados de volta para a OpenAI...");
+        console.log("[VA] Execução da ferramenta finalizada. Enviando resultados de volta para a IA...");
         const historyWithToolResults = [...historyWithToolCall, ...toolOutputs];
         setMessageHistory(historyWithToolResults);
         
-        const secondResponse = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-          body: JSON.stringify({ model: currentSettings.ai_model, messages: historyWithToolResults }),
-        });
-        if (!secondResponse.ok) throw new Error("Erro na 2ª chamada OpenAI");
-        const secondData = await secondResponse.json();
-        const finalMessage = secondData.choices?.[0]?.message?.content;
-        setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        speak(finalMessage);
-        console.log("[VA] Resposta final recebida da OpenAI:", finalMessage);
+        let finalResponseMessage;
+        if (isGeminiModel) {
+          const geminiToolResponseContents: any[] = [];
+          // Reconstruct Gemini history including tool outputs
+          geminiContents.forEach(content => geminiToolResponseContents.push(content)); // Add previous history
+          toolOutputs.forEach(output => {
+            geminiToolResponseContents.push({
+              role: "function",
+              parts: [{
+                functionResponse: {
+                  name: output.name,
+                  response: JSON.parse(output.content)
+                }
+              }]
+            });
+          });
+
+          const secondResponse = await fetch(`${GOOGLE_GEMINI_API_BASE_URL}${currentSettings.ai_model}:generateContent?key=${currentSettings.gemini_api_key}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: geminiToolResponseContents,
+              tools: geminiTools,
+            }),
+          });
+          if (!secondResponse.ok) throw new Error("Erro na 2ª chamada Google Gemini");
+          const secondData = await secondResponse.json();
+          finalResponseMessage = secondData.candidates?.[0]?.content?.parts?.[0]?.text;
+        } else { // OpenAI
+          const secondResponse = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+            body: JSON.stringify({ model: currentSettings.ai_model, messages: historyWithToolResults }),
+          });
+          if (!secondResponse.ok) throw new Error("Erro na 2ª chamada OpenAI");
+          const secondData = await secondResponse.json();
+          finalResponseMessage = secondData.choices?.[0]?.message?.content;
+        }
+        
+        setMessageHistory(prev => [...prev, { role: 'assistant', content: finalResponseMessage }]);
+        speak(finalResponseMessage);
+        console.log("[VA] Resposta final recebida da IA:", finalResponseMessage);
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
