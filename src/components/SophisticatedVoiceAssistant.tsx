@@ -139,18 +139,25 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const startListening = useCallback(() => {
     console.log(`[VA] startListening chamado. isListeningRef.current: ${isListeningRef.current}, isSpeakingRef.current: ${isSpeakingRef.current}, isOpenRef.current: ${isOpenRef.current}`);
     if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current && isOpenRef.current) {
-      try {
-        recognitionRef.current.start();
-        console.log("[VA] recognition.start() chamado com sucesso.");
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
-          console.error("[VA] Erro ao iniciar reconhecimento (recognition.start()):", error);
+      // Adicionar um pequeno atraso antes de chamar start() para evitar InvalidStateError
+      setTimeout(() => {
+        if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current && isOpenRef.current) {
+          try {
+            recognitionRef.current.start();
+            console.log("[VA] recognition.start() chamado com sucesso após atraso.");
+          } catch (error) {
+            if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
+              console.error("[VA] Erro ao iniciar reconhecimento (recognition.start()):", error);
+            } else {
+              console.warn("[VA] Tentativa de iniciar reconhecimento em estado inválido (já ativo?).");
+            }
+          }
         } else {
-          console.warn("[VA] Tentativa de iniciar reconhecimento em estado inválido (já ativo?).");
+          console.log("[VA] startListening (após atraso) não executado devido a condições.");
         }
-      }
+      }, 200); // Atraso de 200ms
     } else {
-      console.log("[VA] startListening não executado devido a condições: recognitionRef.current:", !!recognitionRef.current, "isListeningRef.current:", isListeningRef.current, "isSpeakingRef.current:", isSpeakingRef.current, "isOpenRef.current:", isOpenRef.current);
+      console.log("[VA] startListening não executado devido a condições iniciais.");
     }
   }, []);
 
@@ -182,8 +189,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
 
     stopSpeaking();
-    setIsSpeaking(true);
     stopListening(); // Parar de ouvir antes de falar
+    setIsSpeaking(true); // Definir isSpeaking para true APÓS parar de ouvir
     setAiResponse(text);
     console.log(`[VA] Preparando para falar: "${text}"`);
 
@@ -191,15 +198,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       setIsSpeaking(false);
       onEndCallback?.();
       if (isOpenRef.current) {
-        console.log("[VA] speak: Finalizou a fala. Tentando reiniciar escuta em 100ms...");
-        // Adicionar um pequeno atraso para garantir que o estado isSpeaking seja totalmente atualizado no ref
-        setTimeout(() => {
-          if (isOpenRef.current && !isSpeakingRef.current) { // Verificar novamente antes de iniciar
-            startListening();
-          } else {
-            console.log("[VA] speak: Não reiniciou a escuta (assistente fechado ou ainda falando).");
-          }
-        }, 100); // Pequeno atraso
+        console.log("[VA] speak: Finalizou a fala. Reiniciando escuta...");
+        startListening(); // Chamar startListening diretamente
       }
     };
 
@@ -265,13 +265,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     // Prepare tools for both OpenAI and Gemini
     const tools = currentPowers.map(p => ({ type: 'function' as const, function: { name: p.name, description: p.description, parameters: p.parameters_schema } }));
     const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => t.function) }] : undefined;
-
-    // Prepare messages for OpenAI
-    const openAIMessages = [
-      { role: "system" as const, content: currentSettings.system_prompt },
-      { role: "assistant" as const, content: currentSettings.assistant_prompt },
-      ...newHistory.slice(-currentSettings.conversation_memory_length) 
-    ].filter(msg => msg.content);
 
     // Prepare messages for Gemini with strict alternation
     const geminiContents: any[] = [];
@@ -593,15 +586,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       setIsListening(false);
       console.log("[VA] Reconhecimento de voz finalizado (onend).");
       if (isOpenRef.current && !stopPermanentlyRef.current) {
-        console.log("[VA] onend: Assistente aberto, tentando reiniciar escuta em 100ms...");
-        // Adicionar um pequeno atraso para garantir que o estado isSpeaking seja totalmente atualizado no ref
-        setTimeout(() => {
-          if (isOpenRef.current && !isSpeakingRef.current) { // Verificar novamente antes de iniciar
-            startListening();
-          } else {
-            console.log("[VA] onend: Não reiniciou a escuta (assistente fechado ou falando).");
-          }
-        }, 100); // Pequeno atraso
+        console.log("[VA] onend: Assistente aberto, tentando reiniciar escuta...");
+        startListening(); // Chamar startListening diretamente
       } else {
         console.log("[VA] onend: Reconhecimento encerrado intencionalmente ou assistente fechado.");
       }
@@ -614,14 +600,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       } else if (e.error === 'aborted') {
         console.log("[VA] Reconhecimento de voz abortado.");
       } else {
-        console.error(`[VA] Erro no reconhecimento de voz: ${e.error}`);
+        console.error(`[VA] Erro no reconhecimento de voz: ${e.error}. Verifique suas permissões.`);
         showError(`Erro no microfone: ${e.error}. Verifique suas permissões.`);
       }
 
       // Tentar reiniciar a escuta em caso de erro, se o assistente estiver aberto e não estiver falando
       if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
-        console.log("[VA] onerror: Assistente aberto e não falando, tentando reiniciar escuta em 100ms...");
-        setTimeout(() => startListening(), 100);
+        console.log("[VA] onerror: Assistente aberto e não falando, tentando reiniciar escuta...");
+        startListening(); // Chamar startListening diretamente
       }
     };
     
