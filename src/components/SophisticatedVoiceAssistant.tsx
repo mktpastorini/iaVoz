@@ -187,6 +187,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
+        utterance.onerror = (event) => {
+          console.error('[VA] SpeechSynthesisUtterance error:', event);
+          onSpeechEnd();
+        };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         const response = await fetch(OPENAI_TTS_API_URL, {
@@ -199,6 +203,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = () => {
+          console.error('[VA] HTMLAudioElement error playing TTS.');
+          onSpeechEnd();
+          URL.revokeObjectURL(audioUrl);
+        };
         await audioRef.current.play();
       } else {
         onSpeechEnd();
@@ -350,18 +359,24 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.lang = "pt-BR";
 
     recognitionRef.current.onstart = () => setIsListening(true);
+    
     recognitionRef.current.onend = () => {
       setIsListening(false);
       if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+        console.log("[VA] Reconhecimento encerrado, tentando reiniciar...");
         setTimeout(() => startListening(), 100);
+      } else {
+        console.log("[VA] Reconhecimento encerrado intencionalmente.");
       }
     };
+
     recognitionRef.current.onerror = (e) => {
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
         console.error(`[VA] Erro no reconhecimento de voz: ${e.error}`);
       }
       setIsListening(false);
     };
+    
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
       const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
