@@ -94,6 +94,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
+  const messageHistoryRef = useRef<Message[]>([]); // NEW: Ref for message history
   const [powers, setPowers] = useState<Power[]>([]);
   const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const [imageToShow, setImageToShow] = useState<ClientAction['action_payload'] | null>(null);
@@ -111,6 +112,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const activationRequestedViaButton = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
+
+  // NEW: Update ref whenever messageHistory state changes
+  useEffect(() => {
+    messageHistoryRef.current = messageHistory;
+  }, [messageHistory]);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isSpeakingRef.current) {
@@ -204,17 +210,21 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     stopListening();
     setTranscript(userInput);
     setAiResponse("Pensando...");
-    const newHistory = [...messageHistory, { role: "user" as const, content: userInput }];
-    setMessageHistory(newHistory);
+    
+    // Use the ref for message history
+    const currentHistory = messageHistoryRef.current;
+    const newHistory = [...currentHistory, { role: "user" as const, content: userInput }];
+    setMessageHistory(newHistory); // Update state, but runConversation's dependencies are not affected by this state change
 
     // Preparar as ferramentas para a OpenAI
     const tools = powers.map(p => ({ type: 'function' as const, function: { name: p.name, description: p.description, parameters: p.parameters_schema } }));
     
     // Filtrar mensagens para o histórico, mantendo apenas as últimas 'conversation_memory_length'
+    // Use newHistory here as it's the most up-to-date for this turn
     const messagesForApi = [
       { role: "system" as const, content: settings.system_prompt },
       { role: "assistant" as const, content: settings.assistant_prompt },
-      ...newHistory.slice(-settings.conversation_memory_length)
+      ...newHistory.slice(-settings.conversation_memory_length) 
     ];
 
     try {
@@ -296,7 +306,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error('[VA] Erro no fluxo da conversa:', error);
       speak("Desculpe, ocorreu um erro.", startListening);
     }
-  }, [settings, powers, systemVariables, messageHistory, speak, startListening, stopListening, session?.access_token]);
+  }, [settings, powers, systemVariables, speak, startListening, stopListening, session?.access_token]); // Removed messageHistory from dependencies
 
   const executeClientAction = useCallback((action: ClientAction) => {
     console.log(`[VA] Executando ação do cliente: ${action.action_type}`);
@@ -395,8 +405,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
 
     startListening();
-    showSuccess("Assistente pronto! Diga a palavra de ativação.");
-  }, [isOpen, clientActions, settings, startListening, speak, stopSpeaking, runConversation, executeClientAction, hasBeenActivated]);
+    // Removed initial speak call here to avoid NotAllowedError
+    // showSuccess("Assistente pronto! Diga a palavra de ativação.");
+  }, [isOpen, clientActions, settings, startListening, speak, stopSpeaking, runConversation, executeClientAction, hasBeenActivated]); // Dependencies for useCallback
 
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log('[VA] Verificando permissão do microfone...');
@@ -482,7 +493,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
     };
-  }, [isLoading, checkAndRequestMicPermission]);
+  }, [isLoading, checkAndRequestMicPermission]); // Keep checkAndRequestMicPermission here, as it's the entry point for initialization
 
   useEffect(() => {
     if (workspace?.id) {
