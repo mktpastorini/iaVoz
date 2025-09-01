@@ -375,10 +375,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     
     recognitionRef.current.onend = () => {
       setIsListening(false);
-      if (!stopPermanentlyRef.current) {
-        setTimeout(() => startListening(), 100);
-      } else {
-        console.log("[VA] Reconhecimento encerrado intencionalmente.");
+      // Apenas reinicia se o microfone não foi parado intencionalmente para falar ou para fechar.
+      if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
+        // Um pequeno delay para evitar reinícios frenéticos em alguns navegadores ou em caso de erros.
+        setTimeout(() => startListening(), 250);
       }
     };
 
