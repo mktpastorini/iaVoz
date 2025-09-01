@@ -14,7 +14,7 @@ const AdminLayout: React.FC = () => {
     { name: 'Poderes do Sistema', path: '/admin/system-powers', icon: SlidersHorizontal },
     { name: 'Ações do Cliente', path: '/admin/client-actions', icon: MousePointerClick },
     { name: 'Campos de Dados do Usuário', path: '/admin/user-data-fields', icon: UserSquare },
-    { name: 'Clientes', path: '/admin/clients', icon: Users }, {/* Novo item de navegação */}
+    { name: 'Clientes', path: '/admin/clients', icon: Users }, 
     { name: 'Conversas', path: '/admin/conversations', icon: MessageSquare },
   ];
 
