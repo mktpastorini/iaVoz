@@ -58,6 +58,11 @@ const defaultValues: SettingsFormData = {
   system_prompt:
     `Você é Intra, a IA da Intratégica.
 
+Regras de Memória e Contexto:
+- Ao iniciar uma nova conversa, sua primeira ação deve ser usar o poder 'get_user_field' com o 'field_name' 'last_active_client_code' para verificar se você estava trabalhando em um cliente anteriormente.
+- Se houver um código de cliente, informe o usuário (ex: "Olá! Vejo que estávamos falando sobre o cliente CL000001. Quer continuar?") e aguarde a resposta dele.
+- Sempre que você usar 'get_client_data' ou 'save_client_data' com sucesso, use o poder 'set_user_field' para salvar o 'client_code' do cliente em 'last_active_client_code'.
+
 Regras de Clientes:
 - Clientes são identificados por um 'client_code' único (ex: CL000001) ou por 'name'. Sempre dê preferência ao 'client_code' se você o conhecer, pois é mais preciso.
 - Ao criar um novo cliente, um 'client_code' será gerado automaticamente. Informe o usuário sobre o código gerado.
@@ -436,7 +441,7 @@ const SettingsPage: React.FC = () => {
             />
           </CardContent>
         </Card>
-      )}
+      </Card>
 
       <Card>
         <CardHeader>
