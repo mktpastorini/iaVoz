@@ -51,7 +51,7 @@ interface Power {
   headers: Record<string, string> | null;
   body: Record<string, any> | null;
   api_key_id: string | null;
-  parameters_schema: Record<string, any> | null;
+  parameters_schema: Record<string, any> | null; // Alterado para Record<string, any>
 }
 
 interface ClientAction {
@@ -245,7 +245,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     const newHistory = [...currentMessageHistory, { role: "user" as const, content: userInput }];
     setMessageHistory(newHistory);
 
-    const tools = currentPowers.map(p => ({ type: 'function' as const, function: { name: p.name, description: p.description, parameters: p.parameters_schema } }));
+    // Ensure parameters_schema is a valid JSON object for OpenAI tools
+    const tools = currentPowers.map(p => {
+      let parameters: Record<string, any> = {};
+      try {
+        parameters = p.parameters_schema ? p.parameters_schema : { type: "object", properties: {} };
+      } catch (e) {
+        console.error(`[VA] Erro ao parsear parameters_schema para o poder '${p.name}':`, e);
+        // Fallback to an empty schema if parsing fails
+        parameters = { type: "object", properties: {} };
+      }
+      return { type: 'function' as const, function: { name: p.name, description: p.description, parameters: parameters } };
+    });
     
     const messagesForApi = [
       { role: "system" as const, content: currentSettings.system_prompt },
@@ -260,7 +271,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
         body: JSON.stringify({ model: currentSettings.ai_model, messages: messagesForApi, tools: tools.length > 0 ? tools : undefined, tool_choice: tools.length > 0 ? 'auto' : undefined }),
       });
-      if (!response.ok) throw new Error("Erro na API OpenAI");
+      if (!response.ok) {
+        const errorBody = await response.json();
+        console.error("[VA] Erro detalhado da API OpenAI:", errorBody);
+        throw new Error(`Erro na API OpenAI: ${errorBody.error?.message || response.statusText}`);
+      }
       const data = await response.json();
       const responseMessage = data.choices?.[0]?.message;
       console.log('[VA] Resposta recebida da OpenAI:', responseMessage);
@@ -286,9 +301,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
           let toolResult, invokeError;
 
-          if (isInternalFunction && functionName && (functionName === 'set-user-field' || functionName === 'get-user-field')) {
+          if (isInternalFunction && functionName && (functionName === 'set-user-field' || functionName === 'get-user-field' || functionName === 'get-client-data' || functionName === 'save-client-data')) {
             console.log(`[VA] Invocando função interna '${functionName}' diretamente com args:`, args);
-            const { data, error } = await supabase.functions.invoke(functionName, { body: args });
+            // Para funções internas, passamos o token de autenticação do usuário
+            const { data, error } = await supabase.functions.invoke(functionName, { 
+              body: args,
+              headers: {
+                Authorization: `Bearer ${sessionRef.current?.access_token}`,
+              },
+            });
             
             if (error) {
               invokeError = error;
@@ -329,7 +350,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
           body: JSON.stringify({ model: currentSettings.ai_model, messages: historyWithToolResults }),
         });
-        if (!secondResponse.ok) throw new Error("Erro na 2ª chamada OpenAI");
+        if (!secondResponse.ok) {
+          const errorBody = await secondResponse.json();
+          console.error("[VA] Erro detalhado na 2ª chamada OpenAI:", errorBody);
+          throw new Error(`Erro na 2ª chamada OpenAI: ${errorBody.error?.message || secondResponse.statusText}`);
+        }
         const secondData = await secondResponse.json();
         const finalMessage = secondData.choices?.[0]?.message?.content;
         console.log('[VA] Resposta final recebida da OpenAI:', finalMessage);
@@ -340,8 +365,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
         speak(assistantMessage, startListening);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('[VA] Erro no fluxo da conversa:', error);
+      showError(error.message || "Desculpe, ocorreu um erro."); // Exibe o erro detalhado
       speak("Desculpe, ocorreu um erro.", startListening);
     }
   }, [speak, startListening, stopListening, setMessageHistory]);
