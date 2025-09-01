@@ -210,7 +210,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         utterance.onend = onSpeechEnd;
         utterance.onerror = (event) => {
           console.error('[VA] SpeechSynthesisUtterance error:', event);
-          onSpeechEnd();
+          onEndCallback?.(); // Call onEndCallback even on error
         };
         synthRef.current.speak(utterance);
         console.log("[VA] Usando o modelo de voz do navegador.");
@@ -227,7 +227,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         audioRef.current.onerror = () => {
           console.error('[VA] HTMLAudioElement error playing TTS.');
-          onSpeechEnd();
+          onEndCallback?.(); // Call onEndCallback even on error
           URL.revokeObjectURL(audioUrl);
         };
         await audioRef.current.play();
@@ -238,7 +238,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       }
     } catch (error) {
       console.error("[VA] Erro durante a fala:", error);
-      onSpeechEnd();
+      onEndCallback?.(); // Call onEndCallback even on error
     }
   }, [stopSpeaking, stopListening, startListening]);
 
@@ -273,39 +273,63 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       ...newHistory.slice(-currentSettings.conversation_memory_length) 
     ].filter(msg => msg.content);
 
-    // Prepare messages for Gemini
-    // Gemini does not have a 'system' role. System prompts are usually prepended to the first user message.
-    // Also, Gemini expects 'user' and 'model' roles, not 'assistant'.
+    // Prepare messages for Gemini with strict alternation
     const geminiContents: any[] = [];
+    let lastGeminiRole: "user" | "model" | "function" | null = null;
+
+    // Add system and assistant prompts as a synthetic initial user message
+    let initialCombinedPrompt = "";
     if (currentSettings.system_prompt) {
-      geminiContents.push({ role: "user", parts: [{ text: currentSettings.system_prompt }] });
-      geminiContents.push({ role: "model", parts: [{ text: "Ok, entendi." }] }); // Acknowledge system prompt
+      initialCombinedPrompt += currentSettings.system_prompt + "\n\n";
     }
     if (currentSettings.assistant_prompt) {
-      geminiContents.push({ role: "user", parts: [{ text: currentSettings.assistant_prompt }] });
-      geminiContents.push({ role: "model", parts: [{ text: "Certo, estou pronto para ajudar." }] }); // Acknowledge assistant prompt
+      initialCombinedPrompt += currentSettings.assistant_prompt + "\n\n";
+    }
+    if (initialCombinedPrompt.trim()) {
+      geminiContents.push({ role: "user", parts: [{ text: initialCombinedPrompt.trim() }] });
+      lastGeminiRole = "user";
     }
 
-    newHistory.slice(-currentSettings.conversation_memory_length).forEach(msg => {
-      if (msg.content) {
-        if (msg.role === "user") {
-          geminiContents.push({ role: "user", parts: [{ text: msg.content }] });
-        } else if (msg.role === "assistant") {
-          geminiContents.push({ role: "model", parts: [{ text: msg.content }] });
-        } else if (msg.role === "tool" && msg.tool_call_id && msg.name) {
-          // Gemini tool response format
-          geminiContents.push({
-            role: "function",
-            parts: [{
-              functionResponse: {
-                name: msg.name,
-                response: JSON.parse(msg.content) // Assuming content is stringified JSON
-              }
-            }]
-          });
-        }
+    // Process the conversation history
+    for (const msg of newHistory.slice(-currentSettings.conversation_memory_length)) {
+      if (!msg.content && !msg.tool_calls) continue;
+
+      let currentGeminiRole: "user" | "model" | "function";
+      let parts: any[] = [];
+
+      if (msg.role === "user") {
+        currentGeminiRole = "user";
+        parts.push({ text: msg.content! });
+      } else if (msg.role === "assistant") {
+        currentGeminiRole = "model";
+        parts.push({ text: msg.content! });
+      } else if (msg.role === "tool") {
+        currentGeminiRole = "function";
+        parts.push({
+          functionResponse: {
+            name: msg.name!,
+            response: JSON.parse(msg.content!)
+          }
+        });
+      } else {
+        continue; // Skip unknown roles
       }
-    });
+
+      // Ensure strict alternation for user/model roles
+      if (lastGeminiRole === currentGeminiRole && (currentGeminiRole === "user" || currentGeminiRole === "model")) {
+        // Insert a synthetic message to maintain alternation
+        if (lastGeminiRole === "user") {
+          geminiContents.push({ role: "model", parts: [{ text: "Ok." }] });
+        } else { // lastGeminiRole === "model"
+          geminiContents.push({ role: "user", parts: [{ text: "Entendido." }] });
+        }
+        // The lastGeminiRole is now the opposite of what it was
+        lastGeminiRole = (lastGeminiRole === "user") ? "model" : "user";
+      }
+
+      geminiContents.push({ role: currentGeminiRole, parts: parts });
+      lastGeminiRole = currentGeminiRole;
+    }
 
     try {
       let response;
@@ -318,6 +342,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         }
         console.log("[VA] Enviando requisição para Google Gemini Chat Completions...");
         const geminiModelId = currentSettings.ai_model;
+        
+        console.log("[VA] Gemini Request Body - Contents:", JSON.stringify(geminiContents, null, 2)); // Log detalhado
+        console.log("[VA] Gemini Request Body - Tools:", JSON.stringify(geminiTools, null, 2)); // Log detalhado
+
         response = await fetch(`${GOOGLE_GEMINI_API_BASE_URL}${geminiModelId}:generateContent?key=${currentSettings.gemini_api_key}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -329,7 +357,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (!response.ok) {
           const errorBody = await response.json();
           console.error("Erro da API Google Gemini:", errorBody);
-          throw new Error("Erro na API Google Gemini");
+          throw new Error(`Erro na API Google Gemini: ${errorBody.error?.message || response.statusText}`);
         }
         const data = await response.json();
         responseMessage = data.candidates?.[0]?.content;
@@ -425,19 +453,56 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         let finalResponseMessage;
         if (isGeminiModel) {
           const geminiToolResponseContents: any[] = [];
-          // Reconstruct Gemini history including tool outputs
-          geminiContents.forEach(content => geminiToolResponseContents.push(content)); // Add previous history
-          toolOutputs.forEach(output => {
-            geminiToolResponseContents.push({
-              role: "function",
-              parts: [{
+          let lastGeminiToolRole: "user" | "model" | "function" | null = null;
+
+          // Reconstruct Gemini history including tool outputs, ensuring strict alternation
+          // Start with initial combined prompt if it exists
+          if (initialCombinedPrompt.trim()) {
+            geminiToolResponseContents.push({ role: "user", parts: [{ text: initialCombinedPrompt.trim() }] });
+            lastGeminiToolRole = "user";
+          }
+
+          // Process the full history (original messages + tool outputs)
+          for (const msg of historyWithToolResults.slice(-currentSettings.conversation_memory_length)) {
+            if (!msg.content && !msg.tool_calls) continue;
+
+            let currentGeminiToolRole: "user" | "model" | "function";
+            let parts: any[] = [];
+
+            if (msg.role === "user") {
+              currentGeminiToolRole = "user";
+              parts.push({ text: msg.content! });
+            } else if (msg.role === "assistant") {
+              currentGeminiToolRole = "model";
+              parts.push({ text: msg.content! });
+            } else if (msg.role === "tool") {
+              currentGeminiToolRole = "function";
+              parts.push({
                 functionResponse: {
-                  name: output.name,
-                  response: JSON.parse(output.content)
+                  name: msg.name!,
+                  response: JSON.parse(msg.content!)
                 }
-              }]
-            });
-          });
+              });
+            } else {
+              continue; // Skip unknown roles
+            }
+
+            // Ensure strict alternation for user/model roles
+            if (lastGeminiToolRole === currentGeminiToolRole && (currentGeminiToolRole === "user" || currentGeminiToolRole === "model")) {
+              if (lastGeminiToolRole === "user") {
+                geminiToolResponseContents.push({ role: "model", parts: [{ text: "Ok." }] });
+              } else {
+                geminiToolResponseContents.push({ role: "user", parts: [{ text: "Entendido." }] });
+              }
+              lastGeminiToolRole = (lastGeminiToolRole === "user") ? "model" : "user";
+            }
+
+            geminiToolResponseContents.push({ role: currentGeminiToolRole, parts: parts });
+            lastGeminiToolRole = currentGeminiToolRole;
+          }
+
+          console.log("[VA] Gemini Second Request Body - Contents:", JSON.stringify(geminiToolResponseContents, null, 2)); // Log detalhado
+          console.log("[VA] Gemini Second Request Body - Tools:", JSON.stringify(geminiTools, null, 2)); // Log detalhado
 
           const secondResponse = await fetch(`${GOOGLE_GEMINI_API_BASE_URL}${currentSettings.ai_model}:generateContent?key=${currentSettings.gemini_api_key}`, {
             method: "POST",
@@ -450,7 +515,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           if (!secondResponse.ok) {
             const errorBody = await secondResponse.json();
             console.error("Erro na 2ª chamada Google Gemini:", errorBody);
-            throw new Error("Erro na 2ª chamada Google Gemini");
+            throw new Error(`Erro na 2ª chamada Google Gemini: ${errorBody.error?.message || secondResponse.statusText}`);
           }
           const secondData = await secondResponse.json();
           finalResponseMessage = secondData.candidates?.[0]?.content?.parts?.[0]?.text;
