@@ -44,9 +44,9 @@ const settingsSchema = z.object({
     "openai-gpt4", 
     "openai-gpt3.5", 
     "gpt-4o-mini",
-    "gemini-pro", // Modelo Gemini Pro
-    "gemini-1.5-flash-latest", // Gemini Flash
-    "gemini-1.5-pro-latest" // Gemini Pro 1.5
+    "gemini-pro", // Google Gemini Pro (modelo estável)
+    "gemini-2.5-flash-latest", // Google Gemini 2.5 Flash
+    "gemini-2.5-pro-latest" // Google Gemini 2.5 Pro
   ]),
   voice_model: z.enum(["browser", "openai-tts", "gemini-tts"]),
   openai_tts_voice: z.string().optional().nullable(),
@@ -375,8 +375,8 @@ const SettingsPage: React.FC = () => {
                   <SelectItem value="openai-gpt3.5">OpenAI GPT-3.5</SelectItem>
                   <SelectItem value="gpt-4o-mini">GPT-4o Mini</SelectItem>
                   <SelectItem value="gemini-pro">Google Gemini Pro</SelectItem>
-                  <SelectItem value="gemini-1.5-flash-latest">Google Gemini 1.5 Flash</SelectItem>
-                  <SelectItem value="gemini-1.5-pro-latest">Google Gemini 1.5 Pro</SelectItem>
+                  <SelectItem value="gemini-2.5-flash-latest">Google Gemini 2.5 Flash</SelectItem>
+                  <SelectItem value="gemini-2.5-pro-latest">Google Gemini 2.5 Pro</SelectItem>
                 </SelectContent>
               </Select>
             )}

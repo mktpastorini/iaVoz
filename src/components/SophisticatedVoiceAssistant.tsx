@@ -447,7 +447,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
               tools: geminiTools,
             }),
           });
-          if (!secondResponse.ok) throw new Error("Erro na 2ª chamada Google Gemini");
+          if (!secondResponse.ok) {
+            const errorBody = await secondResponse.json();
+            console.error("Erro na 2ª chamada Google Gemini:", errorBody);
+            throw new Error("Erro na 2ª chamada Google Gemini");
+          }
           const secondData = await secondResponse.json();
           finalResponseMessage = secondData.candidates?.[0]?.content?.parts?.[0]?.text;
         } else { // OpenAI
@@ -456,7 +460,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
             body: JSON.stringify({ model: currentSettings.ai_model, messages: historyWithToolResults }),
           });
-          if (!secondResponse.ok) throw new Error("Erro na 2ª chamada OpenAI");
+          if (!secondResponse.ok) {
+            const errorBody = await secondResponse.json();
+            console.error("Erro na 2ª chamada OpenAI:", errorBody);
+            throw new Error("Erro na 2ª chamada OpenAI");
+          }
           const secondData = await secondResponse.json();
           finalResponseMessage = secondData.choices?.[0]?.message?.content;
         }
