@@ -28,9 +28,9 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Invalid token' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { client_code, name, email, whatsapp, city, state, custom_fields, agendamento_solicitado } = await req.json();
-    if (!name && !client_code) {
-      return new Response(JSON.stringify({ error: 'Client name or code is required to save data' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const { name, email, whatsapp, city, state, custom_fields, agendamento_solicitado } = await req.json();
+    if (!name) {
+      return new Response(JSON.stringify({ error: 'Client name is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     const { data: workspaceMember, error: wmError } = await supabaseClient
@@ -45,39 +45,34 @@ serve(async (req) => {
     }
     const workspaceId = workspaceMember.workspace_id;
 
-    let existingClientQuery = supabaseClient
+    let { data: existingClient } = await supabaseClient
       .from('clients')
-      .select('id, client_code, agendamento_solicitado')
-      .eq('workspace_id', workspaceId);
+      .select('id, agendamento_solicitado') // Puxa o agendamento existente também
+      .eq('workspace_id', workspaceId)
+      .eq('name', name)
+      .limit(1)
+      .single();
 
-    if (client_code) {
-      existingClientQuery = existingClientQuery.eq('client_code', client_code);
-    } else if (name) {
-      existingClientQuery = existingClientQuery.eq('name', name);
-    }
-
-    let { data: existingClient } = await existingClientQuery.limit(1).single();
-
-    let savedClient;
+    let clientId;
     const clientData = {
       workspace_id: workspaceId,
-      name: name || existingClient?.name,
-      email: email,
-      whatsapp: whatsapp,
-      city: city,
-      state: state,
-      agendamento_solicitado: agendamento_solicitado,
+      name,
+      email: email || existingClient?.email,
+      whatsapp: whatsapp || existingClient?.whatsapp,
+      city: city || existingClient?.city,
+      state: state || existingClient?.state,
+      agendamento_solicitado: agendamento_solicitado || existingClient?.agendamento_solicitado, // Adiciona o novo campo
       updated_at: new Date().toISOString(),
     };
 
     if (existingClient) {
-      const { data, error } = await supabaseClient.from('clients').update(clientData).eq('id', existingClient.id).select('id, client_code').single();
+      const { data, error } = await supabaseClient.from('clients').update(clientData).eq('id', existingClient.id).select('id').single();
       if (error) throw error;
-      savedClient = data;
+      clientId = data.id;
     } else {
-      const { data, error } = await supabaseClient.from('clients').insert(clientData).select('id, client_code').single();
+      const { data, error } = await supabaseClient.from('clients').insert(clientData).select('id').single();
       if (error) throw error;
-      savedClient = data;
+      clientId = data.id;
     }
 
     if (custom_fields && typeof custom_fields === 'object' && Object.keys(custom_fields).length > 0) {
@@ -90,7 +85,7 @@ serve(async (req) => {
       if (fieldDefError) throw fieldDefError;
 
       const valuesToUpsert = fieldDefs.map(def => ({
-        client_id: savedClient.id,
+        client_id: clientId,
         field_id: def.id,
         value: String(custom_fields[def.name]),
         updated_at: new Date().toISOString(),
@@ -102,7 +97,7 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ message: `Client '${clientData.name}' saved successfully.`, client_code: savedClient.client_code }), {
+    return new Response(JSON.stringify({ message: `Client '${name}' saved successfully.`, clientId }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
