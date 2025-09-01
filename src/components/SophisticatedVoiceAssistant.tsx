@@ -231,8 +231,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     const currentSettings = settingsRef.current;
     const currentPowers = powersRef.current;
     const currentSystemVariables = systemVariablesRef.current;
-    const currentSession = sessionRef.current;
-    const currentMessageHistory = messageHistoryRef.current; // Acessa o histórico via ref
+    const currentMessageHistory = messageHistoryRef.current;
 
     if (!currentSettings || !currentSettings.openai_api_key) {
       speak("Chave API OpenAI não configurada.", startListening);
@@ -246,10 +245,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     const newHistory = [...currentMessageHistory, { role: "user" as const, content: userInput }];
     setMessageHistory(newHistory);
 
-    // Preparar as ferramentas para a OpenAI
     const tools = currentPowers.map(p => ({ type: 'function' as const, function: { name: p.name, description: p.description, parameters: p.parameters_schema } }));
     
-    // Filtrar mensagens para o histórico, mantendo apenas as últimas 'conversation_memory_length'
     const messagesForApi = [
       { role: "system" as const, content: currentSettings.system_prompt },
       { role: "assistant" as const, content: currentSettings.assistant_prompt },
@@ -284,26 +281,39 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           
           const args = JSON.parse(toolCall.function.arguments);
           
-          // Substituir placeholders na URL, Headers e Body usando systemVariables e args da ferramenta
-          let processedUrl = replacePlaceholders(power.url || '', { ...currentSystemVariables, ...args });
-          let processedHeaders = power.headers ? JSON.parse(replacePlaceholders(JSON.stringify(power.headers), { ...currentSystemVariables, ...args })) : {};
-          let processedBody = (power.body && (power.method === "POST" || power.method === "PUT" || power.method === "PATCH")) 
-            ? JSON.parse(replacePlaceholders(JSON.stringify(power.body), { ...currentSystemVariables, ...args })) 
-            : undefined;
+          const isInternalFunction = power.url?.includes('supabase.co/functions/v1/');
+          const functionName = isInternalFunction ? power.url.split('/functions/v1/')[1] : null;
 
-          // Adicionar token de autenticação para Edge Functions internas
-          if (currentSession?.access_token && (power.url?.includes('/functions/v1/get-user-field') || power.url?.includes('/functions/v1/set-user-field'))) {
-            processedHeaders['Authorization'] = `Bearer ${currentSession.access_token}`;
-            console.log(`[VA] Adicionado token JWT para Edge Function interna: ${power.name}`);
+          let toolResult, invokeError;
+
+          if (isInternalFunction && functionName && (functionName === 'set-user-field' || functionName === 'get-user-field')) {
+            console.log(`[VA] Invocando função interna '${functionName}' diretamente com args:`, args);
+            const { data, error } = await supabase.functions.invoke(functionName, { body: args });
+            
+            if (error) {
+              invokeError = error;
+              toolResult = { ok: false, status: 500, data: { error: error.message } };
+            } else {
+              invokeError = null;
+              toolResult = { ok: true, status: 200, data: data };
+            }
+          } else {
+            let processedUrl = replacePlaceholders(power.url || '', { ...currentSystemVariables, ...args });
+            let processedHeaders = power.headers ? JSON.parse(replacePlaceholders(JSON.stringify(power.headers), { ...currentSystemVariables, ...args })) : {};
+            let processedBody = (power.body && (power.method === "POST" || power.method === "PUT" || power.method === "PATCH")) 
+              ? JSON.parse(replacePlaceholders(JSON.stringify(power.body), { ...currentSystemVariables, ...args })) 
+              : undefined;
+
+            const payload = { url: processedUrl, method: power.method, headers: processedHeaders, body: processedBody };
+            
+            console.log(`[VA] Invocando 'proxy-api' para poder '${power.name}' com payload:`, payload);
+            const { data, error } = await supabase.functions.invoke('proxy-api', { body: payload });
+            toolResult = data;
+            invokeError = error;
           }
-
-          const payload = { url: processedUrl, method: power.method, headers: processedHeaders, body: processedBody };
-          
-          console.log(`[VA] Invocando 'proxy-api' para poder '${power.name}' com payload:`, payload);
-          const { data: toolResult, error: invokeError } = await supabase.functions.invoke('proxy-api', { body: payload });
           
           if (invokeError) {
-            console.error(`[VA] Erro ao invocar Edge Function para poder '${power.name}':`, invokeError);
+            console.error(`[VA] Erro ao invocar função para poder '${power.name}':`, invokeError);
             return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: JSON.stringify({ error: invokeError.message }) };
           }
           console.log(`[VA] Resultado da ferramenta '${power.name}':`, toolResult);
@@ -314,7 +324,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const historyWithToolResults = [...historyWithToolCall, ...toolOutputs];
         setMessageHistory(historyWithToolResults);
         
-        // Segunda chamada à OpenAI com os resultados das ferramentas
         const secondResponse = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
@@ -335,7 +344,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error('[VA] Erro no fluxo da conversa:', error);
       speak("Desculpe, ocorreu um erro.", startListening);
     }
-  }, [speak, startListening, stopListening, setMessageHistory]); // Depende apenas de funções estáveis e do setter de estado
+  }, [speak, startListening, stopListening, setMessageHistory]);
 
   const executeClientAction = useCallback((action: ClientAction) => {
     console.log(`[VA] Executando ação do cliente: ${action.action_type}`);
@@ -360,7 +369,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         }
         break;
     }
-  }, [speak, startListening, stopListening]); // Depende apenas de funções estáveis e setters de estado
+  }, [speak, startListening, stopListening]);
 
   const initializeAssistant = useCallback(() => {
     console.log('[VA] Inicializando assistente...');
@@ -371,8 +380,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       return;
     }
     recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = true; // Habilitar escuta contínua
-    recognitionRef.current.interimResults = false; // Apenas resultados finais
+    recognitionRef.current.continuous = true;
+    recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
 
     recognitionRef.current.onstart = () => {
@@ -382,10 +391,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onend = () => {
       console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
-      // Apenas reinicia se o assistente estiver aberto, não falando, e não tiver sido parado permanentemente.
       if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
         console.log('[VA] Reiniciando escuta após onend...');
-        // Usa um pequeno timeout para evitar condições de corrida com o motor de reconhecimento do navegador.
         setTimeout(() => startListening(), 100);
       }
     };
@@ -393,17 +400,17 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
         console.error(`[VA] Erro no reconhecimento de voz: ${e.error}`);
       }
-      setIsListening(false); // Garante que o estado de escuta seja atualizado em caso de erro
+      setIsListening(false);
     };
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
       console.log(`[VA] Transcrição ouvida: "${transcript}"`);
       const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
 
-      const currentIsOpen = isOpenRef.current; // Acessa o estado via ref
-      const currentSettings = settingsRef.current; // Acessa as configurações via ref
-      const currentClientActions = clientActionsRef.current; // Acessa as ações via ref
-      const currentHasBeenActivated = hasBeenActivatedRef.current; // Acessa o estado via ref
+      const currentIsOpen = isOpenRef.current;
+      const currentSettings = settingsRef.current;
+      const currentClientActions = clientActionsRef.current;
+      const currentHasBeenActivated = hasBeenActivatedRef.current;
 
       if (currentIsOpen) {
         if (closePhrases.some(phrase => transcript.includes(phrase))) {
@@ -412,7 +419,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           setAiResponse("");
           setTranscript("");
           stopSpeaking();
-          stopListening(); // Explicitamente parar a escuta ao fechar
+          stopListening();
           return;
         }
         const matchedAction = currentClientActions.find(a => transcript.includes(a.trigger_phrase));
@@ -442,7 +449,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     } else {
       showError("Síntese de voz não suportada.");
     }
-  }, [speak, startListening, stopSpeaking, stopListening, runConversation, executeClientAction, setIsOpen, setAiResponse, setTranscript, setHasBeenActivated]); // Depende apenas de funções estáveis e setters de estado
+  }, [speak, startListening, stopSpeaking, stopListening, runConversation, executeClientAction, setIsOpen, setAiResponse, setTranscript, setHasBeenActivated]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log('[VA] Verificando permissão do microfone...');
@@ -453,7 +460,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
-        // NEW: Start listening immediately if permission is granted and assistant initialized
         if (!isListeningRef.current) {
           startListening();
         }
@@ -476,7 +482,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error("[VA] Erro ao verificar permissão do microfone:", error);
       showError("Não foi possível verificar a permissão do microfone.");
     }
-  }, [initializeAssistant, startListening]); // Depende apenas de initializeAssistant e startListening
+  }, [initializeAssistant, startListening]);
 
   const handleAllowMic = async () => {
     console.log('[VA] Usuário clicou em "Permitir Microfone".');
@@ -500,7 +506,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           setHasBeenActivated(true);
         }, 100);
       } else {
-        // If not activated by button, but permission granted, start listening
         if (!isListeningRef.current) {
           startListening();
         }
@@ -510,7 +515,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       setMicPermission('denied');
       showError("Você precisa permitir o uso do microfone para continuar.");
     }
-  }; // Depende de initializeAssistant, speak, startListening, setters de estado
+  };
 
   const handleManualActivation = useCallback(() => {
     const currentIsOpen = isOpenRef.current;
@@ -530,7 +535,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       speak(messageToSpeak, startListening);
       setHasBeenActivated(true);
     }
-  }, [micPermission, checkAndRequestMicPermission, speak, startListening, setIsOpen, setHasBeenActivated]); // Depende de micPermission, checkAndRequestMicPermission, speak, startListening, setters de estado
+  }, [micPermission, checkAndRequestMicPermission, speak, startListening, setIsOpen, setHasBeenActivated]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
