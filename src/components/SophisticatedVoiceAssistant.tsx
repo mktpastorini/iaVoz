@@ -39,6 +39,7 @@ interface Message {
   content: string;
   tool_calls?: any[];
   tool_call_id?: string;
+  name?: string; // Adicionado para tool messages
 }
 
 interface Power {
@@ -83,7 +84,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   settings,
   isLoading,
 }) => {
-  const { workspace } = useSession();
+  const { workspace, session } = useSession(); // Obter a sessão para o token JWT
   const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
 
@@ -206,8 +207,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     const newHistory = [...messageHistory, { role: "user" as const, content: userInput }];
     setMessageHistory(newHistory);
 
+    // Preparar as ferramentas para a OpenAI
     const tools = powers.map(p => ({ type: 'function' as const, function: { name: p.name, description: p.description, parameters: p.parameters_schema } }));
-    const messagesForApi = [{ role: "system" as const, content: settings.system_prompt }, { role: "assistant" as const, content: settings.assistant_prompt }, ...newHistory.slice(-settings.conversation_memory_length)];
+    
+    // Filtrar mensagens para o histórico, mantendo apenas as últimas 'conversation_memory_length'
+    const messagesForApi = [
+      { role: "system" as const, content: settings.system_prompt },
+      { role: "assistant" as const, content: settings.assistant_prompt },
+      ...newHistory.slice(-settings.conversation_memory_length)
+    ];
 
     try {
       console.log('[VA] Enviando requisição para OpenAI Chat Completions...');
@@ -226,22 +234,48 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         setAiResponse("Executando ação...");
         const historyWithToolCall = [...newHistory, responseMessage];
         setMessageHistory(historyWithToolCall);
+
         const toolOutputs = await Promise.all(responseMessage.tool_calls.map(async (toolCall: any) => {
           console.log(`[VA] Executando ferramenta: ${toolCall.function.name}`);
           const power = powers.find(p => p.name === toolCall.function.name);
-          if (!power) return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: 'Poder não encontrado.' };
+          if (!power) {
+            console.error(`[VA] Poder '${toolCall.function.name}' não encontrado.`);
+            return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: 'Poder não encontrado.' };
+          }
           
           const args = JSON.parse(toolCall.function.arguments);
-          let url = replacePlaceholders(power.url || '', { ...systemVariables, ...args });
-          let body = power.body ? JSON.parse(replacePlaceholders(JSON.stringify(power.body), { ...systemVariables, ...args })) : undefined;
+          
+          // Substituir placeholders na URL, Headers e Body usando systemVariables e args da ferramenta
+          let processedUrl = replacePlaceholders(power.url || '', { ...systemVariables, ...args });
+          let processedHeaders = power.headers ? JSON.parse(replacePlaceholders(JSON.stringify(power.headers), { ...systemVariables, ...args })) : {};
+          let processedBody = (power.body && (power.method === "POST" || power.method === "PUT" || power.method === "PATCH")) 
+            ? JSON.parse(replacePlaceholders(JSON.stringify(power.body), { ...systemVariables, ...args })) 
+            : undefined;
 
-          const { data: toolResult, error } = await supabase.functions.invoke('proxy-api', { body: { url, method: power.method, headers: power.headers, body } });
-          return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: error ? JSON.stringify({ error: error.message }) : JSON.stringify(toolResult) };
+          // Adicionar token de autenticação para Edge Functions internas
+          if (session?.access_token && (power.url?.includes('/functions/v1/get-user-field') || power.url?.includes('/functions/v1/set-user-field'))) {
+            processedHeaders['Authorization'] = `Bearer ${session.access_token}`;
+            console.log(`[VA] Adicionado token JWT para Edge Function interna: ${power.name}`);
+          }
+
+          const payload = { url: processedUrl, method: power.method, headers: processedHeaders, body: processedBody };
+          
+          console.log(`[VA] Invocando 'proxy-api' para poder '${power.name}' com payload:`, payload);
+          const { data: toolResult, error: invokeError } = await supabase.functions.invoke('proxy-api', { body: payload });
+          
+          if (invokeError) {
+            console.error(`[VA] Erro ao invocar Edge Function para poder '${power.name}':`, invokeError);
+            return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: JSON.stringify({ error: invokeError.message }) };
+          }
+          console.log(`[VA] Resultado da ferramenta '${power.name}':`, toolResult);
+          return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: JSON.stringify(toolResult) };
         }));
 
         console.log('[VA] Execução da ferramenta finalizada. Enviando resultados de volta para a OpenAI...');
         const historyWithToolResults = [...historyWithToolCall, ...toolOutputs];
         setMessageHistory(historyWithToolResults);
+        
+        // Segunda chamada à OpenAI com os resultados das ferramentas
         const secondResponse = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.openai_api_key}` },
@@ -262,7 +296,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error('[VA] Erro no fluxo da conversa:', error);
       speak("Desculpe, ocorreu um erro.", startListening);
     }
-  }, [settings, powers, systemVariables, messageHistory, speak, startListening, stopListening]);
+  }, [settings, powers, systemVariables, messageHistory, speak, startListening, stopListening, session?.access_token]);
 
   const executeClientAction = useCallback((action: ClientAction) => {
     console.log(`[VA] Executando ação do cliente: ${action.action_type}`);
