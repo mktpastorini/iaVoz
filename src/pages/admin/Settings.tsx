@@ -291,8 +291,9 @@ const SettingsPage: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="flex items-center mb-2">
+            <Label htmlFor="system_prompt" className="sr-only">Prompt do Sistema</Label>
             <FieldInsertPopover fields={userDataFields} onInsert={handleInsertSystemPromptField} />
-            <FieldInsertPopover fields={powers} onInsert={handleInsertSystemPromptPower} />
+            <FieldInsertPopover fields={powers} onInsert={handleInsertSystemPromptPower} /> {/* Novo popover para poderes */}
           </div>
           <Controller
             control={control}
@@ -322,8 +323,9 @@ const SettingsPage: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="flex items-center mb-2">
+            <Label htmlFor="assistant_prompt" className="sr-only">Prompt do Assistente</Label>
             <FieldInsertPopover fields={userDataFields} onInsert={handleInsertAssistantPromptField} />
-            <FieldInsertPopover fields={powers} onInsert={handleInsertAssistantPromptPower} />
+            <FieldInsertPopover fields={powers} onInsert={handleInsertAssistantPromptPower} /> {/* Novo popover para poderes */}
           </div>
           <Controller
             control={control}

@@ -11,8 +11,7 @@ import PowersPage from "./pages/admin/Powers";
 import ConversationsPage from "./pages/admin/Conversations";
 import SystemPowersPage from "./pages/admin/SystemPowers";
 import ClientActionsPage from "./pages/admin/ClientActions";
-import UserDataFieldsPage from "./pages/admin/UserDataFields";
-import ClientsPage from "./pages/admin/Clients"; // Importar a nova página Clients
+import UserDataFieldsPage from "./pages/admin/UserDataFields"; // Importar a nova página
 import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
@@ -74,8 +73,7 @@ const App = () => (
                   <Route path="conversations" element={<ConversationsPage />} />
                   <Route path="system-powers" element={<SystemPowersPage />} />
                   <Route path="client-actions" element={<ClientActionsPage />} />
-                  <Route path="user-data-fields" element={<UserDataFieldsPage />} />
-                  <Route path="clients" element={<ClientsPage />} /> {/* Nova rota para Clientes */}
+                  <Route path="user-data-fields" element={<UserDataFieldsPage />} /> {/* Nova rota */}
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>

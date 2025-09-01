@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Settings, Zap, MessageSquare, SlidersHorizontal, MousePointerClick, UserSquare, Users } from 'lucide-react'; // Import Users icon
+import { Settings, Zap, MessageSquare, SlidersHorizontal, MousePointerClick, UserSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const AdminLayout: React.FC = () => {
@@ -13,8 +13,7 @@ const AdminLayout: React.FC = () => {
     { name: 'Poderes', path: '/admin/powers', icon: Zap },
     { name: 'Poderes do Sistema', path: '/admin/system-powers', icon: SlidersHorizontal },
     { name: 'Ações do Cliente', path: '/admin/client-actions', icon: MousePointerClick },
-    { name: 'Campos de Dados do Usuário', path: '/admin/user-data-fields', icon: UserSquare },
-    { name: 'Clientes', path: '/admin/clients', icon: Users }, 
+    { name: 'Campos de Dados do Usuário', path: '/admin/user-data-fields', icon: UserSquare }, // Novo item de navegação
     { name: 'Conversas', path: '/admin/conversations', icon: MessageSquare },
   ];
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -20,7 +20,6 @@ import {
 import { useSession } from '@/contexts/SessionContext';
 import { supabase } from '@/integrations/supabase/client';
 import { showError, showSuccess } from '@/utils/toast';
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // Tipos para o Supabase
 interface UserDataField {
@@ -41,15 +40,6 @@ const userDataFieldSchema = z.object({
 });
 
 type UserDataFieldFormData = z.infer<typeof userDataFieldSchema>;
-
-// Fixed fields that cannot be deleted
-const FIXED_FIELDS = [
-  { name: 'nome', description: 'Nome completo do cliente', type: 'string' },
-  { name: 'email', description: 'Endereço de e-mail do cliente', type: 'string' },
-  { name: 'whatsapp', description: 'Número de WhatsApp do cliente', type: 'string' },
-  { name: 'cidade', description: 'Cidade de residência do cliente', type: 'string' },
-  { name: 'estado', description: 'Estado de residência do cliente', type: 'string' },
-];
 
 const UserDataFieldsPage: React.FC = () => {
   const { workspace, loading: sessionLoading } = useSession();
@@ -74,7 +64,7 @@ const UserDataFieldsPage: React.FC = () => {
     },
   });
 
-  const fetchFields = useCallback(async () => {
+  const fetchFields = async () => {
     if (!workspace?.id) return;
     setLoadingFields(true);
     const { data, error } = await supabase
@@ -87,43 +77,16 @@ const UserDataFieldsPage: React.FC = () => {
       showError("Erro ao carregar campos de dados do usuário.");
       console.error(error);
     } else {
-      const existingFieldNames = new Set(data?.map(f => f.name));
-      const missingFixedFields = FIXED_FIELDS.filter(ff => !existingFieldNames.has(ff.name));
-
-      if (missingFixedFields.length > 0) {
-        console.log("Inserting missing fixed fields:", missingFixedFields.map(f => f.name));
-        const { error: insertError } = await supabase.from('user_data_fields').insert(
-          missingFixedFields.map(ff => ({
-            workspace_id: workspace.id,
-            name: ff.name,
-            description: ff.description,
-            type: ff.type,
-          }))
-        );
-        if (insertError) {
-          console.error("Error inserting fixed fields:", insertError);
-          showError("Erro ao adicionar campos fixos.");
-        } else {
-          // Refetch after inserting
-          const { data: updatedData, error: updatedError } = await supabase
-            .from('user_data_fields')
-            .select('*')
-            .eq('workspace_id', workspace.id)
-            .order('name', { ascending: true });
-          if (!updatedError) setFields(updatedData || []);
-        }
-      } else {
-        setFields(data || []);
-      }
+      setFields(data || []);
     }
     setLoadingFields(false);
-  }, [workspace?.id]);
+  };
 
   useEffect(() => {
     if (!sessionLoading && workspace) {
       fetchFields();
     }
-  }, [workspace, sessionLoading, fetchFields]);
+  }, [workspace, sessionLoading]);
 
   const onSubmit = async (formData: UserDataFieldFormData) => {
     if (!workspace) {
@@ -163,11 +126,7 @@ const UserDataFieldsPage: React.FC = () => {
     reset(field);
   };
 
-  const onDelete = async (id: string, name: string) => {
-    if (FIXED_FIELDS.some(ff => ff.name === name)) {
-      showError("Este campo é fixo e não pode ser excluído.");
-      return;
-    }
+  const onDelete = async (id: string) => {
     if (!confirm("Tem certeza que deseja excluir este campo de dados?")) return;
     const { error } = await supabase.from('user_data_fields').delete().eq('id', id);
     if (error) {
@@ -214,7 +173,7 @@ const UserDataFieldsPage: React.FC = () => {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <Label htmlFor="field-name">Nome do Campo (chave)</Label>
-              <Input id="field-name" placeholder="Ex: nome_cliente, email_lead" {...register("name")} disabled={editingFieldId !== null && FIXED_FIELDS.some(ff => ff.name === watch("name"))} />
+              <Input id="field-name" placeholder="Ex: nome_cliente, email_lead" {...register("name")} />
               {errors.name && <p className="text-destructive text-sm mt-1">{errors.name.message}</p>}
               <p className="text-sm text-muted-foreground mt-1">Use apenas letras, números e sublinhados. Este será o nome da chave para a IA.</p>
             </div>
@@ -228,7 +187,7 @@ const UserDataFieldsPage: React.FC = () => {
                 control={control}
                 name="type"
                 render={({ field }) => (
-                  <Select onValueChange={field.onChange} value={field.value} disabled={editingFieldId !== null && FIXED_FIELDS.some(ff => ff.name === watch("name"))}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <SelectTrigger id="field-type"><SelectValue placeholder="Selecione o tipo" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="string">Texto (String)</SelectItem>
@@ -260,25 +219,7 @@ const UserDataFieldsPage: React.FC = () => {
                   </div>
                   <div className="flex space-x-2">
                     <Button variant="outline" size="sm" onClick={() => onEdit(field)}><Edit className="h-4 w-4" /></Button>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span tabIndex={0}>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => onDelete(field.id, field.name)}
-                            disabled={FIXED_FIELDS.some(ff => ff.name === field.name)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      {FIXED_FIELDS.some(ff => ff.name === field.name) && (
-                        <TooltipContent>
-                          <p>Este é um campo fixo e não pode ser excluído.</p>
-                        </TooltipContent>
-                      )}
-                    </Tooltip>
+                    <Button variant="destructive" size="sm" onClick={() => onDelete(field.id)}><Trash2 className="h-4 w-4" /></Button>
                   </div>
                 </div>
               ))}
