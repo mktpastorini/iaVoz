@@ -10,7 +10,7 @@ import { useTypewriter } from "@/hooks/useTypewriter";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Mic, X } from "lucide-react";
+import { Mic, X, PlusSquare } from "lucide-react";
 import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
@@ -36,7 +36,7 @@ interface VoiceAssistantProps {
 
 interface Message {
   role: "user" | "assistant" | "system" | "tool";
-  content: string | null; // Content can be null for tool calls
+  content: string | null;
   tool_calls?: any[];
   tool_call_id?: string;
   name?: string;
@@ -101,6 +101,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
 
   const settingsRef = useRef(settings);
   const isOpenRef = useRef(isOpen);
@@ -112,6 +113,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const messageHistoryRef = useRef(messageHistory);
   const systemVariablesRef = useRef(systemVariables);
   const sessionRef = useRef(session);
+  const conversationIdRef = useRef(conversationId);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -133,6 +135,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
+  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) {
@@ -219,6 +222,22 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   }, [stopSpeaking, stopListening, startListening]);
 
+  const saveMessage = useCallback(async (message: Message) => {
+    if (!conversationIdRef.current) {
+      console.error("[VA] Tentativa de salvar mensagem sem ID de conversa.");
+      return;
+    }
+    const { error } = await supabase.from('messages').insert({
+      conversation_id: conversationIdRef.current,
+      role: message.role,
+      content: message, // Salva o objeto de mensagem inteiro no campo JSONB
+    });
+    if (error) {
+      console.error("[VA] Erro ao salvar mensagem no banco de dados:", error);
+      showError("Não foi possível salvar a mensagem.");
+    }
+  }, []);
+
   const runConversation = useCallback(async (userInput: string) => {
     const currentSettings = settingsRef.current;
     const currentPowers = powersRef.current;
@@ -232,8 +251,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setTranscript(userInput);
     setAiResponse("Pensando...");
     
-    const newHistory = [...messageHistoryRef.current, { role: "user" as const, content: userInput }];
+    const userMessage: Message = { role: "user", content: userInput };
+    const newHistory = [...messageHistoryRef.current, userMessage];
     setMessageHistory(newHistory);
+    await saveMessage(userMessage);
 
     const tools = currentPowers.map(p => ({ type: 'function' as const, function: { name: p.name, description: p.description, parameters: p.parameters_schema } }));
     
@@ -241,7 +262,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       { role: "system" as const, content: currentSettings.system_prompt },
       { role: "assistant" as const, content: currentSettings.assistant_prompt },
       ...newHistory.slice(-currentSettings.conversation_memory_length) 
-    ].filter(msg => msg.content !== null);
+    ].filter(msg => msg.content !== null || msg.tool_calls);
 
     try {
       const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
@@ -259,8 +280,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (responseMessage.tool_calls) {
         setAiResponse("Executando ação...");
-        const historyWithToolCall = [...newHistory, responseMessage];
-        setMessageHistory(historyWithToolCall);
+        setMessageHistory(prev => [...prev, responseMessage]);
+        await saveMessage(responseMessage);
 
         const toolOutputs = await Promise.all(responseMessage.tool_calls.map(async (toolCall: any) => {
           const power = currentPowers.find(p => p.name === toolCall.function.name);
@@ -287,29 +308,33 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: JSON.stringify(data.data) };
         }));
 
-        const historyWithToolResults = [...historyWithToolCall, ...toolOutputs];
-        setMessageHistory(historyWithToolResults);
+        for (const output of toolOutputs) {
+          await saveMessage(output);
+        }
+        setMessageHistory(prev => [...prev, ...toolOutputs]);
         
         const secondResponse = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-          body: JSON.stringify({ model: currentSettings.ai_model, messages: historyWithToolResults }),
+          body: JSON.stringify({ model: currentSettings.ai_model, messages: [...messageHistoryRef.current] }),
         });
         if (!secondResponse.ok) throw new Error("Erro na 2ª chamada OpenAI");
         const secondData = await secondResponse.json();
-        const finalMessage = secondData.choices?.[0]?.message?.content;
-        setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        speak(finalMessage);
+        const finalMessage = secondData.choices?.[0]?.message;
+        setMessageHistory(prev => [...prev, finalMessage]);
+        await saveMessage(finalMessage);
+        speak(finalMessage.content);
       } else {
-        const assistantMessage = responseMessage.content;
-        setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        speak(assistantMessage);
+        const assistantMessage = responseMessage;
+        setMessageHistory(prev => [...prev, assistantMessage]);
+        await saveMessage(assistantMessage);
+        speak(assistantMessage.content);
       }
     } catch (error) {
       console.error('[VA] Erro no fluxo da conversa:', error);
       speak("Desculpe, ocorreu um erro.");
     }
-  }, [speak, stopListening, setMessageHistory]);
+  }, [speak, stopListening, saveMessage]);
 
   const executeClientAction = useCallback((action: ClientAction) => {
     stopListening();
@@ -479,6 +504,44 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   }, [micPermission, checkAndRequestMicPermission, speak, setIsOpen, setHasBeenActivated]);
 
+  const startOrResumeConversation = useCallback(async () => {
+    if (!workspace?.id) return;
+    const storedConversationId = localStorage.getItem('conversation_id');
+
+    if (storedConversationId) {
+      const { data, error } = await supabase.from('conversations').select('id').eq('id', storedConversationId).eq('workspace_id', workspace.id).single();
+      if (data && !error) {
+        const { data: messagesData, error: messagesError } = await supabase.from('messages').select('content').eq('conversation_id', storedConversationId).order('created_at', { ascending: true });
+        if (messagesData) {
+          setMessageHistory(messagesData.map(m => m.content));
+        }
+        setConversationId(storedConversationId);
+        showSuccess("Conversa anterior restaurada.");
+        return;
+      }
+    }
+
+    const { data, error } = await supabase.from('conversations').insert({ workspace_id: workspace.id }).select('id').single();
+    if (data) {
+      setConversationId(data.id);
+      localStorage.setItem('conversation_id', data.id);
+      setMessageHistory([]);
+    } else {
+      showError("Não foi possível iniciar uma nova conversa.");
+      console.error(error);
+    }
+  }, [workspace]);
+
+  const handleNewConversation = useCallback(() => {
+    localStorage.removeItem('conversation_id');
+    setConversationId(null);
+    setMessageHistory([]);
+    setAiResponse("");
+    setTranscript("");
+    showSuccess("Iniciando uma nova conversa.");
+    startOrResumeConversation();
+  }, [startOrResumeConversation]);
+
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
       activationTriggerRef.current = activationTrigger;
@@ -495,6 +558,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       if (synthRef.current?.speaking) synthRef.current.cancel();
     };
   }, [isLoading, checkAndRequestMicPermission]);
+
+  useEffect(() => {
+    if (workspace?.id && !conversationId) {
+      startOrResumeConversation();
+    }
+  }, [workspace, conversationId, startOrResumeConversation]);
 
   useEffect(() => {
     if (workspace?.id) {
@@ -555,6 +624,16 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
       )}>
         <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={() => setIsOpen(false)}></div>
+        
+        <div className="absolute top-4 right-4 z-20 flex space-x-2">
+          <Button variant="outline" size="icon" onClick={handleNewConversation} title="Nova Conversa">
+            <PlusSquare className="h-5 w-5" />
+          </Button>
+          <Button variant="destructive" size="icon" onClick={() => setIsOpen(false)} title="Fechar Assistente">
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+
         <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
           <div className="flex-grow flex items-center justify-center">
             <p className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">
