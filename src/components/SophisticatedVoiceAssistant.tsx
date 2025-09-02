@@ -112,6 +112,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const clientActionsRef = useRef(clientActions);
   const systemVariablesRef = useRef(systemVariables);
   const sessionRef = useRef(session);
+  const messageHistoryRef = useRef(messageHistory);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -119,6 +120,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
   const activationRequestedViaButton = useRef(false);
+  const isTransitioningToSpeakRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -132,17 +134,16 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
+  useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
       console.log('[VA] Parando a escuta...');
       recognitionRef.current.stop();
-      // O estado será atualizado pelo evento onend
     }
   }, []);
 
   const startListening = useCallback(() => {
-    // Proteção robusta contra inícios indesejados
     if (isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current || !recognitionRef.current) {
       console.log(`[VA] Ignorando startListening. Status: isListening=${isListeningRef.current}, isSpeaking=${isSpeakingRef.current}`);
       return;
@@ -176,15 +177,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       onEndCallback?.();
       return;
     }
-    console.log(`[VA] Preparando para falar: "${text}"`);
-    stopListening();
-    stopSpeaking();
     
-    setIsSpeaking(true);
-    setAiResponse(text);
-
     const onSpeechEnd = () => {
       console.log('[VA] Finalizou a fala.');
+      isTransitioningToSpeakRef.current = false;
+      isSpeakingRef.current = false;
       setIsSpeaking(false);
       onEndCallback?.();
       if (isOpenRef.current) {
@@ -192,6 +189,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         startListening();
       }
     };
+
+    console.log(`[VA] Preparando para falar: "${text}"`);
+    isTransitioningToSpeakRef.current = true;
+    stopListening();
+    stopSpeaking();
+    
+    isSpeakingRef.current = true;
+    setIsSpeaking(true);
+    setAiResponse(text);
 
     try {
       if (currentSettings.voice_model === "browser" && synthRef.current) {
@@ -233,13 +239,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setTranscript(userInput);
     setAiResponse("Pensando...");
     
-    // Construir o histórico para esta chamada específica
     const currentHistory = messageHistoryRef.current;
     const historyForApi = [
       ...currentHistory,
       { role: "user" as const, content: userInput }
     ];
-    setMessageHistory(historyForApi); // Atualiza o estado para o UI
+    setMessageHistory(historyForApi);
 
     const tools = powersRef.current.map(p => ({
       type: 'function' as const,
@@ -271,7 +276,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (responseMessage.tool_calls) {
         setAiResponse("Executando ação...");
-        // Adiciona a requisição de ferramenta ao histórico
         const historyWithToolCall = [...historyForApi, responseMessage];
         setMessageHistory(historyWithToolCall);
 
@@ -303,7 +307,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: JSON.stringify(toolResult) };
         }));
 
-        // Adiciona os resultados das ferramentas ao histórico
         const historyWithToolResults = [...historyWithToolCall, ...toolOutputs];
         setMessageHistory(historyWithToolResults);
         
@@ -368,19 +371,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onend = () => {
       console.log('[VA] Evento: onend - Reconhecimento de voz finalizado.');
       setIsListening(false);
-      // LÓGICA CENTRALIZADA: Apenas reinicia se não for uma parada intencional (como para falar)
-      if (!isSpeakingRef.current && !stopPermanentlyRef.current && isOpenRef.current) {
-        console.log('[VA] Reiniciando escuta após onend (não estava falando).');
-        startListening();
-      } else if (!isOpenRef.current) {
-        console.log('[VA] Reiniciando escuta passiva (assistente fechado).');
+      if (isTransitioningToSpeakRef.current) {
+        console.log('[VA] onend: Ignorando reinício, transição para fala em progresso.');
+        return;
+      }
+      if (!stopPermanentlyRef.current) {
+        console.log('[VA] onend: Reiniciando escuta...');
         startListening();
       }
     };
     
     recognitionRef.current.onerror = (e) => {
       console.log(`[VA] Evento: onerror - Erro no reconhecimento: ${e.error}`);
-      // O onend será chamado automaticamente após a maioria dos erros, então a lógica de reinício está lá.
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         setMicPermission('denied');
         showError("Permissão para microfone negada.");
@@ -398,7 +400,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           setAiResponse("");
           setTranscript("");
           stopSpeaking();
-          // onend cuidará de reiniciar a escuta passiva
           return;
         }
         const matchedAction = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
@@ -446,7 +447,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setIsPermissionModalOpen(false);
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
-      // checkAndRequestMicPermission será chamado novamente pelo onchange do status da permissão
       if (activationRequestedViaButton.current) {
         activationRequestedViaButton.current = false;
         handleManualActivation();
