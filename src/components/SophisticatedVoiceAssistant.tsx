@@ -10,10 +10,11 @@ import { useTypewriter } from "@/hooks/useTypewriter";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Mic, X, MicOff } from "lucide-react";
+import { Mic, X, Send, Info } from "lucide-react";
 import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // Interfaces
 interface Settings {
@@ -97,7 +98,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isRecording, setIsRecording] = useState(false); // Para gravação manual
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessingAudio, setIsProcessingAudio] = useState(false); // Novo estado para processamento
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
@@ -108,7 +110,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
-  const [useWebSpeech, setUseWebSpeech] = useState(true); // Determina qual método usar
+  const [useWebSpeech, setUseWebSpeech] = useState(true);
+  const [showBrowserWarning, setShowBrowserWarning] = useState(false); // Novo estado para o aviso
 
   // Refs para estados e props dinâmicos
   const settingsRef = useRef(settings);
@@ -131,6 +134,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const activationTriggerRef = useRef(0);
   const activationRequestedViaButton = useRef(false);
   const isInitializingRef = useRef(false);
+  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Novo ref para timeout
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -175,7 +179,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     return data.text || '';
   }, []);
 
-  // Função para iniciar gravação manual
+  // Função melhorada para iniciar gravação com timeout automático
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -190,6 +194,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       };
 
       mediaRecorder.onstop = async () => {
+        setIsProcessingAudio(true);
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         try {
           console.log('[VA] Transcrevendo áudio com Whisper...');
@@ -199,6 +204,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         } catch (error) {
           console.error('[VA] Erro na transcrição:', error);
           showError("Erro ao transcrever áudio.");
+        } finally {
+          setIsProcessingAudio(false);
         }
         
         // Limpa o stream
@@ -209,14 +216,28 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       mediaRecorder.start();
       setIsRecording(true);
       console.log('[VA] Gravação iniciada.');
+
+      // Auto-stop após 30 segundos para evitar gravações muito longas
+      recordingTimeoutRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          console.log('[VA] Parando gravação automaticamente após 30 segundos.');
+          stopRecording();
+        }
+      }, 30000);
+
     } catch (error) {
       console.error('[VA] Erro ao iniciar gravação:', error);
       showError("Erro ao acessar o microfone.");
     }
   }, [transcribeWithWhisper]);
 
-  // Função para parar gravação manual
+  // Função melhorada para parar gravação
   const stopRecording = useCallback(() => {
+    if (recordingTimeoutRef.current) {
+      clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = null;
+    }
+    
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
       console.log('[VA] Gravação parada.');
@@ -288,25 +309,23 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         console.error("[VA] Erro ao iniciar reconhecimento:", error);
       }
     } else if (!useWebSpeech) {
-      // Para navegadores sem suporte, inicia gravação contínua
-      console.log('[VA] Iniciando escuta com gravação contínua...');
+      // Para navegadores sem suporte, apenas marca como "ouvindo" para escuta passiva
+      console.log('[VA] Modo de escuta passiva ativado (aguardando clique no botão).');
       setIsListening(true);
       isListeningRef.current = true;
-      startRecording();
     }
-  }, [useWebSpeech, startRecording]);
+  }, [useWebSpeech]);
 
   const stopListening = useCallback(() => {
     if (useWebSpeech && recognitionRef.current && isListeningRef.current) {
       console.log('[VA] Parando a escuta Web Speech API...');
       recognitionRef.current.stop();
-    } else if (!useWebSpeech && isRecording) {
-      console.log('[VA] Parando gravação...');
-      stopRecording();
+    } else if (!useWebSpeech) {
+      console.log('[VA] Parando modo de escuta passiva...');
+      setIsListening(false);
+      isListeningRef.current = false;
     }
-    setIsListening(false);
-    isListeningRef.current = false;
-  }, [useWebSpeech, isRecording, stopRecording]);
+  }, [useWebSpeech]);
 
   const stopSpeaking = useCallback(() => {
     if (synthRef.current?.speaking) {
@@ -566,6 +585,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     if (webSpeechSupported) {
       console.log('[VA] Web Speech API suportada, usando reconhecimento nativo.');
       setUseWebSpeech(true);
+      setShowBrowserWarning(false);
       
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       recognitionRef.current = new SpeechRecognition();
@@ -609,6 +629,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     } else if (hasOpenAIKey) {
       console.log('[VA] Web Speech API não suportada, usando OpenAI Whisper.');
       setUseWebSpeech(false);
+      setShowBrowserWarning(true);
     } else {
       console.error('[VA] Nem Web Speech API nem OpenAI API disponíveis.');
       showError("Reconhecimento de voz não suportado neste navegador e chave OpenAI não configurada.");
@@ -707,14 +728,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   }, [micPermission, checkAndRequestMicPermission, speak, setIsOpen, setHasBeenActivated]);
 
-  // Função para ativação manual via botão (para navegadores sem Web Speech)
-  const handleManualRecording = useCallback(() => {
+  // Função melhorada para ativação manual via botão "Falar"
+  const handleSpeakButton = useCallback(() => {
     if (isRecording) {
+      // Se está gravando, para e envia
       stopRecording();
+    } else if (isProcessingAudio) {
+      // Se está processando, não faz nada
+      return;
     } else {
+      // Se não está gravando, inicia
       startRecording();
     }
-  }, [isRecording, startRecording, stopRecording]);
+  }, [isRecording, isProcessingAudio, startRecording, stopRecording]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
@@ -734,6 +760,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       if (synthRef.current?.speaking) synthRef.current.cancel();
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop();
+      }
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current);
       }
     };
   }, [isLoading, checkAndRequestMicPermission]);
@@ -773,6 +802,20 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         onAllow={handleAllowMic}
         onClose={() => setIsPermissionModalOpen(false)}
       />
+      
+      {/* Aviso bonito para navegadores sem Web Speech API */}
+      {showBrowserWarning && micPermission === 'granted' && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-40 max-w-md">
+          <Alert className="bg-blue-50 border-blue-200 shadow-lg">
+            <Info className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-blue-800 text-sm">
+              <strong>Modo de Áudio Manual:</strong> Seu navegador não suporta reconhecimento de voz em tempo real. 
+              Use o botão "Falar" para gravar e enviar suas mensagens por áudio.
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
       {micPermission !== 'granted' && micPermission !== 'checking' && (
         <div className="fixed bottom-4 right-4 md:bottom-8 md:right-8 z-50">
           <Button onClick={checkAndRequestMicPermission} size="lg" className="rounded-full w-16 h-16 md:w-20 md-h-20 bg-gradient-to-br from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 shadow-lg transform hover:scale-110 transition-transform duration-200 flex items-center justify-center">
@@ -781,23 +824,32 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         </div>
       )}
       
-      {/* Botão de gravação manual para navegadores sem Web Speech */}
+      {/* Botão "Falar" melhorado para navegadores sem Web Speech */}
       {micPermission === 'granted' && !useWebSpeech && !isOpen && (
         <div className="fixed bottom-4 left-4 md:bottom-8 md:left-8 z-50">
           <Button 
-            onClick={handleManualRecording} 
+            onClick={handleSpeakButton} 
             size="lg" 
+            disabled={isProcessingAudio}
             className={cn(
               "rounded-full w-16 h-16 md:w-20 md-h-20 shadow-lg transform hover:scale-110 transition-all duration-200 flex items-center justify-center",
               isRecording 
-                ? "bg-red-600 hover:bg-red-700 animate-pulse" 
+                ? "bg-red-600 hover:bg-red-700" 
+                : isProcessingAudio
+                ? "bg-yellow-600 hover:bg-yellow-700"
                 : "bg-green-600 hover:bg-green-700"
             )}
           >
-            {isRecording ? <MicOff size={32} /> : <Mic size={32} />}
+            {isProcessingAudio ? (
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+            ) : isRecording ? (
+              <Send size={32} />
+            ) : (
+              <Mic size={32} />
+            )}
           </Button>
           <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-black text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-            {isRecording ? "Clique para parar" : "Clique para gravar"}
+            {isProcessingAudio ? "Processando..." : isRecording ? "Clique para enviar" : "Falar"}
           </div>
         </div>
       )}
@@ -837,23 +889,32 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
             <p className="text-gray-400 text-lg md:text-xl">{transcript}</p>
           </div>
           
-          {/* Botão de gravação manual quando o assistente está aberto e não usa Web Speech */}
+          {/* Botão "Falar" quando o assistente está aberto e não usa Web Speech */}
           {!useWebSpeech && (
             <div className="mt-4">
               <Button 
-                onClick={handleManualRecording} 
+                onClick={handleSpeakButton} 
                 size="lg" 
+                disabled={isProcessingAudio}
                 className={cn(
                   "rounded-full w-16 h-16 shadow-lg transition-all duration-200 flex items-center justify-center",
                   isRecording 
-                    ? "bg-red-600 hover:bg-red-700 animate-pulse" 
+                    ? "bg-red-600 hover:bg-red-700" 
+                    : isProcessingAudio
+                    ? "bg-yellow-600 hover:bg-yellow-700"
                     : "bg-green-600 hover:bg-green-700"
                 )}
               >
-                {isRecording ? <MicOff size={24} /> : <Mic size={24} />}
+                {isProcessingAudio ? (
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                ) : isRecording ? (
+                  <Send size={24} />
+                ) : (
+                  <Mic size={24} />
+                )}
               </Button>
               <p className="text-white text-sm mt-2">
-                {isRecording ? "Gravando... Clique para enviar" : "Clique para falar"}
+                {isProcessingAudio ? "Processando áudio..." : isRecording ? "Clique para enviar" : "Falar"}
               </p>
             </div>
           )}
