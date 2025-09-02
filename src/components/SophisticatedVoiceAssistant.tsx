@@ -120,7 +120,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
   const activationRequestedViaButton = useRef(false);
-  const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -402,18 +401,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   }, [speak, startListening, stopListening]);
 
-  const scheduleRestart = useCallback(() => {
-    if (restartTimeoutRef.current) {
-      clearTimeout(restartTimeoutRef.current);
-    }
-    restartTimeoutRef.current = setTimeout(() => {
-      if (!isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
-        console.log('[VA] Reiniciando escuta após timeout...');
-        startListening();
-      }
-    }, 2000); // Espera 2 segundos antes de reiniciar
-  }, [startListening]);
-
   const initializeAssistant = useCallback(() => {
     console.log('[VA] Inicializando assistente...');
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -431,41 +418,25 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onstart = () => {
       console.log('[VA] Reconhecimento de voz iniciado.');
       setIsListening(true);
-      if (restartTimeoutRef.current) {
-        clearTimeout(restartTimeoutRef.current);
-        restartTimeoutRef.current = null;
-      }
     };
     
     recognitionRef.current.onend = () => {
       console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
-      if (!stopPermanentlyRef.current) {
-        scheduleRestart();
+      // Só reinicia se não estiver falando e não foi parado permanentemente
+      if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
+        console.log('[VA] Reiniciando escuta após onend...');
+        setTimeout(() => startListening(), 1000);
       }
     };
     
     recognitionRef.current.onerror = (e) => {
       console.log(`[VA] Erro no reconhecimento de voz: ${e.error}`);
       setIsListening(false);
-      
-      // Para erros comuns como 'no-speech', apenas agenda um restart
-      if (e.error === 'no-speech' || e.error === 'audio-capture' || e.error === 'network') {
-        console.log('[VA] Erro esperado, agendando restart...');
-        if (!stopPermanentlyRef.current) {
-          scheduleRestart();
-        }
-      } else {
-        console.error(`[VA] Erro crítico no reconhecimento de voz: ${e.error}`);
-        // Para erros críticos, ainda tenta reiniciar após um tempo maior
-        if (!stopPermanentlyRef.current) {
-          setTimeout(() => {
-            if (!stopPermanentlyRef.current) {
-              console.log('[VA] Tentando reiniciar após erro crítico...');
-              startListening();
-            }
-          }, 5000);
-        }
+      // Só reinicia para erros específicos e se não estiver falando
+      if ((e.error === 'no-speech' || e.error === 'audio-capture') && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+        console.log('[VA] Reiniciando escuta após erro esperado...');
+        setTimeout(() => startListening(), 2000);
       }
     };
     
@@ -519,7 +490,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       showError("Síntese de voz não suportada.");
       console.error('[VA] API de Síntese de Fala não suportada neste navegador.');
     }
-  }, [speak, startListening, stopSpeaking, stopListening, runConversation, executeClientAction, setIsOpen, setAiResponse, setTranscript, setHasBeenActivated, scheduleRestart]);
+  }, [speak, startListening, stopSpeaking, stopListening, runConversation, executeClientAction, setIsOpen, setAiResponse, setTranscript, setHasBeenActivated]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log('[VA] Verificando permissão do microfone...');
@@ -531,7 +502,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
         if (!isOpenRef.current && !isSpeakingRef.current) {
-          setTimeout(() => startListening(), 1000); // Pequeno delay para garantir que tudo está inicializado
+          setTimeout(() => startListening(), 1000);
         }
       } else if (permissionStatus.state === 'prompt') {
         setIsPermissionModalOpen(true);
@@ -622,9 +593,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     return () => {
       console.log('[VA] Desmontando componente. Limpando...');
       stopPermanentlyRef.current = true;
-      if (restartTimeoutRef.current) {
-        clearTimeout(restartTimeoutRef.current);
-      }
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
     };
@@ -653,7 +621,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     };
     fetchPowers();
     fetchClientActions();
-  }, []); // Removemos a dependência do workspace para permitir acesso anônimo
+  }, []);
 
   if (isLoading || !settings) {
     return null;
