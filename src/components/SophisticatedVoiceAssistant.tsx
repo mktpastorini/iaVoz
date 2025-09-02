@@ -80,7 +80,64 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   settings,
   isLoading,
 }) => {
-  // ... outros estados e refs omitidos para brevidade
+  const { workspace, session } = useSession();
+  const { systemVariables } = useSystem();
+  const { activationTrigger } = useVoiceAssistant();
+
+  const [isOpen, setIsOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessingAudio, setIsProcessingAudio] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [aiResponse, setAiResponse] = useState("");
+  const [messageHistory, setMessageHistory] = useState<Message[]>([]);
+  const [powers, setPowers] = useState<Power[]>([]);
+  const [clientActions, setClientActions] = useState<ClientAction[]>([]);
+  const [imageToShow, setImageToShow] = useState<ClientAction['action_payload'] | null>(null);
+  const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null);
+  const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
+  const [hasBeenActivated, setHasBeenActivated] = useState(false);
+  const [useWebSpeech, setUseWebSpeech] = useState(true);
+  const [showBrowserWarning, setShowBrowserWarning] = useState(false);
+
+  // Refs para estados e props dinâmicos
+  const settingsRef = useRef(settings);
+  const isOpenRef = useRef(isOpen);
+  const isListeningRef = useRef(isListening);
+  const isSpeakingRef = useRef(isSpeaking);
+  const hasBeenActivatedRef = useRef(hasBeenActivated);
+  const powersRef = useRef(powers);
+  const clientActionsRef = useRef(clientActions);
+  const messageHistoryRef = useRef(messageHistory);
+  const systemVariablesRef = useRef(systemVariables);
+  const sessionRef = useRef(session);
+
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const synthRef = useRef<SpeechSynthesis | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const stopPermanentlyRef = useRef(false);
+  const activationTriggerRef = useRef(0);
+  const activationRequestedViaButton = useRef(false);
+  const isInitializingRef = useRef(false);
+  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const displayedAiResponse = useTypewriter(aiResponse, 40);
+
+  // Efeitos para sincronizar refs com estados/props
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
+  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
+  useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
+  useEffect(() => { powersRef.current = powers; }, [powers]);
+  useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
+  useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
+  useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
+  useEffect(() => { sessionRef.current = session; }, [session]);
 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
     const currentSettings = settingsRef.current;
@@ -95,7 +152,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     isSpeakingRef.current = true;
     setAiResponse(text);
 
-    // Flag para evitar reinício duplo
     let alreadyRestarted = false;
 
     const onSpeechEnd = () => {
@@ -103,10 +159,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       setIsSpeaking(false);
       isSpeakingRef.current = false;
       onEndCallback?.();
-      // Só reinicia a escuta se o assistente estiver aberto e não estiver ouvindo
       if (isOpenRef.current && !stopPermanentlyRef.current && !isListeningRef.current && !alreadyRestarted) {
         alreadyRestarted = true;
-        console.log('[VA] Reiniciando escuta após fala (garantido único).');
+        console.log('[VA] Reiniciando escuta após fala (único).');
         setTimeout(() => {
           if (!isListeningRef.current) startListening();
         }, 500);
@@ -201,7 +256,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         console.log('[VA] Reconhecimento de voz finalizado.');
         setIsListening(false);
         isListeningRef.current = false;
-        // Só reinicia se não estiver falando e não estiver ouvindo
         if (!isSpeakingRef.current && !stopPermanentlyRef.current && !isListeningRef.current) {
           console.log('[VA] Reiniciando escuta após onend (único).');
           setTimeout(() => {
@@ -244,6 +298,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setTimeout(() => startListening(), 1000);
   }, [handleTranscription, startListening]);
 
-  // ... restante do código permanece igual ...
+  // restante do código permanece igual...
 
 export default SophisticatedVoiceAssistant;
