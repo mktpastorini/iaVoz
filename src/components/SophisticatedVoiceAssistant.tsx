@@ -10,7 +10,7 @@ import { useTypewriter } from "@/hooks/useTypewriter";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Mic, X } from "lucide-react";
+import { Mic, X, MicOff } from "lucide-react";
 import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
@@ -67,6 +67,7 @@ interface ClientAction {
 
 // Constants
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
+const OPENAI_WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 
 // Modal Component
@@ -78,6 +79,11 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
     </div>
   </div>
 );
+
+// Função para detectar suporte à Web Speech API
+const hasWebSpeechSupport = () => {
+  return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+};
 
 // Main Component
 const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
@@ -91,6 +97,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isRecording, setIsRecording] = useState(false); // Para gravação manual
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
@@ -101,6 +108,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
+  const [useWebSpeech, setUseWebSpeech] = useState(true); // Determina qual método usar
 
   // Refs para estados e props dinâmicos
   const settingsRef = useRef(settings);
@@ -117,9 +125,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
   const activationRequestedViaButton = useRef(false);
+  const isInitializingRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -135,31 +146,167 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
 
-  const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) {
-      try {
-        console.log('[VA] Tentando iniciar a escuta...');
-        recognitionRef.current.start();
-        setIsListening(true);
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
-          console.error("[VA] Erro ao iniciar reconhecimento:", error);
-        } else {
-          console.log("[VA] Reconhecimento já ativo ou em estado inválido, não reiniciando.");
+  // Função para transcrever áudio usando OpenAI Whisper
+  const transcribeWithWhisper = useCallback(async (audioBlob: Blob): Promise<string> => {
+    const currentSettings = settingsRef.current;
+    if (!currentSettings?.openai_api_key) {
+      throw new Error("Chave API OpenAI não configurada");
+    }
+
+    const formData = new FormData();
+    formData.append('file', audioBlob, 'audio.webm');
+    formData.append('model', 'whisper-1');
+    formData.append('language', 'pt');
+
+    const response = await fetch(OPENAI_WHISPER_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${currentSettings.openai_api_key}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json();
+      throw new Error(`Erro na API Whisper: ${errorBody.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.text || '';
+  }, []);
+
+  // Função para iniciar gravação manual
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
         }
-      }
-    } else {
-      console.log('[VA] Não foi possível iniciar a escuta: já ouvindo ou falando.');
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        try {
+          console.log('[VA] Transcrevendo áudio com Whisper...');
+          const transcription = await transcribeWithWhisper(audioBlob);
+          console.log(`[VA] Transcrição recebida: "${transcription}"`);
+          handleTranscription(transcription);
+        } catch (error) {
+          console.error('[VA] Erro na transcrição:', error);
+          showError("Erro ao transcrever áudio.");
+        }
+        
+        // Limpa o stream
+        stream.getTracks().forEach(track => track.stop());
+        setIsRecording(false);
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      console.log('[VA] Gravação iniciada.');
+    } catch (error) {
+      console.error('[VA] Erro ao iniciar gravação:', error);
+      showError("Erro ao acessar o microfone.");
+    }
+  }, [transcribeWithWhisper]);
+
+  // Função para parar gravação manual
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      console.log('[VA] Gravação parada.');
     }
   }, []);
 
-  const stopListening = useCallback(() => {
-    if (recognitionRef.current && isListeningRef.current) {
-      console.log('[VA] Parando a escuta...');
-      recognitionRef.current.stop();
-      setIsListening(false);
+  // Função para processar transcrição (comum para ambos os métodos)
+  const handleTranscription = useCallback((transcript: string) => {
+    const cleanTranscript = transcript.trim().toLowerCase();
+    console.log(`[VA] Processando transcrição: "${cleanTranscript}"`);
+    
+    const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
+    const currentIsOpen = isOpenRef.current;
+    const currentSettings = settingsRef.current;
+    const currentClientActions = clientActionsRef.current;
+    const currentHasBeenActivated = hasBeenActivatedRef.current;
+
+    if (currentIsOpen) {
+      if (closePhrases.some(phrase => cleanTranscript.includes(phrase))) {
+        console.log('[VA] Frase de encerramento detectada. Fechando assistente.');
+        setIsOpen(false);
+        setAiResponse("");
+        setTranscript("");
+        stopSpeaking();
+        stopListening();
+        // Reinicia a escuta passiva após fechar
+        setTimeout(() => startListening(), 2000);
+        return;
+      }
+      
+      const matchedAction = currentClientActions.find(a => cleanTranscript.includes(a.trigger_phrase));
+      if (matchedAction) {
+        console.log(`[VA] Ação do cliente correspondida: ${matchedAction.trigger_phrase}.`);
+        executeClientAction(matchedAction);
+        return;
+      }
+      
+      console.log('[VA] Iniciando conversa com IA.');
+      runConversation(cleanTranscript);
+    } else {
+      if (currentSettings && cleanTranscript.includes(currentSettings.activation_phrase.toLowerCase())) {
+        console.log('[VA] Frase de ativação detectada. Abrindo assistente.');
+        setIsOpen(true);
+        const messageToSpeak = currentHasBeenActivated && currentSettings.continuation_phrase
+          ? currentSettings.continuation_phrase
+          : currentSettings.welcome_message;
+        speak(messageToSpeak);
+        setHasBeenActivated(true);
+      }
     }
   }, []);
+
+  const startListening = useCallback(() => {
+    if (stopPermanentlyRef.current || isInitializingRef.current) {
+      console.log('[VA] Não iniciando escuta: parado permanentemente ou inicializando.');
+      return;
+    }
+
+    if (isListeningRef.current) {
+      console.log('[VA] Já está ouvindo, ignorando startListening.');
+      return;
+    }
+
+    if (useWebSpeech && recognitionRef.current) {
+      try {
+        console.log('[VA] Iniciando escuta com Web Speech API...');
+        recognitionRef.current.start();
+      } catch (error) {
+        console.error("[VA] Erro ao iniciar reconhecimento:", error);
+      }
+    } else if (!useWebSpeech) {
+      // Para navegadores sem suporte, inicia gravação contínua
+      console.log('[VA] Iniciando escuta com gravação contínua...');
+      setIsListening(true);
+      isListeningRef.current = true;
+      startRecording();
+    }
+  }, [useWebSpeech, startRecording]);
+
+  const stopListening = useCallback(() => {
+    if (useWebSpeech && recognitionRef.current && isListeningRef.current) {
+      console.log('[VA] Parando a escuta Web Speech API...');
+      recognitionRef.current.stop();
+    } else if (!useWebSpeech && isRecording) {
+      console.log('[VA] Parando gravação...');
+      stopRecording();
+    }
+    setIsListening(false);
+    isListeningRef.current = false;
+  }, [useWebSpeech, isRecording, stopRecording]);
 
   const stopSpeaking = useCallback(() => {
     if (synthRef.current?.speaking) {
@@ -193,9 +340,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       setIsSpeaking(false);
       isSpeakingRef.current = false;
       onEndCallback?.();
+      // Só reinicia a escuta se o assistente estiver aberto
       if (isOpenRef.current && !stopPermanentlyRef.current) {
-        console.log('[VA] Assistente aberto após fala, reiniciando escuta.');
-        startListening();
+        console.log('[VA] Reiniciando escuta após fala.');
+        setTimeout(() => startListening(), 1000);
       }
     };
 
@@ -205,6 +353,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
+        utterance.onerror = onSpeechEnd;
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         console.log('[VA] Usando o modelo de voz OpenAI TTS.');
@@ -218,6 +367,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
       } else {
         console.warn('[VA] Nenhum modelo de voz válido configurado. Pulando a fala.');
@@ -236,7 +386,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     const currentMessageHistory = messageHistoryRef.current;
 
     if (!currentSettings || !currentSettings.openai_api_key) {
-      speak("Chave API OpenAI não configurada.", startListening);
+      speak("Chave API OpenAI não configurada.");
       return;
     }
     console.log(`[VA] Executando conversa com entrada: "${userInput}"`);
@@ -363,18 +513,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const finalMessage = secondData.choices?.[0]?.message?.content;
         console.log('[VA] Resposta final recebida da OpenAI:', finalMessage);
         setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        speak(finalMessage, startListening);
+        speak(finalMessage);
       } else {
         const assistantMessage = responseMessage.content;
         setMessageHistory(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-        speak(assistantMessage, startListening);
+        speak(assistantMessage);
       }
     } catch (error: any) {
       console.error('[VA] Erro no fluxo da conversa:', error);
       showError(error.message || "Desculpe, ocorreu um erro.");
-      speak("Desculpe, ocorreu um erro.", startListening);
+      speak("Desculpe, ocorreu um erro.");
     }
-  }, [speak, startListening, stopListening, setMessageHistory]);
+  }, [speak, stopListening, setMessageHistory]);
 
   const executeClientAction = useCallback((action: ClientAction) => {
     console.log(`[VA] Executando ação do cliente: ${action.action_type}`);
@@ -384,7 +534,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (action.action_payload.url) {
           speak(`Abrindo ${action.action_payload.url}`, () => {
             window.open(action.action_payload.url, '_blank');
-            startListening();
           });
         }
         break;
@@ -399,95 +548,86 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         }
         break;
     }
-  }, [speak, startListening, stopListening]);
+  }, [speak, stopListening]);
 
   const initializeAssistant = useCallback(() => {
-    console.log('[VA] Inicializando assistente...');
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      showError("Reconhecimento de voz não suportado.");
-      setMicPermission('denied');
-      console.error('[VA] API de Reconhecimento de Fala não suportada neste navegador.');
+    if (isInitializingRef.current) {
+      console.log('[VA] Já está inicializando, ignorando.');
       return;
     }
-    recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = true;
-    recognitionRef.current.interimResults = false;
-    recognitionRef.current.lang = "pt-BR";
+    
+    isInitializingRef.current = true;
+    console.log('[VA] Inicializando assistente...');
+    
+    // Determina qual método de reconhecimento usar
+    const webSpeechSupported = hasWebSpeechSupport();
+    const hasOpenAIKey = settingsRef.current?.openai_api_key;
+    
+    if (webSpeechSupported) {
+      console.log('[VA] Web Speech API suportada, usando reconhecimento nativo.');
+      setUseWebSpeech(true);
+      
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = "pt-BR";
 
-    recognitionRef.current.onstart = () => {
-      console.log('[VA] Reconhecimento de voz iniciado.');
-      setIsListening(true);
-    };
-    recognitionRef.current.onend = () => {
-      console.log('[VA] Reconhecimento de voz finalizado.');
-      setIsListening(false);
-      if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
-        console.log('[VA] Reiniciando escuta após onend...');
-        setTimeout(() => startListening(), 100);
-      }
-    };
-    recognitionRef.current.onerror = (e) => {
-      if (e.error !== 'no-speech' && e.error !== 'aborted') {
-        console.error(`[VA] Erro no reconhecimento de voz: ${e.error}`);
-      } else {
-        console.log(`[VA] Erro de reconhecimento de voz esperado: ${e.error}`);
-      }
-      setIsListening(false);
-      if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
-        console.log('[VA] Reiniciando escuta após erro...');
-        setTimeout(() => startListening(), 100);
-      }
-    };
-    recognitionRef.current.onresult = (event) => {
-      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      console.log(`[VA] Transcrição ouvida: "${transcript}"`);
-      const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
-
-      const currentIsOpen = isOpenRef.current;
-      const currentSettings = settingsRef.current;
-      const currentClientActions = clientActionsRef.current;
-      const currentHasBeenActivated = hasBeenActivatedRef.current;
-
-      if (currentIsOpen) {
-        if (closePhrases.some(phrase => transcript.includes(phrase))) {
-          console.log('[VA] Frase de encerramento detectada. Fechando assistente.');
-          setIsOpen(false);
-          setAiResponse("");
-          setTranscript("");
-          stopSpeaking();
-          stopListening();
-          return;
+      recognitionRef.current.onstart = () => {
+        console.log('[VA] Reconhecimento de voz iniciado.');
+        setIsListening(true);
+        isListeningRef.current = true;
+      };
+      
+      recognitionRef.current.onend = () => {
+        console.log('[VA] Reconhecimento de voz finalizado.');
+        setIsListening(false);
+        isListeningRef.current = false;
+        
+        if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
+          console.log('[VA] Reiniciando escuta após onend.');
+          setTimeout(() => startListening(), 2000);
         }
-        const matchedAction = currentClientActions.find(a => transcript.includes(a.trigger_phrase));
-        if (matchedAction) {
-          console.log(`[VA] Ação do cliente correspondida: ${matchedAction.trigger_phrase}.`);
-          executeClientAction(matchedAction);
-          return;
+      };
+      
+      recognitionRef.current.onerror = (e) => {
+        console.log(`[VA] Erro no reconhecimento de voz: ${e.error}`);
+        setIsListening(false);
+        isListeningRef.current = false;
+        
+        if ((e.error === 'no-speech' || e.error === 'audio-capture') && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+          console.log('[VA] Reiniciando escuta após erro esperado.');
+          setTimeout(() => startListening(), 3000);
         }
-        console.log('[VA] Nenhuma ação do cliente correspondida. Iniciando turno da conversa.');
-        runConversation(transcript);
-      } else {
-        if (currentSettings && transcript.includes(currentSettings.activation_phrase.toLowerCase())) {
-          console.log('[VA] Frase de ativação detectada. Abrindo assistente.');
-          setIsOpen(true);
-          const messageToSpeak = currentHasBeenActivated && currentSettings.continuation_phrase
-            ? currentSettings.continuation_phrase
-            : currentSettings.welcome_message;
-          speak(messageToSpeak, startListening);
-          setHasBeenActivated(true);
-        }
-      }
-    };
+      };
+      
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results[event.results.length - 1][0].transcript.trim();
+        console.log(`[VA] Transcrição Web Speech: "${transcript}"`);
+        handleTranscription(transcript);
+      };
+    } else if (hasOpenAIKey) {
+      console.log('[VA] Web Speech API não suportada, usando OpenAI Whisper.');
+      setUseWebSpeech(false);
+    } else {
+      console.error('[VA] Nem Web Speech API nem OpenAI API disponíveis.');
+      showError("Reconhecimento de voz não suportado neste navegador e chave OpenAI não configurada.");
+      isInitializingRef.current = false;
+      return;
+    }
 
     if ("speechSynthesis" in window) {
       synthRef.current = window.speechSynthesis;
       console.log('[VA] Síntese de voz inicializada.');
     } else {
-      showError("Síntese de voz não suportada.");
-      console.error('[VA] API de Síntese de Fala não suportada neste navegador.');
+      console.log('[VA] Síntese de voz não suportada, usando apenas OpenAI TTS.');
     }
-  }, [speak, startListening, stopSpeaking, stopListening, runConversation, executeClientAction, setIsOpen, setAiResponse, setTranscript, setHasBeenActivated]);
+    
+    isInitializingRef.current = false;
+    
+    // Inicia a escuta passiva após a inicialização
+    setTimeout(() => startListening(), 1000);
+  }, [handleTranscription, startListening]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log('[VA] Verificando permissão do microfone...');
@@ -498,22 +638,17 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
-        if (!isOpenRef.current && !isSpeakingRef.current) {
-          startListening();
-        }
       } else if (permissionStatus.state === 'prompt') {
         setIsPermissionModalOpen(true);
       } else {
         showError("Permissão para microfone negada. Habilite nas configurações do seu navegador.");
       }
+      
       permissionStatus.onchange = () => {
         console.log(`[VA] Status da permissão alterado para: ${permissionStatus.state}`);
         setMicPermission(permissionStatus.state);
         if (permissionStatus.state === 'granted') {
           initializeAssistant();
-          if (!isListeningRef.current) {
-            startListening();
-          }
         }
       };
     } catch (error) {
@@ -521,7 +656,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       showError("Não foi possível verificar a permissão do microfone.");
       setMicPermission('denied');
     }
-  }, [initializeAssistant, startListening]);
+  }, [initializeAssistant]);
 
   const handleAllowMic = async () => {
     console.log('[VA] Usuário clicou em "Permitir Microfone".');
@@ -541,13 +676,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           const messageToSpeak = currentHasBeenActivated && currentSettings?.continuation_phrase
             ? currentSettings.continuation_phrase
             : currentSettings?.welcome_message;
-          speak(messageToSpeak, startListening);
+          speak(messageToSpeak);
           setHasBeenActivated(true);
         }, 100);
-      } else {
-        if (!isListeningRef.current) {
-          startListening();
-        }
       }
     } catch (error) {
       console.error("[VA] Usuário negou a permissão do microfone:", error);
@@ -571,10 +702,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       const messageToSpeak = currentHasBeenActivated && currentSettings?.continuation_phrase
         ? currentSettings.continuation_phrase
         : currentSettings?.welcome_message;
-      speak(messageToSpeak, startListening);
+      speak(messageToSpeak);
       setHasBeenActivated(true);
     }
-  }, [micPermission, checkAndRequestMicPermission, speak, startListening, setIsOpen, setHasBeenActivated]);
+  }, [micPermission, checkAndRequestMicPermission, speak, setIsOpen, setHasBeenActivated]);
+
+  // Função para ativação manual via botão (para navegadores sem Web Speech)
+  const handleManualRecording = useCallback(() => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }, [isRecording, startRecording, stopRecording]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
@@ -592,11 +732,13 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       stopPermanentlyRef.current = true;
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
     };
   }, [isLoading, checkAndRequestMicPermission]);
 
   useEffect(() => {
-    // Buscar poderes e ações do cliente do workspace padrão (para usuários anônimos) ou do workspace do usuário
     console.log('[VA] Buscando poderes e ações do cliente...');
     const fetchPowers = async () => {
       const { data, error } = await supabase.from('powers').select('*').order('created_at', { ascending: true }).limit(100);
@@ -618,7 +760,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     };
     fetchPowers();
     fetchClientActions();
-  }, []); // Removemos a dependência do workspace para permitir acesso anônimo
+  }, []);
 
   if (isLoading || !settings) {
     return null;
@@ -638,6 +780,28 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           </Button>
         </div>
       )}
+      
+      {/* Botão de gravação manual para navegadores sem Web Speech */}
+      {micPermission === 'granted' && !useWebSpeech && !isOpen && (
+        <div className="fixed bottom-4 left-4 md:bottom-8 md:left-8 z-50">
+          <Button 
+            onClick={handleManualRecording} 
+            size="lg" 
+            className={cn(
+              "rounded-full w-16 h-16 md:w-20 md-h-20 shadow-lg transform hover:scale-110 transition-all duration-200 flex items-center justify-center",
+              isRecording 
+                ? "bg-red-600 hover:bg-red-700 animate-pulse" 
+                : "bg-green-600 hover:bg-green-700"
+            )}
+          >
+            {isRecording ? <MicOff size={32} /> : <Mic size={32} />}
+          </Button>
+          <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-black text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+            {isRecording ? "Clique para parar" : "Clique para gravar"}
+          </div>
+        </div>
+      )}
+
       {imageToShow && (
         <ImageModal
           imageUrl={imageToShow.imageUrl!}
@@ -672,6 +836,27 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           <div className="h-16">
             <p className="text-gray-400 text-lg md:text-xl">{transcript}</p>
           </div>
+          
+          {/* Botão de gravação manual quando o assistente está aberto e não usa Web Speech */}
+          {!useWebSpeech && (
+            <div className="mt-4">
+              <Button 
+                onClick={handleManualRecording} 
+                size="lg" 
+                className={cn(
+                  "rounded-full w-16 h-16 shadow-lg transition-all duration-200 flex items-center justify-center",
+                  isRecording 
+                    ? "bg-red-600 hover:bg-red-700 animate-pulse" 
+                    : "bg-green-600 hover:bg-green-700"
+                )}
+              >
+                {isRecording ? <MicOff size={24} /> : <Mic size={24} />}
+              </Button>
+              <p className="text-white text-sm mt-2">
+                {isRecording ? "Gravando... Clique para enviar" : "Clique para falar"}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </>
