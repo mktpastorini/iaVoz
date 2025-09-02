@@ -136,28 +136,35 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { sessionRef.current = session; }, [session]);
 
   const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+    if (recognitionRef.current && !stopPermanentlyRef.current) {
+      // Garante que o reconhecimento esteja parado antes de tentar iniciar
+      if (recognitionRef.current.recognizing) {
+        console.log('[VA] Reconhecimento já ativo, parando antes de reiniciar.');
+        recognitionRef.current.stop();
+      }
       try {
         console.log('[VA] Tentando iniciar a escuta...');
         recognitionRef.current.start();
         setIsListening(true);
+        isListeningRef.current = true; // Atualiza a ref diretamente
       } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
-          console.error("[VA] Erro ao iniciar reconhecimento:", error);
-        } else {
-          console.log("[VA] Reconhecimento já ativo ou em estado inválido, não reiniciando.");
-        }
+        console.error("[VA] Erro ao iniciar reconhecimento:", error);
       }
     } else {
-      console.log('[VA] Não foi possível iniciar a escuta: já ouvindo, falando ou parado permanentemente.');
+      console.log('[VA] Não foi possível iniciar a escuta: parado permanentemente ou reconhecimento não inicializado.');
     }
   }, []);
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current && isListeningRef.current) {
+    if (recognitionRef.current && recognitionRef.current.recognizing) {
       console.log('[VA] Parando a escuta...');
       recognitionRef.current.stop();
       setIsListening(false);
+      isListeningRef.current = false; // Atualiza a ref diretamente
+    } else if (isListeningRef.current) { // Se o estado diz que está ouvindo, mas o reconhecimento não está ativo
+      console.log('[VA] Reconhecimento não estava ativo, mas o estado indicava escuta. Sincronizando estado.');
+      setIsListening(false);
+      isListeningRef.current = false;
     }
   }, []);
 
@@ -172,7 +179,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       audioRef.current.currentTime = 0;
     }
     setIsSpeaking(false);
-    isSpeakingRef.current = false;
+    isSpeakingRef.current = false; // Atualiza a ref diretamente
   }, []);
 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
@@ -185,13 +192,13 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     stopListening();
     stopSpeaking();
     setIsSpeaking(true);
-    isSpeakingRef.current = true;
+    isSpeakingRef.current = true; // Atualiza a ref diretamente
     setAiResponse(text);
 
     const onSpeechEnd = () => {
       console.log('[VA] Finalizou a fala.');
       setIsSpeaking(false);
-      isSpeakingRef.current = false;
+      isSpeakingRef.current = false; // Atualiza a ref diretamente
       onEndCallback?.();
       if (isOpenRef.current && !stopPermanentlyRef.current) {
         console.log('[VA] Assistente aberto após fala, reiniciando escuta.');
@@ -418,14 +425,17 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onstart = () => {
       console.log('[VA] Reconhecimento de voz iniciado.');
       setIsListening(true);
+      isListeningRef.current = true; // Atualiza a ref diretamente
     };
     
     recognitionRef.current.onend = () => {
       console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
-      // Só reinicia se não estiver falando e não foi parado permanentemente
+      isListeningRef.current = false; // Atualiza a ref diretamente
+      // Só reinicia se o assistente NÃO estiver falando.
+      // Se ele estava falando, a função 'speak' já agendou o restart.
       if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
-        console.log('[VA] Reiniciando escuta após onend...');
+        console.log('[VA] Reiniciando escuta após onend (não estava falando)...');
         setTimeout(() => startListening(), 1000);
       }
     };
@@ -433,10 +443,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onerror = (e) => {
       console.log(`[VA] Erro no reconhecimento de voz: ${e.error}`);
       setIsListening(false);
+      isListeningRef.current = false; // Atualiza a ref diretamente
       // Só reinicia para erros específicos e se não estiver falando
-      if ((e.error === 'no-speech' || e.error === 'audio-capture') && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+      if ((e.error === 'no-speech' || e.error === 'audio-capture' || e.error === 'network') && !isSpeakingRef.current && !stopPermanentlyRef.current) {
         console.log('[VA] Reiniciando escuta após erro esperado...');
         setTimeout(() => startListening(), 2000);
+      } else if (!stopPermanentlyRef.current) {
+        console.error(`[VA] Erro crítico no reconhecimento de voz: ${e.error}. Tentando reiniciar...`);
+        setTimeout(() => startListening(), 5000);
       }
     };
     
@@ -501,7 +515,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
-        if (!isOpenRef.current && !isSpeakingRef.current) {
+        if (!isOpenRef.current && !isSpeakingRef.current && !isListeningRef.current) { // Adicionado !isListeningRef.current
           setTimeout(() => startListening(), 1000);
         }
       } else if (permissionStatus.state === 'prompt') {
