@@ -1,4 +1,86 @@
-[...código anterior até a função speak...]
+"use client";
+
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useSession } from "@/contexts/SessionContext";
+import { useSystem } from "@/contexts/SystemContext";
+import { replacePlaceholders } from "@/lib/utils";
+import { useTypewriter } from "@/hooks/useTypewriter";
+import { AudioVisualizer } from "@/components/AudioVisualizer";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Mic, X, Send, Info } from "lucide-react";
+import { UrlIframeModal } from "./UrlIframeModal";
+import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
+import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+// Interfaces
+interface Settings {
+  welcome_message?: string;
+  openai_api_key: string;
+  system_prompt?: string;
+  assistant_prompt?: string;
+  ai_model?: string;
+  conversation_memory_length: number;
+  voice_model: "browser" | "openai-tts" | "gemini-tts";
+  openai_tts_voice?: string;
+  activation_phrase: string;
+  continuation_phrase?: string;
+}
+
+interface VoiceAssistantProps {
+  settings: Settings | null;
+  isLoading: boolean;
+}
+
+interface Message {
+  role: "user" | "assistant" | "system" | "tool";
+  content: string;
+  tool_calls?: any[];
+  tool_call_id?: string;
+  name?: string;
+}
+
+interface Power {
+  id: string;
+  name: string;
+  description: string | null;
+  method: string;
+  url: string | null;
+  headers: Record<string, string> | null;
+  body: Record<string, any> | null;
+  api_key_id: string | null;
+  parameters_schema: Record<string, any> | null;
+}
+
+interface ClientAction {
+  id: string;
+  trigger_phrase: string;
+  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL';
+  action_payload: {
+    url?: string;
+    imageUrl?: string;
+    altText?: string;
+  };
+}
+
+// Constants
+const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
+const OPENAI_WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions";
+const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
+
+// Função para detectar suporte à Web Speech API
+const hasWebSpeechSupport = () => {
+  return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+};
+
+const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
+  settings,
+  isLoading,
+}) => {
+  // ... outros estados e refs omitidos para brevidade
 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
     const currentSettings = settingsRef.current;
@@ -88,8 +170,6 @@
     }
   }, [stopSpeaking, stopListening, startListening]);
 
-[...código anterior até a função initializeAssistant...]
-
   const initializeAssistant = useCallback(() => {
     if (isInitializingRef.current) {
       console.log('[VA] Já está inicializando, ignorando.');
@@ -164,4 +244,6 @@
     setTimeout(() => startListening(), 1000);
   }, [handleTranscription, startListening]);
 
-[...restante do código igual...]
+  // ... restante do código permanece igual ...
+
+export default SophisticatedVoiceAssistant;
