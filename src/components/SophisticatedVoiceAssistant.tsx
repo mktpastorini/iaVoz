@@ -120,6 +120,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
   const activationRequestedViaButton = useRef(false);
+  const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Novo ref para o timeout de reinício
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -135,9 +136,31 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
 
+  const scheduleRestartListening = useCallback((delay: number) => {
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      console.log('[VA] Timeout de reinício anterior cancelado.');
+    }
+    if (!stopPermanentlyRef.current) {
+      restartTimeoutRef.current = setTimeout(() => {
+        console.log(`[VA] Agendamento de reinício executado após ${delay}ms.`);
+        startListening();
+        restartTimeoutRef.current = null;
+      }, delay);
+      console.log(`[VA] Reinício da escuta agendado para ${delay}ms.`);
+    } else {
+      console.log('[VA] Não agendando reinício: assistente parado permanentemente.');
+    }
+  }, []);
+
   const startListening = useCallback(() => {
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+      console.log('[VA] Timeout de reinício cancelado ao iniciar escuta.');
+    }
+
     if (recognitionRef.current && !stopPermanentlyRef.current) {
-      // Garante que o reconhecimento esteja parado antes de tentar iniciar
       if (recognitionRef.current.recognizing) {
         console.log('[VA] Reconhecimento já ativo, parando antes de reiniciar.');
         recognitionRef.current.stop();
@@ -146,22 +169,29 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         console.log('[VA] Tentando iniciar a escuta...');
         recognitionRef.current.start();
         setIsListening(true);
-        isListeningRef.current = true; // Atualiza a ref diretamente
+        isListeningRef.current = true;
       } catch (error) {
         console.error("[VA] Erro ao iniciar reconhecimento:", error);
+        // Se houver um erro ao iniciar, agendamos um novo reinício
+        scheduleRestartListening(2000);
       }
     } else {
       console.log('[VA] Não foi possível iniciar a escuta: parado permanentemente ou reconhecimento não inicializado.');
     }
-  }, []);
+  }, [scheduleRestartListening]);
 
   const stopListening = useCallback(() => {
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+      console.log('[VA] Timeout de reinício cancelado ao parar escuta.');
+    }
     if (recognitionRef.current && recognitionRef.current.recognizing) {
       console.log('[VA] Parando a escuta...');
       recognitionRef.current.stop();
       setIsListening(false);
-      isListeningRef.current = false; // Atualiza a ref diretamente
-    } else if (isListeningRef.current) { // Se o estado diz que está ouvindo, mas o reconhecimento não está ativo
+      isListeningRef.current = false;
+    } else if (isListeningRef.current) {
       console.log('[VA] Reconhecimento não estava ativo, mas o estado indicava escuta. Sincronizando estado.');
       setIsListening(false);
       isListeningRef.current = false;
@@ -179,7 +209,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       audioRef.current.currentTime = 0;
     }
     setIsSpeaking(false);
-    isSpeakingRef.current = false; // Atualiza a ref diretamente
+    isSpeakingRef.current = false;
   }, []);
 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
@@ -192,17 +222,17 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     stopListening();
     stopSpeaking();
     setIsSpeaking(true);
-    isSpeakingRef.current = true; // Atualiza a ref diretamente
+    isSpeakingRef.current = true;
     setAiResponse(text);
 
     const onSpeechEnd = () => {
       console.log('[VA] Finalizou a fala.');
       setIsSpeaking(false);
-      isSpeakingRef.current = false; // Atualiza a ref diretamente
+      isSpeakingRef.current = false;
       onEndCallback?.();
       if (isOpenRef.current && !stopPermanentlyRef.current) {
-        console.log('[VA] Assistente aberto após fala, reiniciando escuta.');
-        setTimeout(() => startListening(), 500);
+        console.log('[VA] Assistente aberto após fala, agendando reinício da escuta.');
+        scheduleRestartListening(500);
       }
     };
 
@@ -234,7 +264,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error("[VA] Erro durante a fala:", error);
       onSpeechEnd();
     }
-  }, [stopSpeaking, stopListening, startListening]);
+  }, [stopSpeaking, stopListening, scheduleRestartListening]);
 
   const runConversation = useCallback(async (userInput: string) => {
     const currentSettings = settingsRef.current;
@@ -425,32 +455,29 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onstart = () => {
       console.log('[VA] Reconhecimento de voz iniciado.');
       setIsListening(true);
-      isListeningRef.current = true; // Atualiza a ref diretamente
+      isListeningRef.current = true;
     };
     
     recognitionRef.current.onend = () => {
       console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
-      isListeningRef.current = false; // Atualiza a ref diretamente
-      // Só reinicia se o assistente NÃO estiver falando.
-      // Se ele estava falando, a função 'speak' já agendou o restart.
+      isListeningRef.current = false;
       if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
         console.log('[VA] Reiniciando escuta após onend (não estava falando)...');
-        setTimeout(() => startListening(), 1000);
+        scheduleRestartListening(1000);
       }
     };
     
     recognitionRef.current.onerror = (e) => {
       console.log(`[VA] Erro no reconhecimento de voz: ${e.error}`);
       setIsListening(false);
-      isListeningRef.current = false; // Atualiza a ref diretamente
-      // Só reinicia para erros específicos e se não estiver falando
+      isListeningRef.current = false;
       if ((e.error === 'no-speech' || e.error === 'audio-capture' || e.error === 'network') && !isSpeakingRef.current && !stopPermanentlyRef.current) {
         console.log('[VA] Reiniciando escuta após erro esperado...');
-        setTimeout(() => startListening(), 2000);
+        scheduleRestartListening(2000);
       } else if (!stopPermanentlyRef.current) {
         console.error(`[VA] Erro crítico no reconhecimento de voz: ${e.error}. Tentando reiniciar...`);
-        setTimeout(() => startListening(), 5000);
+        scheduleRestartListening(5000);
       }
     };
     
@@ -472,8 +499,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           setTranscript("");
           stopSpeaking();
           stopListening();
-          // Reinicia a escuta passiva após fechar
-          setTimeout(() => startListening(), 1000);
+          scheduleRestartListening(1000); // Reinicia a escuta passiva após fechar
           return;
         }
         const matchedAction = currentClientActions.find(a => transcript.includes(a.trigger_phrase));
@@ -504,7 +530,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       showError("Síntese de voz não suportada.");
       console.error('[VA] API de Síntese de Fala não suportada neste navegador.');
     }
-  }, [speak, startListening, stopSpeaking, stopListening, runConversation, executeClientAction, setIsOpen, setAiResponse, setTranscript, setHasBeenActivated]);
+  }, [speak, startListening, stopSpeaking, stopListening, runConversation, executeClientAction, setIsOpen, setAiResponse, setTranscript, setHasBeenActivated, scheduleRestartListening]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log('[VA] Verificando permissão do microfone...');
@@ -515,8 +541,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
       if (permissionStatus.state === 'granted') {
         initializeAssistant();
-        if (!isOpenRef.current && !isSpeakingRef.current && !isListeningRef.current) { // Adicionado !isListeningRef.current
-          setTimeout(() => startListening(), 1000);
+        if (!isOpenRef.current && !isSpeakingRef.current && !isListeningRef.current) {
+          scheduleRestartListening(1000);
         }
       } else if (permissionStatus.state === 'prompt') {
         setIsPermissionModalOpen(true);
@@ -529,7 +555,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (permissionStatus.state === 'granted') {
           initializeAssistant();
           if (!isListeningRef.current) {
-            startListening();
+            scheduleRestartListening(1000);
           }
         }
       };
@@ -538,7 +564,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       showError("Não foi possível verificar a permissão do microfone.");
       setMicPermission('denied');
     }
-  }, [initializeAssistant, startListening]);
+  }, [initializeAssistant, scheduleRestartListening]);
 
   const handleAllowMic = async () => {
     console.log('[VA] Usuário clicou em "Permitir Microfone".');
@@ -563,7 +589,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         }, 100);
       } else {
         if (!isListeningRef.current) {
-          setTimeout(() => startListening(), 1000);
+          scheduleRestartListening(1000);
         }
       }
     } catch (error) {
@@ -609,6 +635,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       stopPermanentlyRef.current = true;
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current);
+        restartTimeoutRef.current = null;
+      }
     };
   }, [isLoading, checkAndRequestMicPermission]);
 
