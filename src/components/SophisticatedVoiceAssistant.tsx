@@ -112,7 +112,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
   const [useWebSpeech, setUseWebSpeech] = useState(true);
   const [showBrowserWarning, setShowBrowserWarning] = useState(false);
-  const [userHasInteracted, setUserHasInteracted] = useState(false); // Novo estado para rastrear interação
 
   // Refs para estados e props dinâmicos
   const settingsRef = useRef(settings);
@@ -150,25 +149,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
-
-  // Detecta interação do usuário para habilitar áudio
-  useEffect(() => {
-    const handleUserInteraction = () => {
-      setUserHasInteracted(true);
-      console.log('[VA] Interação do usuário detectada, áudio habilitado.');
-    };
-
-    // Adiciona listeners para vários tipos de interação
-    document.addEventListener('click', handleUserInteraction, { once: true });
-    document.addEventListener('keydown', handleUserInteraction, { once: true });
-    document.addEventListener('touchstart', handleUserInteraction, { once: true });
-
-    return () => {
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-    };
-  }, []);
 
   // Função para transcrever áudio usando OpenAI Whisper
   const transcribeWithWhisper = useCallback(async (audioBlob: Blob): Promise<string> => {
@@ -386,21 +366,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       }
     };
 
-    // Função para fallback para síntese de voz do navegador
-    const fallbackToBrowserSpeech = () => {
-      console.log('[VA] Usando fallback para síntese de voz do navegador.');
-      if (synthRef.current) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "pt-BR";
-        utterance.onend = onSpeechEnd;
-        utterance.onerror = onSpeechEnd;
-        synthRef.current.speak(utterance);
-      } else {
-        console.warn('[VA] Síntese de voz do navegador não disponível.');
-        onSpeechEnd();
-      }
-    };
-
     try {
       if (currentSettings.voice_model === "browser" && synthRef.current) {
         console.log('[VA] Usando o modelo de voz do navegador.');
@@ -411,14 +376,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         console.log('[VA] Usando o modelo de voz OpenAI TTS.');
-        
-        // Se o usuário não interagiu ainda, usa fallback imediatamente
-        if (!userHasInteracted) {
-          console.log('[VA] Usuário ainda não interagiu, usando fallback para síntese do navegador.');
-          fallbackToBrowserSpeech();
-          return;
-        }
-
         try {
           const response = await fetch(OPENAI_TTS_API_URL, {
             method: "POST",
@@ -431,14 +388,32 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           audioRef.current = new Audio(audioUrl);
           audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
           audioRef.current.onerror = (error) => { 
-            console.error('[VA] Erro ao reproduzir áudio OpenAI TTS:', error);
+            console.error('[VA] Erro ao reproduzir áudio OpenAI TTS, usando fallback:', error);
             URL.revokeObjectURL(audioUrl);
-            fallbackToBrowserSpeech();
+            // Fallback para síntese do navegador apenas em caso de erro
+            if (synthRef.current) {
+              const utterance = new SpeechSynthesisUtterance(text);
+              utterance.lang = "pt-BR";
+              utterance.onend = onSpeechEnd;
+              utterance.onerror = onSpeechEnd;
+              synthRef.current.speak(utterance);
+            } else {
+              onSpeechEnd();
+            }
           };
           await audioRef.current.play();
         } catch (error) {
           console.error('[VA] Erro com OpenAI TTS, usando fallback:', error);
-          fallbackToBrowserSpeech();
+          // Fallback para síntese do navegador apenas em caso de erro
+          if (synthRef.current) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = "pt-BR";
+            utterance.onend = onSpeechEnd;
+            utterance.onerror = onSpeechEnd;
+            synthRef.current.speak(utterance);
+          } else {
+            onSpeechEnd();
+          }
         }
       } else {
         console.warn('[VA] Nenhum modelo de voz válido configurado. Pulando a fala.');
@@ -446,9 +421,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       }
     } catch (error) {
       console.error("[VA] Erro durante a fala:", error);
-      fallbackToBrowserSpeech();
+      onSpeechEnd();
     }
-  }, [stopSpeaking, stopListening, startListening, userHasInteracted]);
+  }, [stopSpeaking, stopListening, startListening]);
 
   const runConversation = useCallback(async (userInput: string) => {
     const currentSettings = settingsRef.current;
@@ -738,7 +713,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       await navigator.mediaDevices.getUserMedia({ audio: true });
       console.log('[VA] Acesso ao microfone concedido pelo usuário.');
       setMicPermission('granted');
-      setUserHasInteracted(true); // Marca que o usuário interagiu
       initializeAssistant();
 
       if (activationRequestedViaButton.current) {
@@ -768,8 +742,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
     if (currentIsOpen) return;
 
-    setUserHasInteracted(true); // Marca que o usuário interagiu
-
     if (micPermission !== 'granted') {
       activationRequestedViaButton.current = true;
       checkAndRequestMicPermission();
@@ -785,8 +757,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   // Função melhorada para ativação manual via botão "Falar"
   const handleSpeakButton = useCallback(() => {
-    setUserHasInteracted(true); // Marca que o usuário interagiu
-    
     if (isRecording) {
       // Se está gravando, para e envia
       stopRecording();
