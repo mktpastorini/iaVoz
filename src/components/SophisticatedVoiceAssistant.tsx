@@ -366,17 +366,26 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.lang = "pt-BR";
 
     recognitionRef.current.onstart = () => setIsListening(true);
+    
     recognitionRef.current.onend = () => {
+      // Ação A: Atualizar o estado interno imediatamente para evitar race condition.
+      isListeningRef.current = false;
       setIsListening(false);
+
       if (isTransitioningToSpeakRef.current) return;
-      if (!stopPermanentlyRef.current) startListening();
+      if (!stopPermanentlyRef.current) {
+        // Ação B: Tentar reiniciar a escuta.
+        startListening();
+      }
     };
+
     recognitionRef.current.onerror = (e) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         setMicPermission('denied');
         showError("Permissão para microfone negada.");
       }
     };
+    
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
       const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
