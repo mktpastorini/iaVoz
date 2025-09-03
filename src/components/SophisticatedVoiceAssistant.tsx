@@ -440,7 +440,7 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
       speak(messageToSpeak);
       setHasBeenActivated(true);
     }
-  }, [micPermission, checkAndRequestMicPermission, speak]);
+  }, [micPermission, checkAndRequestMicPermission, speak, markUserInteracted]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
@@ -471,11 +471,6 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
     };
     fetchPowersAndActions();
   }, []);
-
-  // Marca que o usuário interagiu (ex: clicou no botão mic)
-  const markUserInteracted = useCallback(() => {
-    if (!userInteracted) setUserInteracted(true);
-  }, [userInteracted]);
 
   return (
     <>
