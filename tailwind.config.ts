@@ -103,37 +103,12 @@ export default {
             transform: "translate(0px, 0px) scale(1)",
           },
         },
-        "pulseSlow": {
-          '0%, 100%': { boxShadow: '0 0 30px 10px rgba(0, 0, 255, 0.6)', transform: 'scale(1)' },
-          '50%': { boxShadow: '0 0 40px 15px rgba(0, 0, 255, 0.9)', transform: 'scale(1.05)' },
-        },
-        "pulseFast": {
-          '0%, 100%': { boxShadow: '0 0 30px 10px rgba(128, 0, 255, 0.8)', transform: 'scale(1)' },
-          '50%': { boxShadow: '0 0 50px 20px rgba(128, 0, 255, 1)', transform: 'scale(1.1)' },
-        },
-        "audioWaveform": {
-          '0%, 100%': { transform: 'scaleY(0.25)', opacity: '0.5' },
-          '50%': { transform: 'scaleY(1)', opacity: '1' },
-        },
-        "backgroundPulse": {
-          '0%, 100%': { filter: 'brightness(0.8)' },
-          '50%': { filter: 'brightness(1)' },
-        },
-        "fadeInOut": {
-          '0%, 100%': { opacity: '0' },
-          '50%': { opacity: '1' },
-        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "wave": "wave 1.5s infinite ease-in-out",
         "blob": "blob 7s infinite cubic-bezier(0.6, -0.28, 0.735, 0.045)",
-        "pulseSlow": "pulseSlow 3s ease-in-out infinite",
-        "pulseFast": "pulseFast 1.5s ease-in-out infinite",
-        "audioWaveform": "audioWaveform 1.5s infinite ease-in-out",
-        "backgroundPulse": "backgroundPulse 6s ease-in-out infinite",
-        "fadeInOut": "fadeInOut 2s ease-in-out infinite",
       },
     },
   },
