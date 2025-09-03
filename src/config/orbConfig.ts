@@ -1,22 +1,19 @@
 import type { ISourceOptions } from "tsparticles-engine";
 
 export const orbConfig: ISourceOptions = {
+  fullscreen: false,
   particles: {
     number: {
-      value: 150,
-      density: {
-        enable: true,
-        value_area: 800,
-      },
+      value: 0,
     },
     color: {
-      value: ["#8A2BE2", "#00BFFF", "#FFFFFF"], // Default: Purple, Blue, White
+      value: ["#8A2BE2", "#00BFFF", "#FFFFFF"],
     },
     shape: {
       type: "circle",
     },
     opacity: {
-      value: { min: 0.1, max: 0.6 },
+      value: { min: 0.1, max: 0.8 },
       animation: {
         enable: true,
         speed: 1,
@@ -24,41 +21,33 @@ export const orbConfig: ISourceOptions = {
       },
     },
     size: {
-      value: { min: 1, max: 3 },
-      animation: {
-        enable: true,
-        speed: 2,
-        sync: false,
-      },
+      value: { min: 1, max: 4 },
     },
     links: {
       enable: false,
     },
     move: {
       enable: true,
-      speed: 0.5,
-      direction: "none",
-      random: true,
+      speed: 1.5,
+      direction: "outside",
       straight: false,
-      out_mode: "out",
+    },
+    life: {
+      duration: {
+        sync: false,
+        value: 3,
+      },
+      delay: {
+        sync: false,
+        value: 2,
+      },
+      count: 1,
     },
   },
   interactivity: {
     detect_on: "canvas",
     events: {
-      onhover: {
-        enable: true,
-        mode: "bubble",
-      },
       resize: true,
-    },
-    modes: {
-      bubble: {
-        distance: 100,
-        size: 6,
-        duration: 2,
-        opacity: 1,
-      },
     },
   },
   retina_detect: true,
@@ -71,8 +60,8 @@ export const orbConfig: ISourceOptions = {
       y: 50,
     },
     rate: {
-      quantity: 5,
-      delay: 0.15,
+      quantity: 10,
+      delay: 0.1,
     },
     size: {
       width: 0,
