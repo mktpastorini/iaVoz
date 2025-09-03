@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import Particles, { initParticlesEngine } from "react-tsparticles";
+import Particles, { initParticlesEngine } from "@tsparticles/react";
 import { loadSlim } from "tsparticles-slim";
 import { orbConfig } from "@/config/orbConfig";
 import type { ISourceOptions } from "tsparticles-engine";
