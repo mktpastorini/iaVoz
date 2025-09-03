@@ -157,15 +157,26 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, []);
 
   const stopSpeaking = useCallback(() => {
+    // Para a síntese de voz do navegador
     if (synthRef.current?.speaking) {
       console.log('[VA] Parando a síntese de voz do navegador.');
       synthRef.current.cancel();
     }
-    if (audioRef.current && !audioRef.current.paused) {
-      console.log('[VA] Parando o áudio do OpenAI TTS.');
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+    // Para o áudio do OpenAI TTS
+    if (audioRef.current) {
+      console.log('[VA] Limpando recurso de áudio anterior.');
+      if (!audioRef.current.paused) {
+        audioRef.current.pause();
+      }
+      // **A CORREÇÃO CRÍTICA ESTÁ AQUI**
+      // Remove os event listeners para evitar que o áudio "fantasma" dispare ações
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      // Libera o recurso de áudio do navegador
+      audioRef.current.src = ''; 
+      audioRef.current = null;
     }
+    // Garante que o estado de "falando" seja desativado
     if (isSpeakingRef.current) {
       setIsSpeaking(false);
     }
