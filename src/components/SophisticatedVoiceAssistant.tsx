@@ -88,9 +88,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
 
-  const [isOpen, setIsOpen] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isOpen, _setIsOpen] = useState(false);
+  const [isListening, _setIsListening] = useState(false);
+  const [isSpeaking, _setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
@@ -120,15 +120,28 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
   const activationRequestedViaButton = useRef(false);
-  const isTransitioningToSpeakRef = useRef(false);
+  const isTransitioningToSpeakRef = useRef(false); // Sinaliza que estamos no processo de falar
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
-  // Efeitos para sincronizar refs com estados/props
+  // Funções de atualização de estado que também atualizam as refs sincronicamente
+  const setIsOpen = useCallback((value: boolean) => {
+    _setIsOpen(value);
+    isOpenRef.current = value;
+  }, []);
+
+  const setIsListening = useCallback((value: boolean) => {
+    _setIsListening(value);
+    isListeningRef.current = value;
+  }, []);
+
+  const setIsSpeaking = useCallback((value: boolean) => {
+    _setIsSpeaking(value);
+    isSpeakingRef.current = value;
+  }, []);
+
+  // Efeitos para sincronizar refs com props (para props que não são estados)
   useEffect(() => { settingsRef.current = settings; }, [settings]);
-  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
-  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
-  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
   useEffect(() => { powersRef.current = powers; }, [powers]);
   useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
@@ -136,25 +149,30 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
+
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
       console.log('[VA] Parando a escuta...');
       recognitionRef.current.stop();
+      // O estado setIsListening(false) será atualizado pelo evento onend
     }
   }, []);
 
   const startListening = useCallback(() => {
+    // Proteção robusta contra inícios indesejados
     if (isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current || !recognitionRef.current) {
-      console.log(`[VA] Ignorando startListening. Status: isListening=${isListeningRef.current}, isSpeaking=${isSpeakingRef.current}`);
+      console.log(`[VA] Ignorando startListening. Status: isListeningRef=${isListeningRef.current}, isSpeakingRef=${isSpeakingRef.current}, stopPermanently=${stopPermanentlyRef.current}`);
       return;
     }
     try {
       console.log('[VA] Tentando iniciar a escuta...');
+      setIsListening(true); // Atualiza estado e ref sincronicamente
       recognitionRef.current.start();
     } catch (error) {
-      console.error("[VA] Erro ao tentar iniciar reconhecimento (pode ser normal se já estiver parando):", error);
+      console.error("[VA] Erro ao tentar iniciar reconhecimento (pode ser normal se já estiver ativo):", error);
+      setIsListening(false); // Se falhar, reseta o estado e ref
     }
-  }, []);
+  }, [setIsListening]);
 
   const stopSpeaking = useCallback(() => {
     if (synthRef.current?.speaking) {
@@ -167,9 +185,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       audioRef.current.currentTime = 0;
     }
     if (isSpeakingRef.current) {
-      setIsSpeaking(false);
+      setIsSpeaking(false); // Atualiza estado e ref sincronicamente
     }
-  }, []);
+  }, [setIsSpeaking]);
 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
     const currentSettings = settingsRef.current;
@@ -178,26 +196,25 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       return;
     }
     
+    console.log(`[VA] Preparando para falar: "${text}"`);
+    isTransitioningToSpeakRef.current = true; // Sinaliza que estamos prestes a falar
+    stopListening(); // Isso disparará o onend, que agora deve ignorar o reinício
+
+    stopSpeaking(); // Garante que qualquer fala anterior seja interrompida
+    
+    setIsSpeaking(true); // Atualiza estado e ref sincronicamente
+    setAiResponse(text);
+
     const onSpeechEnd = () => {
       console.log('[VA] Finalizou a fala.');
-      isTransitioningToSpeakRef.current = false;
-      isSpeakingRef.current = false;
-      setIsSpeaking(false);
+      isTransitioningToSpeakRef.current = false; // Reseta o sinalizador
+      setIsSpeaking(false); // Atualiza estado e ref sincronicamente
       onEndCallback?.();
       if (isOpenRef.current) {
         console.log('[VA] Assistente aberto após fala, reiniciando escuta.');
         startListening();
       }
     };
-
-    console.log(`[VA] Preparando para falar: "${text}"`);
-    isTransitioningToSpeakRef.current = true;
-    stopListening();
-    stopSpeaking();
-    
-    isSpeakingRef.current = true;
-    setIsSpeaking(true);
-    setAiResponse(text);
 
     try {
       if (currentSettings.voice_model === "browser" && synthRef.current) {
@@ -226,7 +243,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       console.error("[VA] Erro durante a fala:", error);
       onSpeechEnd();
     }
-  }, [stopSpeaking, stopListening, startListening]);
+  }, [stopSpeaking, stopListening, setIsSpeaking, startListening]);
 
   const runConversation = useCallback(async (userInput: string) => {
     const currentSettings = settingsRef.current;
@@ -365,19 +382,26 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
     recognitionRef.current.onstart = () => {
       console.log('[VA] Evento: onstart - Reconhecimento de voz iniciado.');
-      setIsListening(true);
+      setIsListening(true); // Atualiza estado e ref sincronicamente
     };
     
     recognitionRef.current.onend = () => {
       console.log('[VA] Evento: onend - Reconhecimento de voz finalizado.');
-      setIsListening(false);
+      setIsListening(false); // Atualiza estado e ref sincronicamente
+
+      // Se estamos no meio de uma transição para falar, não reinicie a escuta.
+      // A função `speak` se encarregará de reiniciar a escuta após a fala.
       if (isTransitioningToSpeakRef.current) {
         console.log('[VA] onend: Ignorando reinício, transição para fala em progresso.');
         return;
       }
+
+      // Se não estamos parando permanentemente, reinicie a escuta.
       if (!stopPermanentlyRef.current) {
-        console.log('[VA] onend: Reiniciando escuta...');
+        console.log('[VA] onend: Não parado permanentemente, reiniciando escuta.');
         startListening();
+      } else {
+        console.log(`[VA] onend: Não reiniciando escuta. stopPermanently=${stopPermanentlyRef.current}`);
       }
     };
     
@@ -387,6 +411,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         setMicPermission('denied');
         showError("Permissão para microfone negada.");
       }
+      // O onend será chamado após o erro, e a lógica de reinício está lá.
     };
     
     recognitionRef.current.onresult = (event) => {
@@ -423,7 +448,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     if ("speechSynthesis" in window) {
       synthRef.current = window.speechSynthesis;
     }
-  }, [speak, startListening, stopSpeaking, runConversation, executeClientAction]);
+  }, [speak, startListening, stopSpeaking, runConversation, executeClientAction, setIsListening, setIsOpen]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
@@ -447,6 +472,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setIsPermissionModalOpen(false);
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
+      // checkAndRequestMicPermission será chamado novamente pelo onchange do status da permissão
       if (activationRequestedViaButton.current) {
         activationRequestedViaButton.current = false;
         handleManualActivation();
@@ -470,7 +496,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       speak(messageToSpeak);
       setHasBeenActivated(true);
     }
-  }, [micPermission, checkAndRequestMicPermission, speak]);
+  }, [micPermission, checkAndRequestMicPermission, speak, setIsOpen]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
