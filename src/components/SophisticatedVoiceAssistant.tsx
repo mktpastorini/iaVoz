@@ -142,21 +142,30 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, []);
 
   const startListening = useCallback(() => {
-    if (isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current || !recognitionRef.current) return;
+    if (isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current || !recognitionRef.current) {
+      return;
+    }
     try {
       recognitionRef.current.start();
-    } catch (error) {
-      console.error("[VA] Erro ao tentar iniciar reconhecimento:", error);
+    } catch (error: any) {
+      if (error.name !== 'InvalidStateError') {
+        console.error("[VA] Erro ao tentar iniciar reconhecimento:", error);
+      }
     }
   }, []);
 
   const stopSpeaking = useCallback(() => {
-    if (synthRef.current?.speaking) synthRef.current.cancel();
+    if (synthRef.current?.speaking) {
+      synthRef.current.cancel();
+    }
     if (audioRef.current && !audioRef.current.paused) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
-    if (isSpeakingRef.current) setIsSpeaking(false);
+    if (isSpeakingRef.current) {
+      isSpeakingRef.current = false; // Manual update
+      setIsSpeaking(false);
+    }
   }, []);
 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
@@ -168,15 +177,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     
     const onSpeechEnd = () => {
       isTransitioningToSpeakRef.current = false;
+      isSpeakingRef.current = false; // Manual update
       setIsSpeaking(false);
       onEndCallback?.();
-      if (isOpenRef.current) startListening();
+      if (isOpenRef.current) {
+        startListening();
+      }
     };
 
     isTransitioningToSpeakRef.current = true;
     stopListening();
     stopSpeaking();
     
+    isSpeakingRef.current = true; // Manual update
     setIsSpeaking(true);
     setAiResponse(text);
 
@@ -331,11 +344,20 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.lang = "pt-BR";
 
     recognitionRef.current.onstart = () => setIsListening(true);
+    
     recognitionRef.current.onend = () => {
+      // Manual update of ref is the key fix for the race condition
+      isListeningRef.current = false;
       setIsListening(false);
-      if (isTransitioningToSpeakRef.current) return;
-      if (!stopPermanentlyRef.current) startListening();
+      
+      if (isTransitioningToSpeakRef.current) {
+        return;
+      }
+      if (!stopPermanentlyRef.current) {
+        startListening();
+      }
     };
+
     recognitionRef.current.onerror = (e) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         setMicPermission('denied');
