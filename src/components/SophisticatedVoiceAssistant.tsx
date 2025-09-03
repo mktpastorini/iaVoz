@@ -396,6 +396,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         }
       } else {
         if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
+          stopListening(); // Parar imediatamente para evitar processar mais nada.
           setIsOpen(true);
           setHasBeenActivated(true);
           if (userHasInteracted.current) {
@@ -405,6 +406,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
             speak(messageToSpeak);
           } else {
             console.log("[VA] Ativação por voz sem interação prévia. Abrindo silenciosamente.");
+            // O onend do stopListening() irá reiniciar a escuta.
           }
         }
       }
