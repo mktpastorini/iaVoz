@@ -93,7 +93,7 @@ const NewAIInterface: React.FC<NewAIInterfaceProps> = ({
             className={cn(
               "absolute bottom-8 left-1/2 -translate-x-1/2 flex space-x-1",
               {
-                "opacity-100 animate-audioWaveform": aiState === "speaking",
+                "opacity-100": aiState === "speaking",
                 "opacity-0": aiState !== "speaking",
               }
             )}
@@ -101,7 +101,10 @@ const NewAIInterface: React.FC<NewAIInterfaceProps> = ({
             {[...Array(5)].map((_, i) => (
               <span
                 key={i}
-                className="block w-2 h-6 bg-white rounded-full"
+                className={cn(
+                  "block w-2 h-6 bg-white rounded-full origin-bottom",
+                  { "animate-audioWaveform": aiState === "speaking" }
+                )}
                 style={{ animationDelay: `${i * 150}ms` }}
               />
             ))}
@@ -187,102 +190,6 @@ const NewAIInterface: React.FC<NewAIInterfaceProps> = ({
           <Mic className="text-white w-8 h-8" />
         </button>
       </div>
-
-      <style jsx>{`
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
-
-        .font-poppins {
-          font-family: 'Poppins', sans-serif;
-        }
-
-        .shadow-neon {
-          text-shadow:
-            0 0 5px #00ffff,
-            0 0 10px #00ffff,
-            0 0 20px #00ffff,
-            0 0 40px #00ffff;
-        }
-
-        .shadow-glow {
-          box-shadow:
-            0 0 10px rgba(0, 255, 255, 0.5),
-            0 0 20px rgba(0, 255, 255, 0.3),
-            0 0 30px rgba(0, 255, 255, 0.2);
-        }
-
-        @keyframes pulseSlow {
-          0%, 100% {
-            box-shadow: 0 0 30px 10px rgba(0, 0, 255, 0.6);
-            transform: scale(1);
-          }
-          50% {
-            box-shadow: 0 0 40px 15px rgba(0, 0, 255, 0.9);
-            transform: scale(1.05);
-          }
-        }
-
-        @keyframes pulseFast {
-          0%, 100% {
-            box-shadow: 0 0 30px 10px rgba(128, 0, 255, 0.8);
-            transform: scale(1);
-          }
-          50% {
-            box-shadow: 0 0 50px 20px rgba(128, 0, 255, 1);
-            transform: scale(1.1);
-          }
-        }
-
-        .animate-pulseSlow {
-          animation: pulseSlow 3s ease-in-out infinite;
-        }
-
-        .animate-pulseFast {
-          animation: pulseFast 1.5s ease-in-out infinite;
-        }
-
-        @keyframes audioWaveform {
-          0%, 100% {
-            transform: scaleY(0.25);
-            opacity: 0.5;
-          }
-          50% {
-            transform: scaleY(1);
-            opacity: 1;
-          }
-        }
-
-        .animate-audioWaveform > span {
-          animation: audioWaveform 1.5s infinite ease-in-out;
-          transform-origin: center bottom;
-          display: inline-block;
-        }
-
-        @keyframes backgroundPulse {
-          0%, 100% {
-            filter: brightness(0.8);
-          }
-          50% {
-            filter: brightness(1);
-          }
-        }
-
-        .animate-backgroundPulse {
-          animation: backgroundPulse 6s ease-in-out infinite;
-        }
-
-        @keyframes fadeInOut {
-          0%, 100% {
-            opacity: 0;
-          }
-          50% {
-            opacity: 1;
-          }
-        }
-
-        .animate-fadeInOut {
-          animation: fadeInOut 2s ease-in-out infinite;
-        }
-      `}</style>
     </div>
   );
 };
