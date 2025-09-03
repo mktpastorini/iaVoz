@@ -114,6 +114,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const systemVariablesRef = useRef(systemVariables);
   const sessionRef = useRef(session);
   const messageHistoryRef = useRef(messageHistory);
+  const userHasInteracted = useRef(false);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -205,13 +206,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     setIsSpeaking(true);
     setAiResponse(text);
 
+    const canAutoplay = userHasInteracted.current;
+    const useBrowserVoice = currentSettings.voice_model === 'browser' || (currentSettings.voice_model === 'openai-tts' && !canAutoplay);
+
     try {
-      if (currentSettings.voice_model === "browser" && synthRef.current) {
+      if (useBrowserVoice) {
+        if (!canAutoplay && currentSettings.voice_model === 'openai-tts') {
+          console.log('[VA] Autoplay não permitido. Usando a voz do navegador como fallback.');
+        }
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
         utterance.onerror = (e) => { console.error('[VA] Erro na síntese de voz do navegador:', e); onSpeechEnd(); };
-        synthRef.current.speak(utterance);
+        synthRef.current?.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         const response = await fetch(OPENAI_TTS_API_URL, {
           method: "POST",
@@ -435,6 +442,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   };
 
   const handleManualActivation = useCallback(() => {
+    userHasInteracted.current = true;
     if (isOpenRef.current) return;
     if (micPermission !== 'granted') {
       activationRequestedViaButton.current = true;
@@ -457,12 +465,23 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [activationTrigger, handleManualActivation]);
 
   useEffect(() => {
+    const handleInteraction = () => {
+      userHasInteracted.current = true;
+      document.removeEventListener('click', handleInteraction);
+      document.removeEventListener('keydown', handleInteraction);
+    };
+
+    document.addEventListener('click', handleInteraction);
+    document.addEventListener('keydown', handleInteraction);
+
     if (isLoading) return;
     checkAndRequestMicPermission();
     return () => {
       stopPermanentlyRef.current = true;
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
+      document.removeEventListener('click', handleInteraction);
+      document.removeEventListener('keydown', handleInteraction);
     };
   }, [isLoading, checkAndRequestMicPermission]);
 
