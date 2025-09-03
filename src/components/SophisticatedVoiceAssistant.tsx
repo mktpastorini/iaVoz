@@ -14,7 +14,6 @@ import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import { AiOrb } from "./AiOrb";
-import { AudioVisualizer } from "./AudioVisualizer";
 
 // Interfaces
 interface Settings {
@@ -65,6 +64,8 @@ interface ClientAction {
     altText?: string;
   };
 }
+
+type OrbState = 'idle' | 'listening' | 'processing' | 'speaking';
 
 // Constants
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
@@ -464,12 +465,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     fetchPowersAndActions();
   }, []);
 
+  let assistantStatus: OrbState = 'idle';
+  if (isProcessing) assistantStatus = 'processing';
+  else if (isSpeaking) assistantStatus = 'speaking';
+  else if (isListening) assistantStatus = 'listening';
+
   let mainText = displayedAiResponse;
   if (isListening && transcript) {
     mainText = transcript;
   } else if (!aiResponse && !transcript) {
     mainText = hasBeenActivated ? (settings?.continuation_phrase || "Pode falar.") : (settings?.welcome_message || "Olá! Como posso te ajudar?");
   }
+
+  const statusText = isListening ? "Ouvindo..." : isProcessing ? "Processando..." : isSpeaking ? "Falando..." : "Inativo";
 
   if (isLoading || !settings) return null;
 
@@ -484,28 +492,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
       
       <div className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center p-4 transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")} onClick={() => setIsOpen(false)}>
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-950/80 via-purple-950/80 to-gray-900/80 backdrop-blur-sm"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-950/80 via-purple-950/80 to-gray-900/80 backdrop-blur-md"></div>
         
         <div className="relative flex flex-col items-center justify-center w-full h-full" onClick={(e) => e.stopPropagation()}>
-          <div className="absolute w-full h-full max-w-3xl max-h-3xl">
-            <AiOrb />
+          <div className="absolute w-[500px] h-[500px]">
+            <AiOrb state={assistantStatus} />
           </div>
           
-          <div className="relative z-10 text-center flex flex-col items-center justify-center text-white space-y-8">
-            <div className="glassmorphic-box px-6 py-4 min-w-[300px] max-w-md">
-              <h2 className="text-2xl font-medium">
-                {mainText}
-              </h2>
-            </div>
-
-            <div className="flex items-center justify-center space-x-4 w-full">
-              <AudioVisualizer isSpeaking={isSpeaking || isListening} />
-              <AudioVisualizer isSpeaking={isSpeaking || isListening} />
-            </div>
-
-            <div className="w-16 h-16 flex items-center justify-center">
-              <Mic className="w-8 h-8 text-white mic-glow" />
-            </div>
+          <div className="relative z-10 text-center flex flex-col items-center justify-center text-white">
+            <p className="text-lg opacity-60 mb-4" style={{ color: 'rgba(192, 192, 220, 0.7)' }}>Inteligência Artificial por Voz</p>
+            <h2 className="text-3xl md:text-5xl font-bold leading-tight mb-4 h-24" style={{ textShadow: '0 0 8px rgba(173, 216, 230, 0.7)' }}>
+              {mainText}
+            </h2>
+            <p className="text-base opacity-50">{statusText}</p>
           </div>
         </div>
       </div>
