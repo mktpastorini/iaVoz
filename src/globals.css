@@ -35,12 +35,19 @@
     --radius: 0.5rem;
 
     --sidebar-background: 0 0% 98%;
+
     --sidebar-foreground: 240 5.3% 26.1%;
+
     --sidebar-primary: 240 5.9% 10%;
+
     --sidebar-primary-foreground: 0 0% 98%;
+
     --sidebar-accent: 240 4.8% 95.9%;
+
     --sidebar-accent-foreground: 240 5.9% 10%;
+
     --sidebar-border: 220 13% 91%;
+
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
@@ -91,23 +98,4 @@
   body {
     @apply bg-background text-foreground;
   }
-}
-
-@layer components {
-  .glassmorphic-box {
-    @apply bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg shadow-lg;
-  }
-
-  .mic-glow {
-    filter: drop-shadow(0 0 8px #fff) drop-shadow(0 0 12px #fff);
-  }
-}
-
-@keyframes wave {
-  0%, 100% { transform: scaleY(0.2); }
-  50% { transform: scaleY(1); }
-}
-
-.animate-wave {
-  animation: wave 1.2s infinite ease-in-out;
 }
