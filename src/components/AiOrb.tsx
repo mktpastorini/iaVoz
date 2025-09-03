@@ -1,27 +1,29 @@
 "use client";
 
-import React from "react";
-import { cn } from "@/lib/utils";
+import React, { useEffect, useState } from "react";
+import Particles, { initParticlesEngine } from "@tsparticles/react";
+import { loadFull } from "tsparticles";
+import { backgroundConfig, orbConfig } from "@/config/orbConfig";
 
-type OrbState = 'idle' | 'listening' | 'processing' | 'speaking';
+export const AiOrb: React.FC = () => {
+  const [init, setInit] = useState(false);
 
-interface AiOrbProps {
-  state: OrbState;
-}
+  useEffect(() => {
+    initParticlesEngine(async (engine) => {
+      await loadFull(engine);
+    }).then(() => {
+      setInit(true);
+    });
+  }, []);
 
-export const AiOrb: React.FC<AiOrbProps> = ({ state }) => {
-  const stateClasses = {
-    idle: "ai-orb-idle",
-    listening: "ai-orb-listening",
-    processing: "ai-orb-processing",
-    speaking: "ai-orb-speaking",
-  };
+  if (init) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center w-full h-full">
+        <Particles id="tsparticles-bg" options={backgroundConfig} />
+        <Particles id="tsparticles-orb" options={orbConfig} />
+      </div>
+    );
+  }
 
-  return (
-    <div className={cn("ai-orb", stateClasses[state])}>
-      <div className="orb-glow"></div>
-      <div className="orb-core"></div>
-      <div className="orb-texture"></div>
-    </div>
-  );
+  return null;
 };

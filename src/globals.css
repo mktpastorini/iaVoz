@@ -94,74 +94,20 @@
 }
 
 @layer components {
-  .ai-orb {
-    @apply relative w-[350px] h-[350px] md:w-[400px] md:h-[400px] flex items-center justify-center;
-    animation: orb-pulse 8s infinite ease-in-out;
+  .glassmorphic-box {
+    @apply bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg shadow-lg;
   }
 
-  .orb-glow {
-    @apply absolute inset-0 rounded-full;
-    background: radial-gradient(circle, var(--orb-color-1) 0%, transparent 60%);
-    filter: blur(60px);
-    opacity: 0.8;
-  }
-
-  .orb-core {
-    @apply absolute w-full h-full rounded-full;
-    background: radial-gradient(circle, var(--orb-color-1) 0%, var(--orb-color-2) 100%);
-    opacity: 0.5;
-    filter: blur(20px);
-  }
-
-  .orb-texture::before,
-  .orb-texture::after {
-    content: '';
-    @apply absolute inset-0 rounded-full opacity-40;
-    background: radial-gradient(circle at 30% 30%, #fff 0%, var(--orb-color-1) 30%, var(--orb-color-2) 70%, transparent 100%);
-  }
-
-  .orb-texture::before {
-    animation: orb-rotate 15s infinite linear;
-  }
-
-  .orb-texture::after {
-    animation: orb-rotate 20s infinite linear reverse;
-    background: radial-gradient(circle at 70% 70%, #fff 0%, var(--orb-color-2) 30%, var(--orb-color-1) 70%, transparent 100%);
-  }
-
-  .ai-orb-idle {
-    --orb-color-1: #8A2BE2;
-    --orb-color-2: #00BFFF;
-  }
-
-  .ai-orb-listening {
-    --orb-color-1: #00BFFF;
-    --orb-color-2: #00F5FF;
-    animation-duration: 4s;
-  }
-
-  .ai-orb-processing {
-    --orb-color-1: #BA55D3;
-    --orb-color-2: #FF00FF;
-    animation-duration: 2s;
-  }
-
-  .ai-orb-speaking {
-    --orb-color-1: #00FF7F;
-    --orb-color-2: #7FFFD4;
-  }
-
-  .text-glow {
-    text-shadow: 0 0 8px rgba(255, 255, 255, 0.6), 0 0 12px var(--orb-color-2);
+  .mic-glow {
+    filter: drop-shadow(0 0 8px #fff) drop-shadow(0 0 12px #fff);
   }
 }
 
-@keyframes orb-pulse {
-  0%, 100% { transform: scale(0.95); }
-  50% { transform: scale(1.05); }
+@keyframes wave {
+  0%, 100% { transform: scaleY(0.2); }
+  50% { transform: scaleY(1); }
 }
 
-@keyframes orb-rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.animate-wave {
+  animation: wave 1.2s infinite ease-in-out;
 }
