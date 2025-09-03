@@ -81,9 +81,8 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
-  const [userInteracted, setUserInteracted] = useState(false); // Novo estado para interação do usuário
+  const [userInteracted, setUserInteracted] = useState(false);
 
-  // Refs para estados e props dinâmicos
   const settingsRef = useRef(settings);
   const isOpenRef = useRef(isOpen);
   const isListeningRef = useRef(isListening);
@@ -103,7 +102,6 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
   const activationRequestedViaButton = useRef(false);
   const isTransitioningToSpeakRef = useRef(false);
 
-  // Sincroniza refs com estados/props
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
@@ -115,9 +113,11 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
-  // Marca que o usuário interagiu (ex: clicou no botão mic)
   const markUserInteracted = useCallback(() => {
-    if (!userInteracted) setUserInteracted(true);
+    if (!userInteracted) {
+      console.log("[VA] Interação do usuário detectada. Áudio desbloqueado.");
+      setUserInteracted(true);
+    }
   }, [userInteracted]);
 
   const stopListening = useCallback(() => {
@@ -133,7 +133,7 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
     try {
       recognitionRef.current.start();
     } catch (error) {
-      // Pode ocorrer erro se já estiver iniciando/parando
+      // Silently catch error
     }
   }, []);
 
@@ -142,17 +142,13 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
       synthRef.current.cancel();
     }
     if (audioRef.current) {
-      if (!audioRef.current.paused) {
-        audioRef.current.pause();
-      }
+      if (!audioRef.current.paused) audioRef.current.pause();
       audioRef.current.onended = null;
       audioRef.current.onerror = null;
       audioRef.current.src = '';
       audioRef.current = null;
     }
-    if (isSpeakingRef.current) {
-      setIsSpeaking(false);
-    }
+    if (isSpeakingRef.current) setIsSpeaking(false);
   }, []);
 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
@@ -162,23 +158,19 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
       return;
     }
     if (!userInteracted) {
-      console.warn("[VA] Bloqueado para falar: usuário ainda não interagiu com a página.");
+      console.warn("[VA] Bloqueado para falar: usuário ainda não interagiu.");
       onEndCallback?.();
       return;
     }
     const onSpeechEnd = () => {
       isTransitioningToSpeakRef.current = false;
-      isSpeakingRef.current = false;
       setIsSpeaking(false);
       onEndCallback?.();
-      if (isOpenRef.current) {
-        startListening();
-      }
+      if (isOpenRef.current) startListening();
     };
     isTransitioningToSpeakRef.current = true;
     stopListening();
     stopSpeaking();
-    isSpeakingRef.current = true;
     setIsSpeaking(true);
     setAiResponse(text);
 
@@ -339,27 +331,18 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
 
-    recognitionRef.current.onstart = () => {
-      setIsListening(true);
-    };
-
+    recognitionRef.current.onstart = () => setIsListening(true);
     recognitionRef.current.onend = () => {
       setIsListening(false);
-      if (isTransitioningToSpeakRef.current) {
-        return;
-      }
-      if (!stopPermanentlyRef.current) {
-        startListening();
-      }
+      if (isTransitioningToSpeakRef.current) return;
+      if (!stopPermanentlyRef.current) startListening();
     };
-
     recognitionRef.current.onerror = (e) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         setMicPermission('denied');
         showError("Permissão para microfone negada.");
       }
     };
-
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
       const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
@@ -384,7 +367,13 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
           const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
             ? settingsRef.current.continuation_phrase
             : settingsRef.current.welcome_message;
-          speak(messageToSpeak);
+          
+          if (userInteracted) {
+            speak(messageToSpeak);
+          } else {
+            setAiResponse(messageToSpeak || "");
+            startListening();
+          }
           setHasBeenActivated(true);
         }
       }
@@ -393,7 +382,7 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
     if ("speechSynthesis" in window) {
       synthRef.current = window.speechSynthesis;
     }
-  }, [speak, startListening, stopSpeaking, runConversation, executeClientAction]);
+  }, [speak, startListening, stopSpeaking, runConversation, executeClientAction, userInteracted]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
@@ -440,7 +429,7 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
       speak(messageToSpeak);
       setHasBeenActivated(true);
     }
-  }, [micPermission, checkAndRequestMicPermission, speak, markUserInteracted]);
+  }, [micPermission, checkAndRequestMicPermission, speak, markUserInteracted, hasBeenActivated]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
@@ -484,19 +473,13 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
           aiResponse === "Pensando..." ? "processing" :
           "idle"
         }
-        onMicClick={() => {
-          markUserInteracted();
-          handleManualActivation();
-        }}
+        onMicClick={handleManualActivation}
       />
-      {/* Mantém modais e botões de permissão de microfone se necessário */}
       {micPermission === 'denied' && (
         <div className="fixed bottom-4 right-4 md:bottom-8 md:right-8 z-50">
           <Button onClick={checkAndRequestMicPermission} size="lg" className="rounded-full w-16 h-16 shadow-lg"><Mic size={32} /></Button>
         </div>
       )}
-      {/* Aqui você pode manter os modais de imagem e iframe se quiser */}
-      {/* ... */}
     </>
   );
 };
