@@ -10,7 +10,7 @@ import { useTypewriter } from "@/hooks/useTypewriter";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Mic, X, Loader2 } from "lucide-react";
+import { Mic, X } from "lucide-react";
 import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
@@ -518,45 +518,21 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   return (
     <>
       <MicrophonePermissionModal isOpen={isPermissionModalOpen} onAllow={handleAllowMic} onClose={() => setIsPermissionModalOpen(false)} />
-      {micPermission === 'denied' && !isOpen && (
+      {micPermission === 'denied' && (
         <div className="fixed bottom-4 right-4 md:bottom-8 md:right-8 z-50">
-          <Button onClick={checkAndRequestMicPermission} size="lg" className="rounded-full w-16 h-16 shadow-lg bg-gradient-to-br from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-110">
-            <Mic size={32} />
-          </Button>
+          <Button onClick={checkAndRequestMicPermission} size="lg" className="rounded-full w-16 h-16 shadow-lg"><Mic size={32} /></Button>
         </div>
       )}
       {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl!} altText={imageToShow.altText} onClose={() => { setImageToShow(null); startListening(); }} />}
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
-      
-      <div className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center p-4 transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-black to-purple-900" onClick={() => setIsOpen(false)}></div>
-        
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-500 rounded-full mix-blend-lighten filter blur-3xl opacity-40 animate-blob"></div>
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/4 -translate-y-1/4 w-96 h-96 bg-purple-500 rounded-full mix-blend-lighten filter blur-3xl opacity-40 animate-blob" style={{animationDelay: '2s'}}></div>
-
-        <Button variant="ghost" size="icon" className="absolute top-6 right-6 z-20 text-white/70 hover:text-white hover:bg-white/10 rounded-full" onClick={() => setIsOpen(false)}>
-          <X className="h-6 w-6" />
-        </Button>
-
-        <div className="relative z-10 flex flex-col items-center justify-between w-full h-full text-center py-16">
-          <div className="flex-1"></div>
-
-          <div className="w-full max-w-2xl min-h-[80px] flex items-center justify-center bg-black/20 backdrop-blur-md rounded-2xl border border-white/20 p-6 shadow-lg">
-            <p className="text-white text-2xl md:text-3xl font-medium leading-tight drop-shadow-lg">
-              {aiResponse === "Pensando..." ? <Loader2 className="animate-spin mx-auto" /> : displayedAiResponse}
-            </p>
+      <div className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center p-4 transition-all duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
+        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={() => setIsOpen(false)}></div>
+        <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
+          <div className="flex-grow flex items-center justify-center">
+            <p className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">{displayedAiResponse}</p>
           </div>
-
-          <div className="flex-1 flex flex-col items-center justify-center w-full max-w-2xl mt-8">
-            <AudioVisualizer isSpeaking={isSpeaking} />
-            <div className="h-10 mt-4">
-              <p className="text-gray-400 text-lg">{transcript}</p>
-            </div>
-          </div>
-
-          <div className="w-16 h-16 flex items-center justify-center bg-white/10 rounded-full border border-white/20 shadow-xl">
-            <Mic className="h-8 w-8 text-white" />
-          </div>
+          <AudioVisualizer isSpeaking={isSpeaking} />
+          <div className="h-16"><p className="text-gray-400 text-lg md:text-xl">{transcript}</p></div>
         </div>
       </div>
     </>
