@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Particles, { initParticlesEngine } from "@tsparticles/react";
-import { loadSlim } from "tsparticles-slim";
+import { loadFull } from "tsparticles";
 import { orbConfig } from "@/config/orbConfig";
 import type { ISourceOptions } from "tsparticles-engine";
 
@@ -17,7 +17,7 @@ export const AiOrb: React.FC<AiOrbProps> = ({ state }) => {
 
   useEffect(() => {
     initParticlesEngine(async (engine) => {
-      await loadSlim(engine);
+      await loadFull(engine);
     }).then(() => {
       setInit(true);
     });
