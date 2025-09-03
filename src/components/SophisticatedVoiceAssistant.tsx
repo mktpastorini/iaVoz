@@ -81,6 +81,7 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
+  const [userInteracted, setUserInteracted] = useState(false); // Novo estado para interação do usuário
 
   // Refs para estados e props dinâmicos
   const settingsRef = useRef(settings);
@@ -114,29 +115,30 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
+  // Marca que o usuário interagiu (ex: clicou no botão mic)
+  const markUserInteracted = useCallback(() => {
+    if (!userInteracted) setUserInteracted(true);
+  }, [userInteracted]);
+
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
-      console.log('[VA] Parando a escuta...');
       recognitionRef.current.stop();
     }
   }, []);
 
   const startListening = useCallback(() => {
     if (isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current || !recognitionRef.current) {
-      console.log(`[VA] Ignorando startListening. isListening=${isListeningRef.current}, isSpeaking=${isSpeakingRef.current}`);
       return;
     }
     try {
-      console.log('[VA] Iniciando escuta...');
       recognitionRef.current.start();
     } catch (error) {
-      console.error("[VA] Erro ao iniciar reconhecimento:", error);
+      // Pode ocorrer erro se já estiver iniciando/parando
     }
   }, []);
 
   const stopSpeaking = useCallback(() => {
     if (synthRef.current?.speaking) {
-      console.log('[VA] Cancelando síntese de voz.');
       synthRef.current.cancel();
     }
     if (audioRef.current) {
@@ -159,8 +161,12 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
       onEndCallback?.();
       return;
     }
+    if (!userInteracted) {
+      console.warn("[VA] Bloqueado para falar: usuário ainda não interagiu com a página.");
+      onEndCallback?.();
+      return;
+    }
     const onSpeechEnd = () => {
-      console.log('[VA] Fala finalizada.');
       isTransitioningToSpeakRef.current = false;
       isSpeakingRef.current = false;
       setIsSpeaking(false);
@@ -200,10 +206,9 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
         onSpeechEnd();
       }
     } catch (error) {
-      console.error("[VA] Erro na fala:", error);
       onSpeechEnd();
     }
-  }, [stopSpeaking, stopListening, startListening]);
+  }, [stopSpeaking, stopListening, startListening, userInteracted]);
 
   const runConversation = useCallback(async (userInput: string) => {
     const currentSettings = settingsRef.current;
@@ -305,7 +310,7 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
       showError(error.message || "Desculpe, ocorreu um erro.");
       speak("Desculpe, ocorreu um erro.");
     }
-  }, [speak, stopListening]);
+  }, [speak, stopListening, userInteracted]);
 
   const executeClientAction = useCallback((action: ClientAction) => {
     stopListening();
@@ -323,7 +328,6 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
   }, [speak, stopListening]);
 
   const initializeAssistant = useCallback(() => {
-    console.log('[VA] Inicializando assistente...');
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       showError("Reconhecimento de voz não suportado.");
@@ -336,15 +340,12 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
     recognitionRef.current.lang = "pt-BR";
 
     recognitionRef.current.onstart = () => {
-      console.log('[VA] Reconhecimento de voz iniciado.');
       setIsListening(true);
     };
 
     recognitionRef.current.onend = () => {
-      console.log('[VA] Reconhecimento de voz finalizado.');
       setIsListening(false);
       if (isTransitioningToSpeakRef.current) {
-        console.log('[VA] Ignorando reinício, fala em progresso.');
         return;
       }
       if (!stopPermanentlyRef.current) {
@@ -353,7 +354,6 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
     };
 
     recognitionRef.current.onerror = (e) => {
-      console.log(`[VA] Erro no reconhecimento: ${e.error}`);
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         setMicPermission('denied');
         showError("Permissão para microfone negada.");
@@ -362,7 +362,6 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
 
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      console.log(`[VA] Transcrição: "${transcript}"`);
       const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
 
       if (isOpenRef.current) {
@@ -408,8 +407,7 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
         setIsPermissionModalOpen(true);
       }
       permissionStatus.onchange = () => checkAndRequestMicPermission();
-    } catch (error) {
-      console.error("[VA] Erro ao verificar permissão do microfone:", error);
+    } catch {
       setMicPermission('denied');
     }
   }, [initializeAssistant, startListening]);
@@ -429,6 +427,7 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
   };
 
   const handleManualActivation = useCallback(() => {
+    markUserInteracted();
     if (isOpenRef.current) return;
     if (micPermission !== 'granted') {
       activationRequestedViaButton.current = true;
@@ -473,6 +472,11 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
     fetchPowersAndActions();
   }, []);
 
+  // Marca que o usuário interagiu (ex: clicou no botão mic)
+  const markUserInteracted = useCallback(() => {
+    if (!userInteracted) setUserInteracted(true);
+  }, [userInteracted]);
+
   return (
     <>
       <NewAIInterface
@@ -485,7 +489,10 @@ const SophisticatedVoiceAssistant: React.FC<{ settings: Settings | null; isLoadi
           aiResponse === "Pensando..." ? "processing" :
           "idle"
         }
-        onMicClick={handleManualActivation}
+        onMicClick={() => {
+          markUserInteracted();
+          handleManualActivation();
+        }}
       />
       {/* Mantém modais e botões de permissão de microfone se necessário */}
       {micPermission === 'denied' && (
