@@ -397,11 +397,15 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       } else {
         if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
           setIsOpen(true);
-          const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
-            ? settingsRef.current.continuation_phrase
-            : settingsRef.current.welcome_message;
-          speak(messageToSpeak);
           setHasBeenActivated(true);
+          if (userHasInteracted.current) {
+            const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
+              ? settingsRef.current.continuation_phrase
+              : settingsRef.current.welcome_message;
+            speak(messageToSpeak);
+          } else {
+            console.log("[VA] Ativação por voz sem interação prévia. Abrindo silenciosamente.");
+          }
         }
       }
     };
