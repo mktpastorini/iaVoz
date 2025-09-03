@@ -68,6 +68,7 @@ interface ClientAction {
 // Constants
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
+const SILENT_AUDIO_DATA_URL = "data:audio/mp3;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
 
 // Modal Component
 const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?: string; onClose: () => void }) => (
@@ -121,6 +122,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const activationTriggerRef = useRef(0);
   const activationRequestedViaButton = useRef(false);
   const isTransitioningToSpeakRef = useRef(false);
+  const audioUnlockedRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -135,6 +137,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
+
+  const unlockAudioContext = useCallback(() => {
+    if (audioUnlockedRef.current) return;
+    console.log('[VA] Tentando desbloquear o contexto de áudio...');
+    const sound = new Audio(SILENT_AUDIO_DATA_URL);
+    sound.play().then(() => {
+      console.log('[VA] Contexto de áudio desbloqueado com sucesso.');
+      audioUnlockedRef.current = true;
+    }).catch(e => {
+      console.error('[VA] Falha ao desbloquear o contexto de áudio:', e);
+    });
+  }, []);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
@@ -445,6 +459,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const handleAllowMic = async () => {
     setIsPermissionModalOpen(false);
+    unlockAudioContext(); // Desbloqueia o áudio ao clicar em permitir
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       if (activationRequestedViaButton.current) {
@@ -458,6 +473,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   };
 
   const handleManualActivation = useCallback(() => {
+    unlockAudioContext(); // Desbloqueia o áudio ao clicar no botão de ativação
     if (isOpenRef.current) return;
     if (micPermission !== 'granted') {
       activationRequestedViaButton.current = true;
@@ -470,7 +486,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       speak(messageToSpeak);
       setHasBeenActivated(true);
     }
-  }, [micPermission, checkAndRequestMicPermission, speak]);
+  }, [micPermission, checkAndRequestMicPermission, speak, unlockAudioContext]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
