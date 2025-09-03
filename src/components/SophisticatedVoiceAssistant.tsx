@@ -211,7 +211,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = (e) => { console.error('[VA] Erro ao tocar áudio TTS:', e); onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = (e) => { console.error('[VA] Erro ao tocar áudio TTS:', e); onEndCallback(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
       } else {
         onSpeechEnd();
@@ -326,7 +326,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         if (action.action_payload.url) speak("Ok, abrindo conteúdo.", () => setUrlToOpenInIframe(action.action_payload.url!));
         break;
       case 'SHOW_IMAGE':
-        // This action is removed as per new design, but kept for logic integrity
         break;
     }
   }, [speak, stopListening]);
@@ -346,16 +345,10 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onstart = () => setIsListening(true);
     
     recognitionRef.current.onend = () => {
-      // Manual update of ref is the key fix for the race condition
       isListeningRef.current = false;
       setIsListening(false);
-      
-      if (isTransitioningToSpeakRef.current) {
-        return;
-      }
-      if (!stopPermanentlyRef.current) {
-        startListening();
-      }
+      if (isTransitioningToSpeakRef.current) return;
+      if (!stopPermanentlyRef.current) startListening();
     };
 
     recognitionRef.current.onerror = (e) => {
@@ -477,12 +470,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   else if (isSpeaking) assistantStatus = 'speaking';
   else if (isListening) assistantStatus = 'listening';
 
-  let displayText = displayedAiResponse;
+  let mainText = displayedAiResponse;
   if (isListening && transcript) {
-    displayText = transcript;
+    mainText = transcript;
   } else if (!aiResponse && !transcript) {
-    displayText = hasBeenActivated ? (settings?.continuation_phrase || "Pode falar.") : (settings?.welcome_message || "Olá! Como posso te ajudar?");
+    mainText = hasBeenActivated ? (settings?.continuation_phrase || "Pode falar.") : (settings?.welcome_message || "Olá! Como posso te ajudar?");
   }
+
+  const statusText = isListening ? "Ouvindo..." : isProcessing ? "Processando..." : isSpeaking ? "Falando..." : "Inativo";
 
   if (isLoading || !settings) return null;
 
@@ -497,16 +492,19 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
       
       <div className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center p-4 transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")} onClick={() => setIsOpen(false)}>
-        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm"></div>
-        <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center" onClick={(e) => e.stopPropagation()}>
-          <AiOrb state={assistantStatus} />
-          <div className="relative z-20 text-center">
-            <h2 className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg mb-4">
-              {displayText}
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-950/80 via-purple-950/80 to-gray-900/80 backdrop-blur-md"></div>
+        
+        <div className="relative flex flex-col items-center justify-center w-full h-full" onClick={(e) => e.stopPropagation()}>
+          <div className="absolute">
+            <AiOrb state={assistantStatus} />
+          </div>
+          
+          <div className="relative z-10 text-center flex flex-col items-center justify-center text-white">
+            <p className="text-lg opacity-60 mb-4">Inteligência Artificial por Voz</p>
+            <h2 className="text-3xl md:text-5xl font-bold leading-tight mb-4 text-glow h-24">
+              {mainText}
             </h2>
-            <p className="text-gray-400 text-lg md:text-xl">
-              {isListening ? "Ouvindo..." : isProcessing ? "Processando..." : isSpeaking ? "Falando..." : "Inativo"}
-            </p>
+            <p className="text-base opacity-50">{statusText}</p>
           </div>
         </div>
       </div>

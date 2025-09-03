@@ -18,6 +18,10 @@ export const AiOrb: React.FC<AiOrbProps> = ({ state }) => {
   };
 
   return (
-    <div className={cn("ai-orb", stateClasses[state])}></div>
+    <div className={cn("ai-orb", stateClasses[state])}>
+      <div className="orb-glow"></div>
+      <div className="orb-core"></div>
+      <div className="orb-texture"></div>
+    </div>
   );
 };
