@@ -518,23 +518,6 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     }
   }, [initializeAssistant, startListening]);
 
-  const handleAllowMic = useCallback(async () => {
-    setIsPermissionModalOpen(false);
-    try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      setMicPermission("granted");
-      if (!recognitionRef.current) initializeAssistant();
-      startListening();
-      if (activationRequestedViaButton.current) {
-        handleManualActivation();
-        activationRequestedViaButton.current = false;
-      }
-    } catch {
-      setMicPermission("denied");
-      showError("Permissão para microfone negada.");
-    }
-  }, [initializeAssistant, startListening, handleManualActivation]);
-
   const handleManualActivation = useCallback(() => {
     if (isOpenRef.current) return;
     setHasUserInteracted(true);
@@ -555,6 +538,23 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
       setHasBeenActivated(true);
     }
   }, [micPermission, checkAndRequestMicPermission, speak, startListening]);
+
+  const handleAllowMic = useCallback(async () => {
+    setIsPermissionModalOpen(false);
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicPermission("granted");
+      if (!recognitionRef.current) initializeAssistant();
+      startListening();
+      if (activationRequestedViaButton.current) {
+        handleManualActivation();
+        activationRequestedViaButton.current = false;
+      }
+    } catch {
+      setMicPermission("denied");
+      showError("Permissão para microfone negada.");
+    }
+  }, [initializeAssistant, startListening, handleManualActivation]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
