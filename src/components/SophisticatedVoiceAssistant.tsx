@@ -52,8 +52,8 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
   // Refs
   const settingsRef = useRef(settings);
   const isOpenRef = useRef(isOpen);
-  const isListeningRef = useRef(isListening);
-  const isSpeakingRef = useRef(isSpeaking);
+  const isListeningRef = useRef(false);
+  const isSpeakingRef = useRef(false);
   const hasBeenActivatedRef = useRef(hasBeenActivated);
   const powersRef = useRef(powers);
   const clientActionsRef = useRef(clientActions);
@@ -78,8 +78,6 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
   // Sync refs with state
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
-  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
-  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
   useEffect(() => { powersRef.current = powers; }, [powers]);
   useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
@@ -115,7 +113,10 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
       animationFrameRef.current = null;
     }
     setAudioIntensity(0);
-    if (isSpeakingRef.current) setIsSpeaking(false);
+    if (isSpeakingRef.current) {
+      isSpeakingRef.current = false;
+      setIsSpeaking(false);
+    }
   }, []);
 
   const setupAudioAnalysis = useCallback(() => {
@@ -164,7 +165,8 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     }
 
     const onSpeechEnd = () => {
-      if (!isSpeakingRef.current) return; // Prevent double execution
+      if (!isSpeakingRef.current) return;
+      isSpeakingRef.current = false;
       setIsSpeaking(false);
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -177,6 +179,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
       }
     };
 
+    isSpeakingRef.current = true;
     setIsSpeaking(true);
     stopListening();
     stopSpeaking();
@@ -307,8 +310,12 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     recognitionRef.current.continuous = true;
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
-    recognitionRef.current.onstart = () => setIsListening(true);
+    recognitionRef.current.onstart = () => {
+      isListeningRef.current = true;
+      setIsListening(true);
+    };
     recognitionRef.current.onend = () => {
+      isListeningRef.current = false;
       setIsListening(false);
       if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
         startListening();
