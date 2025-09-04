@@ -194,7 +194,8 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
       }
 
       if (!hasUserInteractedRef.current) {
-        console.warn("[speak] Blocked speech: user has not interacted with the page yet.");
+        // Não bloqueia, apenas não fala ainda
+        console.warn("[speak] Bloqueado: usuário não interagiu ainda.");
         onEndCallback?.();
         return;
       }
@@ -231,11 +232,9 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
           utterance.lang = "pt-BR";
           utterance.onend = () => {
             onSpeechEnd();
-            console.log("[speak] Browser TTS ended, restarting listening");
           };
           utterance.onerror = () => {
             onSpeechEnd();
-            console.log("[speak] Browser TTS error, restarting listening");
           };
           synthRef.current.speak(utterance);
         } else if (
@@ -265,12 +264,10 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
           audioRef.current.onended = () => {
             onSpeechEnd();
             URL.revokeObjectURL(audioUrl);
-            console.log("[speak] OpenAI TTS audio ended, restarting listening");
           };
           audioRef.current.onerror = () => {
             onSpeechEnd();
             URL.revokeObjectURL(audioUrl);
-            console.log("[speak] OpenAI TTS audio error, restarting listening");
           };
           await audioRef.current.play();
           runAudioAnalysis();
@@ -278,14 +275,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
           onSpeechEnd();
         }
       } catch (e) {
-        if (e.name === "NotAllowedError") {
-          showError(
-            "A reprodução de áudio foi bloqueada pelo navegador. Por favor, interaja com a página (clique) para ativar o som."
-          );
-        } else {
-          showError(`Erro na síntese de voz: ${e.message}`);
-        }
-        console.error("[speak] Error during speech synthesis:", e);
+        showError(`Erro na síntese de voz: ${e.message}`);
         onSpeechEnd();
       }
     },
@@ -322,12 +312,12 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
   const runConversation = useCallback(async (userMessage) => {
     setTranscript(userMessage);
     stopListening();
-  
+
     const newMessageHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
     setMessageHistory(newMessageHistory);
-  
+
     const systemPrompt = replacePlaceholders(settingsRef.current.system_prompt, systemVariablesRef.current);
-  
+
     const tools = powersRef.current.map(power => ({
       type: "function",
       function: {
@@ -336,7 +326,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
         parameters: power.parameters_schema || { type: "object", properties: {} },
       },
     }));
-  
+
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -354,40 +344,40 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
           tool_choice: tools.length > 0 ? "auto" : undefined,
         }),
       });
-  
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(`OpenAI API Error: ${errorData.error.message}`);
       }
-  
+
       const data = await response.json();
       const aiMessage = data.choices[0].message;
-  
+
       setMessageHistory(prev => [...prev, aiMessage]);
-  
+
       if (aiMessage.tool_calls) {
         const toolCall = aiMessage.tool_calls[0];
         const functionName = toolCall.function.name;
         const functionArgs = JSON.parse(toolCall.function.arguments);
-  
+
         speak(`Ok, vou usar a função ${functionName}.`, async () => {
           try {
             const { data: functionResult, error: functionError } = await supabase.functions.invoke(functionName, {
               body: functionArgs,
             });
-  
+
             if (functionError) throw functionError;
-  
+
             const toolResponseMessage = {
               tool_call_id: toolCall.id,
               role: "tool",
               name: functionName,
               content: JSON.stringify(functionResult),
             };
-  
+
             const nextMessageHistory = [...newMessageHistory, aiMessage, toolResponseMessage];
             setMessageHistory(nextMessageHistory);
-  
+
             const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
               method: "POST",
               headers: {
@@ -402,17 +392,17 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
                 ],
               }),
             });
-  
+
             if (!secondResponse.ok) {
               const errorData = await secondResponse.json();
               throw new Error(`OpenAI API Error: ${errorData.error.message}`);
             }
-  
+
             const secondData = await secondResponse.json();
             const finalMessage = secondData.choices[0].message;
             setMessageHistory(prev => [...prev, finalMessage]);
             speak(finalMessage.content);
-  
+
           } catch (e) {
             speak(`Desculpe, houve um erro ao executar a função ${functionName}.`);
           }
@@ -480,10 +470,10 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
           settingsRef.current &&
           transcript.includes(settingsRef.current.activation_phrase.toLowerCase())
         ) {
-          // Permite ativar por voz mesmo sem interação, mas bloqueia fala até interação
+          // Ativa o assistente por voz sem exigir clique, mas não fala até interação
           if (!hasUserInteractedRef.current) {
             setIsOpen(true);
-            setAiResponse("Por favor, clique no botão do microfone para ativar o áudio.");
+            setAiResponse("Olá! Clique no botão do microfone para ativar o áudio e começar a falar comigo.");
             setTranscript("");
             return;
           }
