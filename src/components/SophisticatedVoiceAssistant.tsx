@@ -480,7 +480,10 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
           settingsRef.current &&
           transcript.includes(settingsRef.current.activation_phrase.toLowerCase())
         ) {
-          if (!hasUserInteractedRef.current) setHasUserInteracted(true);
+          if (!hasUserInteractedRef.current) {
+            showError("Por favor, clique no botão do microfone uma vez para ativar o áudio.");
+            return;
+          }
           setIsOpen(true);
           const messageToSpeak =
             hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
@@ -651,52 +654,49 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
 
       <div
         className={cn(
-          "fixed inset-0 z-[9999] transition-opacity duration-500 pointer-events-none",
+          "fixed inset-0 z-[9999] flex flex-col items-center justify-between p-8 transition-opacity duration-500 pointer-events-none",
           isOpen ? "opacity-100" : "opacity-0"
         )}
       >
-        {/* Backgrounds */}
-        <div
-          className={cn(
-            "absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl transition-opacity duration-500",
-            isOpen ? "opacity-100" : "opacity-0"
-          )}
-        />
-        <div className="absolute inset-0 z-10">
+        <div className="absolute inset-0 -z-10">
+          <div
+            className={cn(
+              "absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl"
+            )}
+          />
           <AIScene audioIntensity={audioIntensity} />
         </div>
 
+        {/* Spacer for justify-between */}
+        <div />
+
         {/* AI Response Area */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl px-4 pointer-events-auto">
-          <div className="text-center select-text">
-            {displayedAiResponse && (
-              <div className="bg-black/40 backdrop-blur-md border border-purple-500/20 rounded-xl p-6 shadow-lg shadow-purple-500/20">
-                <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">
-                  {displayedAiResponse}
-                </p>
-              </div>
-            )}
-            {transcript && (
-              <p className="text-gray-400 text-lg mt-4">{transcript}</p>
-            )}
-          </div>
+        <div className="text-center select-text pointer-events-auto">
+          {displayedAiResponse && (
+            <div className="bg-black/40 backdrop-blur-md border border-purple-500/20 rounded-xl p-6 max-w-2xl mx-auto shadow-lg shadow-purple-500/20">
+              <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">
+                {displayedAiResponse}
+              </p>
+            </div>
+          )}
+          {transcript && (
+            <p className="text-gray-400 text-lg mt-4">{transcript}</p>
+          )}
         </div>
 
         {/* Microphone Control Area */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 pointer-events-auto">
-          <div className="flex items-center justify-center gap-4 p-4 bg-black/30 backdrop-blur-md rounded-2xl border border-cyan-400/20 shadow-lg shadow-cyan-500/20">
-            <AudioVisualizer isSpeaking={isSpeaking} />
-            <div className="p-4 bg-cyan-900/20 rounded-full border border-cyan-400/30">
-              <Mic
-                className={cn(
-                  "h-8 w-8 text-cyan-300 transition-all",
-                  isListening &&
-                    "text-cyan-200 animate-pulse drop-shadow-[0_0_8px_rgba(0,255,255,0.8)]"
-                )}
-              />
-            </div>
-            <AudioVisualizer isSpeaking={isSpeaking} />
+        <div className="flex items-center justify-center gap-4 p-4 bg-black/30 backdrop-blur-md rounded-2xl border border-cyan-400/20 shadow-lg shadow-cyan-500/20 pointer-events-auto">
+          <AudioVisualizer isSpeaking={isSpeaking} />
+          <div className="p-4 bg-cyan-900/20 rounded-full border border-cyan-400/30">
+            <Mic
+              className={cn(
+                "h-8 w-8 text-cyan-300 transition-all",
+                isListening &&
+                  "text-cyan-200 animate-pulse drop-shadow-[0_0_8px_rgba(0,255,255,0.8)]"
+              )}
+            />
           </div>
+          <AudioVisualizer isSpeaking={isSpeaking} />
         </div>
       </div>
     </>
