@@ -20,5 +20,6 @@ export default defineConfig(() => ({
     alias: { 
       "@": path.resolve(__dirname, "./src"),
     },
+    dedupe: ['react', 'react-dom', 'three', '@react-three/fiber', '@react-three/postprocessing'],
   },
 }));
