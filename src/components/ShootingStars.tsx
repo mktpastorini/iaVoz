@@ -5,7 +5,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
 export const ShootingStars: React.FC = () => {
-  const count = 50; // Increased count for more activity
+  const count = 20; // Reduzido para um efeito mais sutil e performático
   const pointsRef = useRef<THREE.Points>(null);
 
   const positions = useMemo(() => new Float32Array(count * 3), [count]);
@@ -30,63 +30,37 @@ export const ShootingStars: React.FC = () => {
   const stars = useRef(
     Array.from({ length: count }, () => {
       const spawnRadius = 25;
-      const side = Math.floor(Math.random() * 6);
-      const pos = new THREE.Vector3();
-      
-      switch(side) {
-        case 0: pos.set(-spawnRadius, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40); break;
-        case 1: pos.set(spawnRadius, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40); break;
-        case 2: pos.set((Math.random() - 0.5) * 40, -spawnRadius, (Math.random() - 0.5) * 40); break;
-        case 3: pos.set((Math.random() - 0.5) * 40, spawnRadius, (Math.random() - 0.5) * 40); break;
-        case 4: pos.set((Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, -spawnRadius); break;
-        case 5: pos.set((Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, spawnRadius); break;
-      }
-
-      // Velocity towards a random point near the center
-      const target = new THREE.Vector3(
-        (Math.random() - 0.5) * 10,
-        (Math.random() - 0.5) * 10,
-        (Math.random() - 0.5) * 10
+      const pos = new THREE.Vector3(
+        (Math.random() - 0.5) * spawnRadius * 2, // Começa em qualquer lugar no eixo X
+        (Math.random() - 0.5) * 40,
+        (Math.random() - 0.5) * 40
       );
-      const velocity = new THREE.Vector3().subVectors(target, pos).normalize().multiplyScalar(0.1 + Math.random() * 0.2);
+
+      const velocity = new THREE.Vector3(
+        0.05 + Math.random() * 0.1, // Velocidade mais lenta e constante para a direita
+        (Math.random() - 0.5) * 0.01, // Leve desvio vertical
+        (Math.random() - 0.5) * 0.01  // Leve desvio de profundidade
+      );
 
       return {
         position: pos,
         velocity,
-        life: 0,
-        maxLife: 5 + Math.random() * 5,
       };
     })
   );
 
-  useFrame(() => {
+  useFrame(({ clock }) => {
     stars.current.forEach((star, i) => {
       star.position.add(star.velocity);
-      star.life += 0.02;
       
-      // Fade in and out smoothly
-      alphas[i] = Math.sin(Math.PI * (star.life / star.maxLife));
+      // Efeito de piscar sutil baseado na posição e no tempo
+      alphas[i] = 0.5 + 0.5 * Math.sin(star.position.y * 0.5 + clock.elapsedTime);
 
-      if (star.life > star.maxLife) {
-        // Reset star
-        const spawnRadius = 25;
-        const side = Math.floor(Math.random() * 6);
-        switch(side) {
-          case 0: star.position.set(-spawnRadius, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40); break;
-          case 1: star.position.set(spawnRadius, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40); break;
-          case 2: star.position.set((Math.random() - 0.5) * 40, -spawnRadius, (Math.random() - 0.5) * 40); break;
-          case 3: star.position.set((Math.random() - 0.5) * 40, spawnRadius, (Math.random() - 0.5) * 40); break;
-          case 4: star.position.set((Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, -spawnRadius); break;
-          case 5: star.position.set((Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, spawnRadius); break;
-        }
-        const target = new THREE.Vector3(
-          (Math.random() - 0.5) * 10,
-          (Math.random() - 0.5) * 10,
-          (Math.random() - 0.5) * 10
-        );
-        star.velocity.subVectors(target, star.position).normalize().multiplyScalar(0.1 + Math.random() * 0.2);
-        star.life = 0;
-        star.maxLife = 5 + Math.random() * 5;
+      // Reinicia a partícula quando ela sai da tela pela direita
+      if (star.position.x > 25) {
+        star.position.x = -25;
+        star.position.y = (Math.random() - 0.5) * 40;
+        star.position.z = (Math.random() - 0.5) * 40;
       }
 
       positions[i * 3] = star.position.x;
@@ -123,7 +97,7 @@ export const ShootingStars: React.FC = () => {
         />
       </bufferGeometry>
       <pointsMaterial
-        size={4} // Slightly larger size
+        size={3} // Tamanho um pouco menor
         vertexColors
         transparent
         blending={THREE.AdditiveBlending}
