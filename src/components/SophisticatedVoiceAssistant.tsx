@@ -87,24 +87,35 @@ const ParticleOrb = () => {
   const pointsRef = useRef<THREE.Points>(null);
   const shaderMaterialRef = useRef<THREE.ShaderMaterial>(null);
 
-  const particles = useMemo(() => {
+  const { particles, uv } = useMemo(() => {
     const count = 5000;
     const positions = new Float32Array(count * 3);
+    const uv = new Float32Array(count * 2);
+    const radius = 1.5;
+
     for (let i = 0; i < count; i++) {
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(2 * Math.random() - 1);
-      const r = 1.5 + Math.random() * 0.2;
-      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-      positions[i * 3 + 2] = r * Math.cos(phi);
+      
+      const x = radius * Math.sin(phi) * Math.cos(theta);
+      const y = radius * Math.sin(phi) * Math.sin(theta);
+      const z = radius * Math.cos(phi);
+
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = z;
+
+      // Normalize y position to range [0, 1] for gradient
+      uv[i * 2] = 0.5; // u coordinate is not used
+      uv[i * 2 + 1] = (y + radius) / (2 * radius);
     }
-    return positions;
+    return { particles: positions, uv };
   }, []);
 
   const uniforms = useMemo(() => ({
     u_time: { value: 0.0 },
-    u_colorA: { value: new THREE.Color("#4ddcff") }, // Cyan
-    u_colorB: { value: new THREE.Color("#be29ec") }, // Purple
+    u_colorA: { value: new THREE.Color("#00FFFF") }, // Cyan
+    u_colorB: { value: new THREE.Color("#FF00FF") }, // Magenta/Purple
   }), []);
 
   const vertexShader = `
@@ -112,7 +123,7 @@ const ParticleOrb = () => {
     void main() {
       vUv = uv;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      gl_PointSize = 3.0; // Fixed size in pixels
+      gl_PointSize = 3.0;
     }
   `;
 
@@ -121,7 +132,6 @@ const ParticleOrb = () => {
     uniform vec3 u_colorB;
     varying vec2 vUv;
     void main() {
-      // Create a vertical gradient based on the normalized position
       vec3 finalColor = mix(u_colorA, u_colorB, vUv.y);
       gl_FragColor = vec4(finalColor, 1.0);
     }
@@ -133,7 +143,6 @@ const ParticleOrb = () => {
       pointsRef.current.rotation.y = clock.getElapsedTime() * 0.05;
       pointsRef.current.rotation.x = clock.getElapsedTime() * 0.03;
       
-      // Pulsation effect
       const pulse = 1 + Math.sin(clock.elapsedTime * 0.5) * 0.1;
       pointsRef.current.scale.set(pulse, pulse, pulse);
     }
@@ -151,25 +160,22 @@ const ParticleOrb = () => {
           array={particles}
           itemSize={3}
         />
-        {/* We need UVs for the gradient */}
         <bufferAttribute
           attach="attributes-uv"
-          count={particles.length / 2}
-          array={new Float32Array(Array.from({ length: particles.length / 3 * 2 }, (_, i) => i % 2))}
+          count={uv.length / 2}
+          array={uv}
           itemSize={2}
         />
       </bufferGeometry>
       <shaderMaterial
         ref={shaderMaterialRef}
         attach="material"
-        args={[{
-          uniforms,
-          vertexShader,
-          fragmentShader,
-          blending: THREE.AdditiveBlending,
-          transparent: true,
-          depthWrite: false,
-        }]}
+        uniforms={uniforms}
+        vertexShader={vertexShader}
+        fragmentShader={fragmentShader}
+        blending={THREE.AdditiveBlending}
+        transparent={true}
+        depthWrite={false}
       />
     </points>
   );
@@ -615,19 +621,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
         <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-purple-950" onClick={() => setIsOpen(false)}></div>
         
-        <Canvas
-          camera={{ position: [0, 0, 5], fov: 75 }}
-          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 1 }}
-        >
-          <ambientLight intensity={0.5} />
-          <pointLight position={[10, 10, 10]} />
-          <ParticleOrb />
-          <EffectComposer>
-            <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
-          </EffectComposer>
-        </Canvas>
+        <div className="absolute inset-0 z-10 pointer-events-none">
+          <Canvas camera={{ position: [0, 0, 5], fov: 75 }}>
+            <ambientLight intensity={0.5} />
+            <pointLight position={[10, 10, 10]} />
+            <ParticleOrb />
+            <EffectComposer>
+              <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
+            </EffectComposer>
+          </Canvas>
+        </div>
 
-        <div className="relative z-10 flex flex-col items-center justify-between w-full h-full p-8">
+        <div className="relative z-20 flex flex-col items-center justify-between w-full h-full p-8">
           <div /> 
           <div className="text-center">
             {displayedAiResponse && (
