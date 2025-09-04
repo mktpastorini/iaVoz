@@ -294,10 +294,31 @@ const SophisticatedVoiceAssistant = () => {
     const newMessageHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
     setMessageHistory(newMessageHistory);
     const systemPrompt = replacePlaceholders(settingsRef.current.system_prompt, systemVariablesRef.current);
-    const tools = powersRef.current.map(power => ({
-      type: "function",
-      function: { name: power.name, description: power.description, parameters: power.parameters_schema || { type: "object", properties: {} } },
-    }));
+    
+    const tools = powersRef.current.map(power => {
+      let parameters = { type: "object", properties: {} };
+      if (power.parameters_schema) {
+        try {
+          const schema = typeof power.parameters_schema === 'string'
+            ? JSON.parse(power.parameters_schema)
+            : power.parameters_schema;
+          if (typeof schema === 'object' && schema !== null) {
+            parameters = schema;
+          }
+        } catch (e) {
+          console.warn(`Invalid parameters_schema for power "${power.name}". Using default.`);
+        }
+      }
+      return {
+        type: "function",
+        function: {
+          name: power.name,
+          description: power.description,
+          parameters: parameters,
+        },
+      };
+    });
+
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
