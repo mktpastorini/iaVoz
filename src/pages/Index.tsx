@@ -8,7 +8,7 @@ const Index = () => {
   const { activateAssistant } = useVoiceAssistant();
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4 select-text">
       <header className="text-center mb-12">
         <h1 className="text-5xl md:text-7xl font-extrabold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-purple-600">
           Inteligência Artificial por Voz
@@ -38,7 +38,7 @@ const Index = () => {
           </div>
         </div>
 
-        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 select-text">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
             <h3 className="text-2xl font-bold mb-2 text-pink-400">Controle Total</h3>
             <p className="text-gray-400">
