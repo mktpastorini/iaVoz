@@ -5,7 +5,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { Tube } from "@react-three/drei";
 import * as THREE from "three";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import { showError } from "@/utils/toast";
+import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/contexts/SessionContext";
 import { useSystem } from "@/contexts/SystemContext";
@@ -69,6 +69,10 @@ interface ClientAction {
   };
 }
 
+// Constants
+const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
+const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
+
 // Modal Component
 const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?: string; onClose: () => void }) => (
   <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70" onClick={onClose}>
@@ -79,11 +83,13 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
   </div>
 );
 
-// Layer 3: Cosmic Background - sutil e escuro
+// --- 3D Components ---
+
+// Layer 3: Cosmic Background
 const CosmicBackground = () => {
-  const particles = useMemo(() => {
-    const count = 400;
-    const radius = 12;
+  const { particles } = useMemo(() => {
+    const count = 500;
+    const radius = 10;
     const positions = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       const u = Math.random();
@@ -94,38 +100,43 @@ const CosmicBackground = () => {
       positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
       positions[i * 3 + 2] = radius * Math.cos(phi);
     }
-    return positions;
+    return { particles: positions };
   }, []);
 
   const pointsRef = useRef<THREE.Points>(null);
   useFrame(() => {
     if (pointsRef.current) {
-      pointsRef.current.rotation.y += 0.00005;
+      pointsRef.current.rotation.y += 0.0001;
     }
   });
 
   return (
     <points ref={pointsRef}>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={particles.length / 3} array={particles} itemSize={3} />
+      <bufferGeometry attach="geometry">
+        <bufferAttribute
+          attach="attributes-position"
+          count={particles.length / 3}
+          array={particles}
+          itemSize={3}
+        />
       </bufferGeometry>
       <pointsMaterial
-        size={0.01}
-        color="#111111"
+        attach="material"
+        size={0.015}
+        color="#222222"
         transparent
-        opacity={0.15}
-        depthWrite={false}
+        opacity={0.3}
       />
     </points>
   );
 };
 
-// Layer 2: Energy Lines - mais caóticos e expansivos
+// Layer 2: Energy Lines
 const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRomCurve3, speed: number, birth: number, thickness: number }) => {
   const materialRef = useRef<THREE.MeshBasicMaterial>(null);
   useFrame(({ clock }) => {
     if (materialRef.current) {
-      materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.4 + 0.3;
+      materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.3;
     }
   });
 
@@ -133,6 +144,7 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
     <Tube args={[curve, 64, thickness, 8, false]}>
       <meshBasicMaterial
         ref={materialRef}
+        attach="material"
         color="#00ffff"
         transparent
         blending={THREE.AdditiveBlending}
@@ -142,23 +154,23 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
   );
 };
 
-const EnergyLines = ({ count = 10, radius = 1.5 }) => {
+const EnergyLines = ({ count = 12, radius = 1.5 }) => {
   const lines = useMemo(() => {
     return Array.from({ length: count }, () => {
-      // Pontos aleatórios que podem se estender além do raio para efeito de expansão
-      const points = Array.from({ length: 12 }, (_, i) => {
+      // Criar pontos que podem se estender além do raio para efeito de expansão
+      const points = Array.from({ length: 10 }, (_, i) => {
         const direction = new THREE.Vector3(
           (Math.random() - 0.5),
           (Math.random() - 0.5),
           (Math.random() - 0.5)
         ).normalize();
         // Para os primeiros pontos, dentro do raio, para os últimos, estender além do raio
-        const scalar = i < 6 ? radius * (0.3 + Math.random() * 0.7) : radius * (1.5 + Math.random() * 1.5);
+        const scalar = i < 5 ? radius * (0.3 + Math.random() * 0.7) : radius * (1.5 + Math.random() * 1.5);
         return direction.multiplyScalar(scalar);
       });
       return {
         curve: new THREE.CatmullRomCurve3(points),
-        speed: Math.random() * 0.3 + 0.15,
+        speed: Math.random() * 0.3 + 0.1,
         birth: Math.random() * 10,
         thickness: 0.002 + Math.random() * 0.008,
       };
@@ -167,14 +179,14 @@ const EnergyLines = ({ count = 10, radius = 1.5 }) => {
 
   return (
     <group>
-      {lines.map((line, i) => (
-        <EnergyLine key={i} {...line} />
+      {lines.map((line, index) => (
+        <EnergyLine key={index} {...line} />
       ))}
     </group>
   );
 };
 
-// Layer 1: Particle Orb com movimento fluido e nebuloso
+// Layer 1: Main Particle Orb with expanding and stretching particles
 const ParticleOrb = () => {
   const shaderMaterialRef = useRef<THREE.ShaderMaterial>(null);
 
@@ -211,20 +223,87 @@ const ParticleOrb = () => {
     uniform float uPulseIntensity;
     varying vec2 vUv;
 
-    // Simplex noise functions omitted for brevity, using classic noise approximation
-    float rand(vec2 co){
-      return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+    vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    float mod289(float x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+    float permute(float x) { return mod289(((x*34.0)+1.0)*x); }
+    vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+    float taylorInvSqrt(float r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+    vec4 grad4(float j, vec4 ip) {
+      const vec4 ones = vec4(1.0, 1.0, 1.0, -1.0);
+      vec4 p,s;
+      p.xyz = floor( fract (vec3(j) * ip.xyz) * 7.0) * ip.z - 1.0;
+      p.w = 1.5 - dot(abs(p.xyz), ones.xyz);
+      s = vec4(lessThan(p, vec4(0.0)));
+      p.xyz = p.xyz + (s.xyz*2.0 - 1.0) * s.www; 
+      return p;
+    }
+
+    float snoise(vec4 v) {
+      const vec4 C = vec4(0.138196601125010504, 0.276393202250021008, 0.414589803375031512, -0.447213595499957939);
+      vec4 i = floor(v + dot(v, C.yyyy));
+      vec4 x0 = v - i + dot(i, C.xxxx);
+      vec4 i0;
+      vec3 isX = step(x0.yzw, x0.xxx);
+      vec3 isYZ = step(x0.zww, x0.yyz);
+      i0.x = isX.x + isX.y + isX.z;
+      i0.yzw = 1.0 - isX;
+      i0.y += isYZ.x + isYZ.y;
+      i0.zw += 1.0 - isYZ.xy;
+      i0.z += isYZ.z;
+      i0.w += 1.0 - isYZ.z;
+      vec4 i3 = clamp(i0, 0.0, 1.0);
+      vec4 i2 = clamp(i0 - 1.0, 0.0, 1.0);
+      vec4 i1 = clamp(i0 - 2.0, 0.0, 1.0);
+      vec4 x1 = x0 - i1 + C.xxxx;
+      vec4 x2 = x0 - i2 + C.yyyy;
+      vec4 x3 = x0 - i3 + C.zzzz;
+      vec4 x4 = x0 + C.wwww;
+      i = mod289(i);
+      float j0 = permute(permute(permute(permute(i.w) + i.z) + i.y) + i.x);
+      vec4 j1 = permute(permute(permute(permute(i.w + vec4(i1.w, i2.w, i3.w, 1.0)) + i.z + vec4(i1.z, i2.z, i3.z, 1.0)) + i.y + vec4(i1.y, i2.y, i3.y, 1.0)) + i.x + vec4(i1.x, i2.x, i3.x, 1.0));
+      vec4 ip = vec4(1.0 / 294.0, 1.0 / 49.0, 1.0 / 7.0, 0.0);
+      vec4 p0 = grad4(j0, ip);
+      vec4 p1 = grad4(j1.x, ip);
+      vec4 p2 = grad4(j1.y, ip);
+      vec4 p3 = grad4(j1.z, ip);
+      vec4 p4 = grad4(j1.w, ip);
+      vec4 norm = taylorInvSqrt(vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
+      p0 *= norm.x;
+      p1 *= norm.y;
+      p2 *= norm.z;
+      p3 *= norm.w;
+      p4 *= taylorInvSqrt(dot(p4, p4));
+      vec3 m0 = max(0.6 - vec3(dot(x0, x0), dot(x1, x1), dot(x2, x2)), 0.0);
+      vec2 m1 = max(0.6 - vec2(dot(x3, x3), dot(x4, x4)), 0.0);
+      m0 = m0 * m0;
+      m1 = m1 * m1;
+      return 49.0 * (dot(m0 * m0, vec3(dot(p0, x0), dot(p1, x1), dot(p2, x2))) + dot(m1 * m1, vec2(dot(p3, x3), dot(p4, x4))));
     }
 
     void main() {
       vUv = uv;
       vec3 pos = position;
 
-      // Movimento fluido simples baseado em seno e ruído randômico
-      float pulse = 0.3 + 0.7 * abs(sin(uTime * 1.5 + pos.x * 10.0 + pos.y * 10.0 + pos.z * 10.0));
-      float displacement = pulse * uPulseIntensity * 0.5;
+      // Direção do vetor normalizado para alongar partículas para fora
+      vec3 dir = normalize(pos);
 
-      pos += normalize(pos) * displacement;
+      // Tempo para animação
+      float t = uTime * 0.5;
+
+      // Distância base da esfera
+      float baseRadius = 1.5;
+
+      // Expansão oscilante para simular partículas saindo e esticando
+      float expansion = 0.3 + 0.7 * abs(sin(t + pos.x * 10.0 + pos.y * 10.0 + pos.z * 10.0));
+
+      // Alongamento na direção do vetor normal
+      pos += dir * expansion * uPulseIntensity * 0.8;
+
+      // Ruído para dar aspecto nebuloso e instável
+      float displacement = snoise(vec4(pos * 0.8, uTime * 0.3));
+      pos += dir * displacement * 0.15 * (0.5 + uPulseIntensity * 0.5);
 
       gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
       gl_PointSize = 2.0 + 2.0 * uPulseIntensity;
@@ -241,7 +320,8 @@ const ParticleOrb = () => {
     }
   `;
 
-  useFrame(({ clock }) => {
+  useFrame((state) => {
+    const { clock } = state;
     if (shaderMaterialRef.current) {
       shaderMaterialRef.current.uniforms.uTime.value = clock.elapsedTime;
       shaderMaterialRef.current.uniforms.uPulseIntensity.value = 0.5 + 0.5 * Math.sin(clock.elapsedTime * 1.2);
@@ -250,22 +330,24 @@ const ParticleOrb = () => {
 
   return (
     <points>
-      <bufferGeometry>
+      <bufferGeometry attach="geometry">
         <bufferAttribute attach="attributes-position" count={particles.length / 3} array={particles} itemSize={3} />
         <bufferAttribute attach="attributes-uv" count={uv.length / 2} array={uv} itemSize={2} />
       </bufferGeometry>
       <shaderMaterial
         ref={shaderMaterialRef}
+        attach="material"
         uniforms={uniforms}
         vertexShader={vertexShader}
         fragmentShader={fragmentShader}
         blending={THREE.AdditiveBlending}
-        transparent
+        transparent={true}
         depthWrite={false}
       />
     </points>
   );
 };
+
 
 // Main Component
 const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
@@ -326,26 +408,31 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
+      console.log('[VA] Parando a escuta...');
       recognitionRef.current.stop();
     }
   }, []);
 
   const startListening = useCallback(() => {
     if (isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current || !recognitionRef.current) {
+      console.log(`[VA] Ignorando startListening. Status: isListening=${isListeningRef.current}, isSpeaking=${isSpeakingRef.current}`);
       return;
     }
     try {
+      console.log('[VA] Tentando iniciar a escuta...');
       recognitionRef.current.start();
-    } catch {
-      // Pode ocorrer erro se já estiver parando, ignorar
+    } catch (error) {
+      console.error("[VA] Erro ao tentar iniciar reconhecimento (pode ser normal se já estiver parando):", error);
     }
   }, []);
 
   const stopSpeaking = useCallback(() => {
     if (synthRef.current?.speaking) {
+      console.log('[VA] Parando a síntese de voz do navegador.');
       synthRef.current.cancel();
     }
     if (audioRef.current && !audioRef.current.paused) {
+      console.log('[VA] Parando o áudio do OpenAI TTS.');
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
@@ -362,15 +449,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
     
     const onSpeechEnd = () => {
+      console.log('[VA] Finalizou a fala.');
       isTransitioningToSpeakRef.current = false;
       isSpeakingRef.current = false;
       setIsSpeaking(false);
       onEndCallback?.();
       if (isOpenRef.current) {
+        console.log('[VA] Assistente aberto após fala, reiniciando escuta.');
         startListening();
       }
     };
 
+    console.log(`[VA] Preparando para falar: "${text}"`);
     isTransitioningToSpeakRef.current = true;
     stopListening();
     stopSpeaking();
@@ -384,7 +474,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
-        utterance.onerror = () => onSpeechEnd();
+        utterance.onerror = (e) => { console.error('[VA] Erro na síntese de voz do navegador:', e); onSpeechEnd(); };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         const response = await fetch(OPENAI_TTS_API_URL, {
@@ -396,13 +486,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onended = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = (e) => { console.error('[VA] Erro ao tocar áudio TTS:', e); onEndCallback(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
       } else {
         onSpeechEnd();
       }
-    } catch {
+    } catch (error) {
+      console.error("[VA] Erro durante a fala:", error);
       onSpeechEnd();
     }
   }, [stopSpeaking, stopListening, startListening]);
@@ -413,6 +504,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       speak("Chave API OpenAI não configurada.");
       return;
     }
+    console.log(`[VA] Executando conversa com entrada: "${userInput}"`);
     stopListening();
     setTranscript(userInput);
     setAiResponse("Pensando...");
@@ -507,6 +599,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         speak(assistantMessage);
       }
     } catch (error: any) {
+      console.error('[VA] Erro no fluxo da conversa:', error);
       showError(error.message || "Desculpe, ocorreu um erro.");
       speak("Desculpe, ocorreu um erro.");
     }
@@ -528,6 +621,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [speak, stopListening]);
 
   const initializeAssistant = useCallback(() => {
+    console.log('[VA] Inicializando assistente...');
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       showError("Reconhecimento de voz não suportado.");
@@ -540,16 +634,25 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.lang = "pt-BR";
 
     recognitionRef.current.onstart = () => {
+      console.log('[VA] Evento: onstart - Reconhecimento de voz iniciado.');
       setIsListening(true);
     };
     
     recognitionRef.current.onend = () => {
+      console.log('[VA] Evento: onend - Reconhecimento de voz finalizado.');
       setIsListening(false);
-      if (isTransitioningToSpeakRef.current) return;
-      if (!stopPermanentlyRef.current) startListening();
+      if (isTransitioningToSpeakRef.current) {
+        console.log('[VA] onend: Ignorando reinício, transição para fala em progresso.');
+        return;
+      }
+      if (!stopPermanentlyRef.current) {
+        console.log('[VA] onend: Reiniciando escuta...');
+        startListening();
+      }
     };
     
     recognitionRef.current.onerror = (e) => {
+      console.log(`[VA] Evento: onerror - Erro no reconhecimento: ${e.error}`);
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         setMicPermission('denied');
         showError("Permissão para microfone negada.");
@@ -558,6 +661,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      console.log(`[VA] Transcrição ouvida: "${transcript}"`);
       const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
 
       if (isOpenRef.current) {
@@ -603,7 +707,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         setIsPermissionModalOpen(true);
       }
       permissionStatus.onchange = () => checkAndRequestMicPermission();
-    } catch {
+    } catch (error) {
+      console.error("[VA] Erro ao verificar permissão do microfone:", error);
       setMicPermission('denied');
     }
   }, [initializeAssistant, startListening]);
@@ -616,7 +721,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         activationRequestedViaButton.current = false;
         handleManualActivation();
       }
-    } catch {
+    } catch (error) {
       setMicPermission('denied');
       showError("Você precisa permitir o uso do microfone para continuar.");
     }
@@ -680,8 +785,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl!} altText={imageToShow.altText} onClose={() => { setImageToShow(null); startListening(); }} />}
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
       
-      <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-auto")}>
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-purple-950" onClick={() => setIsOpen(false)}></div>
+      <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-950 via-gray-900 to-purple-950" onClick={() => setIsOpen(false)}></div>
         
         <div className="absolute inset-0 z-10 pointer-events-none">
           <Canvas camera={{ position: [0, 0, 5], fov: 75 }}>
@@ -698,18 +803,18 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           </Canvas>
         </div>
 
-        <div className="relative z-20 flex flex-col items-center justify-between w-full h-full p-8 pointer-events-auto">
+        <div className="relative z-20 flex flex-col items-center justify-between w-full h-full p-8">
           <div /> 
           <div className="text-center">
             {displayedAiResponse && (
-              <div className="bg-black/30 backdrop-blur-sm border border-white/20 rounded-lg p-4 max-w-lg mx-auto select-text">
+              <div className="bg-black/30 backdrop-blur-sm border border-white/20 rounded-lg p-4 max-w-lg mx-auto">
                 <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">{displayedAiResponse}</p>
               </div>
             )}
-            {transcript && <p className="text-gray-400 text-lg mt-4 select-text">{transcript}</p>}
+            {transcript && <p className="text-gray-400 text-lg mt-4">{transcript}</p>}
           </div>
 
-          <div className="flex items-center justify-center gap-4 p-4 bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 pointer-events-auto">
+          <div className="flex items-center justify-center gap-4 p-4 bg-black/20 backdrop-blur-sm rounded-xl border border-white/10">
             <AudioVisualizer isSpeaking={isSpeaking} />
             <div className="p-3 bg-white/10 rounded-full">
               <Mic className={cn("h-6 w-6 text-white", isListening && "text-cyan-400 animate-pulse")} />
