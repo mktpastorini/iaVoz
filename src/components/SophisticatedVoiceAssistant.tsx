@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
+import { Tube } from "@react-three/drei";
 import * as THREE from "three";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { showSuccess, showError } from "@/utils/toast";
@@ -82,9 +83,106 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
   </div>
 );
 
-// 3D Orb Component with Shaders
-const ParticleOrb = () => {
+// --- 3D Components ---
+
+// Layer 3: Cosmic Background
+const CosmicBackground = () => {
+  const { particles } = useMemo(() => {
+    const count = 500;
+    const radius = 10; // Much larger radius
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const u = Math.random();
+      const v = Math.random();
+      const theta = 2 * Math.PI * u;
+      const phi = Math.acos(2 * v - 1);
+      positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3 + 2] = radius * Math.cos(phi);
+    }
+    return { particles: positions };
+  }, []);
+
   const pointsRef = useRef<THREE.Points>(null);
+  useFrame((state) => {
+    if (pointsRef.current) {
+      pointsRef.current.rotation.y += 0.0001; // Very slow rotation
+    }
+  });
+
+  return (
+    <points ref={pointsRef}>
+      <bufferGeometry attach="geometry">
+        <bufferAttribute
+          attach="attributes-position"
+          count={particles.length / 3}
+          array={particles}
+          itemSize={3}
+        />
+      </bufferGeometry>
+      <pointsMaterial
+        attach="material"
+        size={0.015}
+        color="#555555"
+        transparent
+        opacity={0.5}
+      />
+    </points>
+  );
+};
+
+// Layer 2: Energy Lines
+const EnergyLine = ({ curve, speed, birth }: { curve: THREE.CatmullRomCurve3, speed: number, birth: number }) => {
+  const materialRef = useRef<THREE.MeshBasicMaterial>(null);
+  useFrame(({ clock }) => {
+    if (materialRef.current) {
+      materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.3;
+    }
+  });
+
+  return (
+    <Tube args={[curve, 64, 0.005, 8, false]}>
+      <meshBasicMaterial
+        ref={materialRef}
+        attach="material"
+        color="#ffffff"
+        transparent
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+      />
+    </Tube>
+  );
+};
+
+const EnergyLines = ({ count = 5, radius = 1.5 }) => {
+  const lines = useMemo(() => {
+    return Array.from({ length: count }, () => {
+      const points = Array.from({ length: 10 }, () =>
+        new THREE.Vector3(
+          (Math.random() - 0.5) * radius,
+          (Math.random() - 0.5) * radius,
+          (Math.random() - 0.5) * radius
+        ).normalize().multiplyScalar(radius * (0.5 + Math.random() * 0.5))
+      );
+      return {
+        curve: new THREE.CatmullRomCurve3(points),
+        speed: Math.random() * 0.2 + 0.1,
+        birth: Math.random() * 10,
+      };
+    });
+  }, [count, radius]);
+
+  return (
+    <group>
+      {lines.map((line, index) => (
+        <EnergyLine key={index} {...line} />
+      ))}
+    </group>
+  );
+};
+
+// Layer 1: Main Particle Orb
+const ParticleOrb = () => {
   const shaderMaterialRef = useRef<THREE.ShaderMaterial>(null);
 
   const { particles, uv } = useMemo(() => {
@@ -96,19 +194,16 @@ const ParticleOrb = () => {
     for (let i = 0; i < count; i++) {
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(2 * Math.random() - 1);
-      
       const x = radius * Math.sin(phi) * Math.cos(theta);
       const y = radius * Math.sin(phi) * Math.sin(theta);
       const z = radius * Math.cos(phi);
-
       positions[i * 3] = x;
       positions[i * 3 + 1] = y;
       positions[i * 3 + 2] = z;
-
       uv[i * 2] = 0.5;
       uv[i * 2 + 1] = (y + radius) / (2 * radius);
     }
-    return { particles: positions, uv };
+    return { particles, uv };
   }, []);
 
   const uniforms = useMemo(() => ({
@@ -123,7 +218,6 @@ const ParticleOrb = () => {
     uniform float uPulseIntensity;
     varying vec2 vUv;
 
-    // Correct, self-contained 4D Simplex Noise function
     vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
     float mod289(float x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
     vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
@@ -142,72 +236,52 @@ const ParticleOrb = () => {
     }
 
     float snoise(vec4 v) {
-      const vec4  C = vec4( 0.138196601125010504,  // (5 - sqrt(5))/20  G4
-                            0.276393202250021008,  // 2 * G4
-                            0.414589803375031512,  // 3 * G4
-                           -0.447213595499957939); // -1 + 4 * G4
-
-      vec4 i  = floor(v + dot(v, C.yyyy) );
-      vec4 x0 = v -   i + dot(i, C.xxxx);
-
+      const vec4 C = vec4(0.138196601125010504, 0.276393202250021008, 0.414589803375031512, -0.447213595499957939);
+      vec4 i = floor(v + dot(v, C.yyyy));
+      vec4 x0 = v - i + dot(i, C.xxxx);
       vec4 i0;
-      vec3 isX = step( x0.yzw, x0.xxx );
-      vec3 isYZ = step( x0.zww, x0.yyz );
+      vec3 isX = step(x0.yzw, x0.xxx);
+      vec3 isYZ = step(x0.zww, x0.yyz);
       i0.x = isX.x + isX.y + isX.z;
       i0.yzw = 1.0 - isX;
       i0.y += isYZ.x + isYZ.y;
       i0.zw += 1.0 - isYZ.xy;
       i0.z += isYZ.z;
       i0.w += 1.0 - isYZ.z;
-
-      vec4 i3 = clamp( i0, 0.0, 1.0 );
-      vec4 i2 = clamp( i0-1.0, 0.0, 1.0 );
-      vec4 i1 = clamp( i0-2.0, 0.0, 1.0 );
-
+      vec4 i3 = clamp(i0, 0.0, 1.0);
+      vec4 i2 = clamp(i0 - 1.0, 0.0, 1.0);
+      vec4 i1 = clamp(i0 - 2.0, 0.0, 1.0);
       vec4 x1 = x0 - i1 + C.xxxx;
       vec4 x2 = x0 - i2 + C.yyyy;
       vec4 x3 = x0 - i3 + C.zzzz;
       vec4 x4 = x0 + C.wwww;
-
-      i = mod289(i); 
-      float j0 = permute( permute( permute( permute(i.w) + i.z) + i.y) + i.x);
-      vec4 j1 = permute( permute( permute( permute (
-                 i.w + vec4(i1.w, i2.w, i3.w, 1.0 ))
-               + i.z + vec4(i1.z, i2.z, i3.z, 1.0 ))
-               + i.y + vec4(i1.y, i2.y, i3.y, 1.0 ))
-               + i.x + vec4(i1.x, i2.x, i3.x, 1.0 ));
-
-      vec4 ip = vec4(1.0/294.0, 1.0/49.0, 1.0/7.0, 0.0) ;
-
-      vec4 p0 = grad4(j0,   ip);
+      i = mod289(i);
+      float j0 = permute(permute(permute(permute(i.w) + i.z) + i.y) + i.x);
+      vec4 j1 = permute(permute(permute(permute(i.w + vec4(i1.w, i2.w, i3.w, 1.0)) + i.z + vec4(i1.z, i2.z, i3.z, 1.0)) + i.y + vec4(i1.y, i2.y, i3.y, 1.0)) + i.x + vec4(i1.x, i2.x, i3.x, 1.0));
+      vec4 ip = vec4(1.0 / 294.0, 1.0 / 49.0, 1.0 / 7.0, 0.0);
+      vec4 p0 = grad4(j0, ip);
       vec4 p1 = grad4(j1.x, ip);
       vec4 p2 = grad4(j1.y, ip);
       vec4 p3 = grad4(j1.z, ip);
       vec4 p4 = grad4(j1.w, ip);
-
-      vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+      vec4 norm = taylorInvSqrt(vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
       p0 *= norm.x;
       p1 *= norm.y;
       p2 *= norm.z;
       p3 *= norm.w;
-      p4 *= taylorInvSqrt(dot(p4,p4));
-
-      vec3 m0 = max(0.6 - vec3(dot(x0,x0), dot(x1,x1), dot(x2,x2)), 0.0);
-      vec2 m1 = max(0.6 - vec2(dot(x3,x3), dot(x4,x4)), 0.0);
+      p4 *= taylorInvSqrt(dot(p4, p4));
+      vec3 m0 = max(0.6 - vec3(dot(x0, x0), dot(x1, x1), dot(x2, x2)), 0.0);
+      vec2 m1 = max(0.6 - vec2(dot(x3, x3), dot(x4, x4)), 0.0);
       m0 = m0 * m0;
       m1 = m1 * m1;
-      return 49.0 * ( dot(m0*m0, vec3( dot( p0, x0 ), dot( p1, x1 ), dot( p2, x2 )))
-                   + dot(m1*m1, vec2( dot( p3, x3 ), dot( p4, x4 ) ) ) ) ;
+      return 49.0 * (dot(m0 * m0, vec3(dot(p0, x0), dot(p1, x1), dot(p2, x2))) + dot(m1 * m1, vec2(dot(p3, x3), dot(p4, x4))));
     }
 
     void main() {
       vUv = uv;
       vec3 pos = position;
-      
       float displacement = snoise(vec4(pos * 0.5, uTime * 0.2));
-      
       pos += normalize(position) * displacement * 0.2 * (0.5 + uPulseIntensity * 0.5);
-
       gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
       gl_PointSize = 2.0;
     }
@@ -232,20 +306,10 @@ const ParticleOrb = () => {
   });
 
   return (
-    <points ref={pointsRef}>
+    <points>
       <bufferGeometry attach="geometry">
-        <bufferAttribute
-          attach="attributes-position"
-          count={particles.length / 3}
-          array={particles}
-          itemSize={3}
-        />
-        <bufferAttribute
-          attach="attributes-uv"
-          count={uv.length / 2}
-          array={uv}
-          itemSize={2}
-        />
+        <bufferAttribute attach="attributes-position" count={particles.length / 3} array={particles} itemSize={3} />
+        <bufferAttribute attach="attributes-uv" count={uv.length / 2} array={uv} itemSize={2} />
       </bufferGeometry>
       <shaderMaterial
         ref={shaderMaterialRef}
@@ -399,8 +463,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = (e) => { console.error('[VA] Erro ao tocar áudio TTS:', e); onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onended = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = (e) => { console.error('[VA] Erro ao tocar áudio TTS:', e); onEndCallback(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
       } else {
         onSpeechEnd();
@@ -705,9 +769,13 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           <Canvas camera={{ position: [0, 0, 5], fov: 75 }}>
             <ambientLight intensity={0.5} />
             <pointLight position={[10, 10, 10]} />
+            
+            <CosmicBackground />
             <ParticleOrb />
+            <EnergyLines />
+
             <EffectComposer>
-              <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
+              <Bloom intensity={2.0} luminanceThreshold={0.05} mipmapBlur={true} />
             </EffectComposer>
           </Canvas>
         </div>
