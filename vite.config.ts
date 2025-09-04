@@ -18,7 +18,10 @@ export default defineConfig(() => ({
   plugins: [dyadComponentTagger(), react()], 
   resolve: { 
     alias: { 
-      "@": path.resolve(__dirname, "./src"), 
+      "@": path.resolve(__dirname, "./src"),
+      // Adding aliases to ensure a single instance of React is used
+      "react": path.resolve(__dirname, "./node_modules/react"),
+      "react-dom": path.resolve(__dirname, "./node_modules/react-dom"),
     }, 
   }, 
 }));
