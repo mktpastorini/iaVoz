@@ -20,7 +20,7 @@ import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 
 // Simplex noise for smooth randomness
-import SimplexNoise from "simplex-noise";
+import { SimplexNoise } from "simplex-noise";
 
 const simplex = new SimplexNoise();
 
@@ -228,7 +228,6 @@ const ParticleOrb = () => {
     uniform float uPulseIntensity;
     varying vec2 vUv;
 
-    // Simplex noise functions (omitted here for brevity, same as before)
     vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
     float mod289(float x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
     vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
