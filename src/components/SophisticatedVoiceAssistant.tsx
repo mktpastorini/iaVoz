@@ -20,7 +20,8 @@ import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 
 // Simplex noise for smooth randomness
-import SimplexNoise from "simplex-noise";
+import * as SimplexNoiseModule from "simplex-noise";
+const SimplexNoise = SimplexNoiseModule.SimplexNoise;
 
 const simplex = new SimplexNoise();
 
