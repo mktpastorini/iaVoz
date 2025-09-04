@@ -26,7 +26,4 @@ export default defineConfig(() => ({
       "three": path.resolve(__dirname, "./node_modules/three"),
     }, 
   },
-  optimizeDeps: {
-    exclude: ['react', 'react-dom'], // Exclui React e ReactDOM da otimização de dependências
-  },
 }));
