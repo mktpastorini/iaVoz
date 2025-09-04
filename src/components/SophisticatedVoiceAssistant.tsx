@@ -66,7 +66,6 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
   const audioRef = useRef(null);
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
-  const isTransitioningToSpeakRef = useRef(false);
 
   // Web Audio API refs
   const audioContextRef = useRef(null);
@@ -100,7 +99,9 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     }
     try {
       recognitionRef.current.start();
-    } catch {}
+    } catch (e) {
+      console.error("Error starting recognition:", e);
+    }
   }, []);
 
   const stopSpeaking = useCallback(() => {
@@ -163,7 +164,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     }
 
     const onSpeechEnd = () => {
-      isTransitioningToSpeakRef.current = false;
+      if (!isSpeakingRef.current) return; // Prevent double execution
       setIsSpeaking(false);
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -171,13 +172,14 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
       }
       setAudioIntensity(0);
       onEndCallback?.();
-      if (isOpenRef.current) startListening();
+      if (isOpenRef.current) {
+        startListening();
+      }
     };
 
-    isTransitioningToSpeakRef.current = true;
+    setIsSpeaking(true);
     stopListening();
     stopSpeaking();
-    setIsSpeaking(true);
     setAiResponse(text);
 
     try {
@@ -185,7 +187,10 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
-        utterance.onerror = onSpeechEnd;
+        utterance.onerror = (e) => {
+          console.error("SpeechSynthesis Error:", e);
+          onSpeechEnd();
+        };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         const response = await fetch(OPENAI_TTS_API_URL, {
@@ -305,8 +310,9 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     recognitionRef.current.onstart = () => setIsListening(true);
     recognitionRef.current.onend = () => {
       setIsListening(false);
-      if (isTransitioningToSpeakRef.current) return;
-      if (!stopPermanentlyRef.current) startListening();
+      if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
+        startListening();
+      }
     };
     recognitionRef.current.onerror = (e) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
