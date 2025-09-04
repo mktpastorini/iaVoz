@@ -106,7 +106,7 @@ const CosmicBackground = () => {
   const pointsRef = useRef<THREE.Points>(null);
   useFrame(() => {
     if (pointsRef.current) {
-      pointsRef.current.rotation.y += 0.0001;
+      pointsRef.current.rotation.y += 0.00015;
     }
   });
 
@@ -122,10 +122,10 @@ const CosmicBackground = () => {
       </bufferGeometry>
       <pointsMaterial
         attach="material"
-        size={0.015}
-        color="#222222"
+        size={0.012}
+        color="#111111"
         transparent
-        opacity={0.3}
+        opacity={0.25}
       />
     </points>
   );
@@ -136,7 +136,8 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
   const materialRef = useRef<THREE.MeshBasicMaterial>(null);
   useFrame(({ clock }) => {
     if (materialRef.current) {
-      materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.3;
+      // Opacidade pulsante mais forte para efeito energético
+      materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.6 + 0.4;
     }
   });
 
@@ -154,25 +155,25 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
   );
 };
 
-const EnergyLines = ({ count = 12, radius = 1.5 }) => {
+const EnergyLines = ({ count = 15, radius = 1.5 }) => {
   const lines = useMemo(() => {
     return Array.from({ length: count }, () => {
-      // Criar pontos que podem se estender além do raio para efeito de expansão
-      const points = Array.from({ length: 10 }, (_, i) => {
+      // Pontos que se estendem bem além do núcleo para efeito expansivo
+      const points = Array.from({ length: 12 }, (_, i) => {
         const direction = new THREE.Vector3(
           (Math.random() - 0.5),
           (Math.random() - 0.5),
           (Math.random() - 0.5)
         ).normalize();
-        // Para os primeiros pontos, dentro do raio, para os últimos, estender além do raio
-        const scalar = i < 5 ? radius * (0.3 + Math.random() * 0.7) : radius * (1.5 + Math.random() * 1.5);
+        // Para os primeiros pontos, dentro do raio, para os últimos, estender além do raio (até 3x)
+        const scalar = i < 6 ? radius * (0.3 + Math.random() * 0.7) : radius * (2.0 + Math.random() * 2.0);
         return direction.multiplyScalar(scalar);
       });
       return {
         curve: new THREE.CatmullRomCurve3(points),
-        speed: Math.random() * 0.3 + 0.1,
+        speed: Math.random() * 0.5 + 0.3,
         birth: Math.random() * 10,
-        thickness: 0.002 + Math.random() * 0.008,
+        thickness: 0.003 + Math.random() * 0.01,
       };
     });
   }, [count, radius]);
@@ -290,23 +291,23 @@ const ParticleOrb = () => {
       vec3 dir = normalize(pos);
 
       // Tempo para animação
-      float t = uTime * 0.5;
+      float t = uTime * 0.8;
 
       // Distância base da esfera
       float baseRadius = 1.5;
 
       // Expansão oscilante para simular partículas saindo e esticando
-      float expansion = 0.3 + 0.7 * abs(sin(t + pos.x * 10.0 + pos.y * 10.0 + pos.z * 10.0));
+      float expansion = 0.5 + 1.0 * abs(sin(t + pos.x * 10.0 + pos.y * 10.0 + pos.z * 10.0));
 
       // Alongamento na direção do vetor normal
-      pos += dir * expansion * uPulseIntensity * 0.8;
+      pos += dir * expansion * uPulseIntensity * 1.2;
 
       // Ruído para dar aspecto nebuloso e instável
-      float displacement = snoise(vec4(pos * 0.8, uTime * 0.3));
-      pos += dir * displacement * 0.15 * (0.5 + uPulseIntensity * 0.5);
+      float displacement = snoise(vec4(pos * 0.8, uTime * 0.5));
+      pos += dir * displacement * 0.25 * (0.5 + uPulseIntensity * 0.5);
 
       gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-      gl_PointSize = 2.0 + 2.0 * uPulseIntensity;
+      gl_PointSize = 2.5 + 3.0 * uPulseIntensity;
     }
   `;
 
@@ -324,7 +325,7 @@ const ParticleOrb = () => {
     const { clock } = state;
     if (shaderMaterialRef.current) {
       shaderMaterialRef.current.uniforms.uTime.value = clock.elapsedTime;
-      shaderMaterialRef.current.uniforms.uPulseIntensity.value = 0.5 + 0.5 * Math.sin(clock.elapsedTime * 1.2);
+      shaderMaterialRef.current.uniforms.uPulseIntensity.value = 0.7 + 0.7 * Math.sin(clock.elapsedTime * 1.5);
     }
   });
 
@@ -798,7 +799,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
             <EnergyLines />
 
             <EffectComposer>
-              <Bloom intensity={2.5} luminanceThreshold={0.05} mipmapBlur={true} />
+              <Bloom intensity={3.0} luminanceThreshold={0.04} mipmapBlur={true} />
             </EffectComposer>
           </Canvas>
         </div>
