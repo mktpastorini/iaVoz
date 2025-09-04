@@ -8,7 +8,7 @@ import { shaderMaterial } from "@react-three/drei";
 const TrailMaterial = shaderMaterial(
   {
     uTime: 0,
-    uColor: new THREE.Color("#00FFFF"),
+    uColor: new THREE.Color("#FF00FF"), // Magenta vibrante
   },
   // vertex shader
   `
@@ -38,6 +38,22 @@ export const ShootingStars: React.FC = () => {
   const count = 40;
   const positions = useMemo(() => new Float32Array(count * 3), [count]);
   const alphas = useMemo(() => new Float32Array(count), [count]);
+  const colors = useMemo(() => {
+    const arr = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      // Alterna entre roxo, magenta e ciano
+      const colorOptions = [
+        new THREE.Color("#7B2FF7"), // Roxo
+        new THREE.Color("#FF00FF"), // Magenta
+        new THREE.Color("#00FFFF"), // Ciano
+      ];
+      const c = colorOptions[i % colorOptions.length];
+      arr[i * 3] = c.r;
+      arr[i * 3 + 1] = c.g;
+      arr[i * 3 + 2] = c.b;
+    }
+    return arr;
+  }, [count]);
   const velocities = useMemo(() => {
     const arr = [];
     for (let i = 0; i < count; i++) {
@@ -72,6 +88,7 @@ export const ShootingStars: React.FC = () => {
         );
         star.life = 0;
         star.maxLife = 3 + Math.random() * 2;
+        alphas[i] = 1;
       }
 
       positions[i * 3] = star.position.x;
@@ -95,12 +112,17 @@ export const ShootingStars: React.FC = () => {
           array={alphas}
           itemSize={1}
         />
+        <bufferAttribute
+          attach="attributes-color"
+          count={count}
+          array={colors}
+          itemSize={3}
+        />
       </bufferGeometry>
       <pointsMaterial
         size={3}
-        color="#00FFFF"
+        vertexColors
         transparent
-        vertexColors={false}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
       />
