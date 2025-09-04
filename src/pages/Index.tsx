@@ -1,8 +1,11 @@
+"use client";
+
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
+import { ModalVoiceAssistant } from "@/components/ModalVoiceAssistant";
 
 const Index = () => {
-  const { activateAssistant } = useVoiceAssistant();
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
@@ -21,9 +24,9 @@ const Index = () => {
             <Button
               size="lg"
               className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-all duration-300"
-              onClick={activateAssistant}
+              onClick={() => setIsModalOpen(true)}
             >
-              Ativar Assistente
+              Abrir Assistente
             </Button>
             <Button
               size="lg"
@@ -56,6 +59,17 @@ const Index = () => {
           </div>
         </div>
       </main>
+
+      {isModalOpen && <ModalVoiceAssistant />}
+      {isModalOpen && (
+        <button
+          onClick={() => setIsModalOpen(false)}
+          className="fixed top-4 right-4 z-[10000] p-3 rounded-full bg-purple-700 text-white shadow-lg hover:bg-purple-800 transition"
+          aria-label="Fechar Assistente"
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 };
