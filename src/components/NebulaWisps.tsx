@@ -5,7 +5,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
 export const NebulaWisps: React.FC = () => {
-  const particleCount = 200;
+  const particleCount = 1000;
   const pointsRef = useRef<THREE.Points>(null);
 
   const { positions, colors } = useMemo(() => {
@@ -55,7 +55,7 @@ export const NebulaWisps: React.FC = () => {
         />
       </bufferGeometry>
       <pointsMaterial
-        size={0.5}
+        size={0.15}
         vertexColors
         transparent
         opacity={0.1}

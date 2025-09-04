@@ -4,7 +4,7 @@ import React, { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
-const COMET_COUNT = 7;
+const COMET_COUNT = 15;
 const TAIL_LENGTH = 15;
 const TOTAL_PARTICLES = COMET_COUNT * TAIL_LENGTH;
 
@@ -26,7 +26,7 @@ class Comet {
       (Math.random() - 0.5) * 30
     );
     this.velocity = new THREE.Vector3(
-      0.1 + Math.random() * 0.15,
+      0.2 + Math.random() * 0.15,
       (Math.random() - 0.5) * 0.02,
       (Math.random() - 0.5) * 0.02
     );
@@ -113,7 +113,7 @@ export const Comets: React.FC = () => {
           void main() {
             vAlpha = alpha;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            gl_PointSize = 2.0 * alpha;
+            gl_PointSize = 4.0 * alpha;
           }
         `}
         fragmentShader={`

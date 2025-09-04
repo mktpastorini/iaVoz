@@ -28,7 +28,7 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
   );
 };
 
-export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ count = 15, radius = 1.5 }) => {
+export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ count = 5, radius = 1.5 }) => {
   const lines = useMemo(() => {
     return Array.from({ length: count }, () => {
       // Generate points that start inside orb and expand far outside
@@ -46,7 +46,7 @@ export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ cou
         curve: new THREE.CatmullRomCurve3(points),
         speed: Math.random() * 0.5 + 0.2,
         birth: Math.random() * 10,
-        thickness: 0.002 + Math.random() * 0.01,
+        thickness: 0.001 + Math.random() * 0.005,
       };
     });
   }, [count, radius]);
