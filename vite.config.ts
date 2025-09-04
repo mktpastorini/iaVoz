@@ -25,5 +25,8 @@ export default defineConfig(() => ({
       "@react-three/postprocessing": path.resolve(__dirname, "./node_modules/@react-three/postprocessing"),
       "three": path.resolve(__dirname, "./node_modules/three"),
     }, 
-  }, 
+  },
+  optimizeDeps: {
+    exclude: ['react', 'react-dom'], // Exclui React e ReactDOM da otimização de dependências
+  },
 }));
