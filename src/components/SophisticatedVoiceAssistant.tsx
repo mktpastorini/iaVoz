@@ -82,9 +82,10 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
   </div>
 );
 
-// 3D Orb Component
+// 3D Orb Component with Shaders
 const ParticleOrb = () => {
   const pointsRef = useRef<THREE.Points>(null);
+  const shaderMaterialRef = useRef<THREE.ShaderMaterial>(null);
 
   const particles = useMemo(() => {
     const count = 5000;
@@ -100,6 +101,32 @@ const ParticleOrb = () => {
     return positions;
   }, []);
 
+  const uniforms = useMemo(() => ({
+    u_time: { value: 0.0 },
+    u_colorA: { value: new THREE.Color("#4ddcff") }, // Cyan
+    u_colorB: { value: new THREE.Color("#be29ec") }, // Purple
+  }), []);
+
+  const vertexShader = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = 3.0; // Fixed size in pixels
+    }
+  `;
+
+  const fragmentShader = `
+    uniform vec3 u_colorA;
+    uniform vec3 u_colorB;
+    varying vec2 vUv;
+    void main() {
+      // Create a vertical gradient based on the normalized position
+      vec3 finalColor = mix(u_colorA, u_colorB, vUv.y);
+      gl_FragColor = vec4(finalColor, 1.0);
+    }
+  `;
+
   useFrame((state) => {
     const { clock } = state;
     if (pointsRef.current) {
@@ -107,8 +134,11 @@ const ParticleOrb = () => {
       pointsRef.current.rotation.x = clock.getElapsedTime() * 0.03;
       
       // Pulsation effect
-      const scale = 1 + Math.sin(clock.getElapsedTime() * 0.5) * 0.05;
-      pointsRef.current.scale.set(scale, scale, scale);
+      const pulse = 1 + Math.sin(clock.elapsedTime * 0.5) * 0.1;
+      pointsRef.current.scale.set(pulse, pulse, pulse);
+    }
+    if (shaderMaterialRef.current) {
+      shaderMaterialRef.current.uniforms.u_time.value = clock.getElapsedTime();
     }
   });
 
@@ -121,15 +151,25 @@ const ParticleOrb = () => {
           array={particles}
           itemSize={3}
         />
+        {/* We need UVs for the gradient */}
+        <bufferAttribute
+          attach="attributes-uv"
+          count={particles.length / 2}
+          array={new Float32Array(Array.from({ length: particles.length / 3 * 2 }, (_, i) => i % 2))}
+          itemSize={2}
+        />
       </bufferGeometry>
-      <pointsMaterial
+      <shaderMaterial
+        ref={shaderMaterialRef}
         attach="material"
-        size={0.015}
-        color="#4ddcff"
-        blending={THREE.AdditiveBlending}
-        transparent
-        depthWrite={false}
-        sizeAttenuation
+        args={[{
+          uniforms,
+          vertexShader,
+          fragmentShader,
+          blending: THREE.AdditiveBlending,
+          transparent: true,
+          depthWrite: false,
+        }]}
       />
     </points>
   );
