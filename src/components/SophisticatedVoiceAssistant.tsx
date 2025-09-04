@@ -145,7 +145,7 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
       <meshBasicMaterial
         ref={materialRef}
         attach="material"
-        color="#ffffff"
+        color="#00ffff"
         transparent
         blending={THREE.AdditiveBlending}
         depthWrite={false}
@@ -154,21 +154,25 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
   );
 };
 
-const EnergyLines = ({ count = 8, radius = 1.5 }) => {
+const EnergyLines = ({ count = 12, radius = 1.5 }) => {
   const lines = useMemo(() => {
     return Array.from({ length: count }, () => {
-      const points = Array.from({ length: 10 }, () =>
-        new THREE.Vector3(
-          (Math.random() - 0.5) * radius,
-          (Math.random() - 0.5) * radius,
-          (Math.random() - 0.5) * radius
-        ).normalize().multiplyScalar(radius * (0.5 + Math.random() * 1.0)) // Can extend beyond the core
-      );
+      // Criar pontos que podem se estender além do raio para efeito de expansão
+      const points = Array.from({ length: 10 }, (_, i) => {
+        const direction = new THREE.Vector3(
+          (Math.random() - 0.5),
+          (Math.random() - 0.5),
+          (Math.random() - 0.5)
+        ).normalize();
+        // Para os primeiros pontos, dentro do raio, para os últimos, estender além do raio
+        const scalar = i < 5 ? radius * (0.3 + Math.random() * 0.7) : radius * (1.5 + Math.random() * 1.5);
+        return direction.multiplyScalar(scalar);
+      });
       return {
         curve: new THREE.CatmullRomCurve3(points),
-        speed: Math.random() * 0.2 + 0.1,
+        speed: Math.random() * 0.3 + 0.1,
         birth: Math.random() * 10,
-        thickness: 0.002 + Math.random() * 0.006,
+        thickness: 0.002 + Math.random() * 0.008,
       };
     });
   }, [count, radius]);
@@ -182,7 +186,7 @@ const EnergyLines = ({ count = 8, radius = 1.5 }) => {
   );
 };
 
-// Layer 1: Main Particle Orb
+// Layer 1: Main Particle Orb with expanding and stretching particles
 const ParticleOrb = () => {
   const shaderMaterialRef = useRef<THREE.ShaderMaterial>(null);
 
@@ -281,10 +285,28 @@ const ParticleOrb = () => {
     void main() {
       vUv = uv;
       vec3 pos = position;
+
+      // Direção do vetor normalizado para alongar partículas para fora
+      vec3 dir = normalize(pos);
+
+      // Tempo para animação
+      float t = uTime * 0.5;
+
+      // Distância base da esfera
+      float baseRadius = 1.5;
+
+      // Expansão oscilante para simular partículas saindo e esticando
+      float expansion = 0.3 + 0.7 * abs(sin(t + pos.x * 10.0 + pos.y * 10.0 + pos.z * 10.0));
+
+      // Alongamento na direção do vetor normal
+      pos += dir * expansion * uPulseIntensity * 0.8;
+
+      // Ruído para dar aspecto nebuloso e instável
       float displacement = snoise(vec4(pos * 0.8, uTime * 0.3));
-      pos += normalize(position) * displacement * 0.35 * (0.5 + uPulseIntensity * 0.5);
+      pos += dir * displacement * 0.15 * (0.5 + uPulseIntensity * 0.5);
+
       gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-      gl_PointSize = 2.0;
+      gl_PointSize = 2.0 + 2.0 * uPulseIntensity;
     }
   `;
 
@@ -302,7 +324,7 @@ const ParticleOrb = () => {
     const { clock } = state;
     if (shaderMaterialRef.current) {
       shaderMaterialRef.current.uniforms.uTime.value = clock.elapsedTime;
-      shaderMaterialRef.current.uniforms.uPulseIntensity.value = 0.5 + 0.5 * Math.sin(clock.elapsedTime * 0.8);
+      shaderMaterialRef.current.uniforms.uPulseIntensity.value = 0.5 + 0.5 * Math.sin(clock.elapsedTime * 1.2);
     }
   });
 
@@ -764,7 +786,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
       
       <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-purple-950" onClick={() => setIsOpen(false)}></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-950 via-gray-900 to-purple-950" onClick={() => setIsOpen(false)}></div>
         
         <div className="absolute inset-0 z-10 pointer-events-none">
           <Canvas camera={{ position: [0, 0, 5], fov: 75 }}>
