@@ -8,6 +8,7 @@ import { ParticleOrb } from "./ParticleOrb";
 import { EnergyLines } from "./EnergyLines";
 import { NebulaWisps } from "./NebulaWisps";
 import { Starfield } from "./Starfield";
+import { OrbCore } from "./OrbCore";
 
 export const AIScene: React.FC = () => {
   return (
@@ -19,6 +20,7 @@ export const AIScene: React.FC = () => {
       <NebulaWisps />
 
       {/* Elemento Central */}
+      <OrbCore />
       <ParticleOrb />
       <EnergyLines />
 

@@ -494,7 +494,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
       
       <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-auto")}>
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-900/80 via-blue-950/80 to-purple-950/80 backdrop-blur-md" onClick={() => setIsOpen(false)}></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" onClick={() => setIsOpen(false)}></div>
         
         <div className="absolute inset-0 z-10 pointer-events-none">
           <AIScene />
@@ -504,14 +504,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           <div /> 
           <div className="text-center select-text">
             {displayedAiResponse && (
-              <div className="bg-black/40 backdrop-blur-md border border-purple-500/20 rounded-xl p-6 max-w-2xl mx-auto shadow-lg shadow-purple-500/10">
+              <div className="bg-black/40 backdrop-blur-md border border-purple-500/20 rounded-xl p-6 max-w-2xl mx-auto shadow-lg shadow-purple-500/20">
                 <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">{displayedAiResponse}</p>
               </div>
             )}
             {transcript && <p className="text-gray-400 text-lg mt-4">{transcript}</p>}
           </div>
 
-          <div className="flex items-center justify-center gap-4 p-4 bg-black/30 backdrop-blur-md rounded-2xl border border-cyan-400/20 shadow-lg shadow-cyan-500/10">
+          <div className="flex items-center justify-center gap-4 p-4 bg-black/30 backdrop-blur-md rounded-2xl border border-cyan-400/20 shadow-lg shadow-cyan-500/20">
             <AudioVisualizer isSpeaking={isSpeaking} />
             <div className="p-4 bg-cyan-900/20 rounded-full border border-cyan-400/30">
               <Mic className={cn(
