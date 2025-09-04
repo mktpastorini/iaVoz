@@ -15,7 +15,6 @@ export const ParticleOrb: React.FC<ParticleOrbProps> = ({
 }) => {
   const shaderMaterialRef = useRef<THREE.ShaderMaterial>(null);
 
-  // Generate initial particle positions and UVs
   const { positions, uvs } = useMemo(() => {
     const pos = new Float32Array(particleCount * 3);
     const uv = new Float32Array(particleCount * 2);
@@ -23,7 +22,7 @@ export const ParticleOrb: React.FC<ParticleOrbProps> = ({
     for (let i = 0; i < particleCount; i++) {
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(2 * Math.random() - 1);
-      const r = Math.cbrt(Math.random()) * radius; // cubic root for uniform sphere distribution
+      const r = Math.cbrt(Math.random()) * radius;
 
       const x = r * Math.sin(phi) * Math.cos(theta);
       const y = r * Math.sin(phi) * Math.sin(theta);
@@ -33,32 +32,28 @@ export const ParticleOrb: React.FC<ParticleOrbProps> = ({
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
 
-      // UV.y normalized vertical position for gradient interpolation
-      uv[i * 2] = 0.5; // not used horizontally
+      uv[i * 2] = 0.5;
       uv[i * 2 + 1] = (y + radius) / (2 * radius);
     }
 
     return { positions: pos, uvs: uv };
   }, [particleCount, radius]);
 
-  // Uniforms for shader
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
       uPulseIntensity: { value: 0 },
-      uColorA: { value: new THREE.Color("#00FFFF") }, // Cyan electric
+      uColorA: { value: new THREE.Color("#99FFFF") }, // Brighter, almost white cyan for the core
       uColorB: { value: new THREE.Color("#FF00FF") }, // Magenta vibrant
     }),
     []
   );
 
-  // Vertex shader: fluid motion with pulse, displacement along normal
   const vertexShader = `
     uniform float uTime;
     uniform float uPulseIntensity;
     varying vec2 vUv;
 
-    // Simplex noise or similar can be added here if needed, but keeping simple sine wave for fluidity
     void main() {
       vUv = uv;
       vec3 pos = position;
@@ -73,7 +68,6 @@ export const ParticleOrb: React.FC<ParticleOrbProps> = ({
     }
   `;
 
-  // Fragment shader: vertical gradient mix between cyan and magenta
   const fragmentShader = `
     uniform vec3 uColorA;
     uniform vec3 uColorB;
@@ -89,9 +83,13 @@ export const ParticleOrb: React.FC<ParticleOrbProps> = ({
 
   useFrame(({ clock }) => {
     if (shaderMaterialRef.current) {
-      shaderMaterialRef.current.uniforms.uTime.value = clock.elapsedTime;
-      shaderMaterialRef.current.uniforms.uPulseIntensity.value =
-        0.5 + 0.5 * Math.sin(clock.elapsedTime * 1.2);
+      const time = clock.elapsedTime;
+      shaderMaterialRef.current.uniforms.uTime.value = time;
+      
+      // Organic pulsation by combining multiple sine waves
+      const pulse1 = 0.5 + 0.5 * Math.sin(time * 1.2);
+      const pulse2 = 0.7 + 0.3 * Math.sin(time * 2.7);
+      shaderMaterialRef.current.uniforms.uPulseIntensity.value = pulse1 * pulse2;
     }
   });
 

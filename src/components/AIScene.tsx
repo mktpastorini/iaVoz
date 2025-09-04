@@ -7,8 +7,7 @@ import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { ParticleOrb } from "./ParticleOrb";
 import { EnergyLines } from "./EnergyLines";
 import { NebulaWisps } from "./NebulaWisps";
-import { Comets } from "./Comets";
-import { Starfield } from "./Starfield"; // Importando o novo componente
+import { Starfield } from "./Starfield";
 
 export const AIScene: React.FC = () => {
   return (
@@ -18,7 +17,6 @@ export const AIScene: React.FC = () => {
       {/* Camadas de Fundo */}
       <Starfield />
       <NebulaWisps />
-      <Comets />
 
       {/* Elemento Central */}
       <ParticleOrb />
@@ -26,7 +24,7 @@ export const AIScene: React.FC = () => {
 
       <EffectComposer>
         <Bloom
-          intensity={1.8}
+          intensity={2.0}
           luminanceThreshold={0.02}
           luminanceSmoothing={0.1}
           mipmapBlur
