@@ -21,4 +21,7 @@ export default defineConfig(() => ({
     },
     dedupe: ['react', 'react-dom'],
   },
+  optimizeDeps: {
+    include: ['simplex-noise'], // Adiciona explicitamente simplex-noise para pré-empacotamento
+  },
 }));
