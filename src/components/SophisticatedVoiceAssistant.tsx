@@ -68,6 +68,8 @@ const SophisticatedVoiceAssistant = () => {
   const audioRef = useRef(null);
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
+  const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
 
   // Web Audio API refs
   const audioContextRef = useRef(null);
@@ -171,6 +173,10 @@ const SophisticatedVoiceAssistant = () => {
       isSpeakingRef.current = false;
       setIsSpeaking(false);
     }
+    if (speechTimeoutRef.current) {
+      clearTimeout(speechTimeoutRef.current);
+      speechTimeoutRef.current = null;
+    }
   }, []);
 
   const setupAudioAnalysis = useCallback(() => {
@@ -199,6 +205,7 @@ const SophisticatedVoiceAssistant = () => {
   }, []);
 
   const speak = useCallback(async (text, onEndCallback) => {
+    console.log("[SophisticatedVoiceAssistant] speak function called with text:", text);
     const currentSettings = settingsRef.current;
     if (!text || !currentSettings) {
       onEndCallback?.();
@@ -219,7 +226,16 @@ const SophisticatedVoiceAssistant = () => {
     }
 
     const onSpeechEnd = () => {
-      if (!isSpeakingRef.current) return;
+      if (!isSpeakingRef.current) {
+        console.warn("[SophisticatedVoiceAssistant] onSpeechEnd called but not in speaking state.");
+        return;
+      }
+
+      if (speechTimeoutRef.current) {
+        clearTimeout(speechTimeoutRef.current);
+        speechTimeoutRef.current = null;
+      }
+
       isSpeakingRef.current = false;
       setIsSpeaking(false);
       if (animationFrameRef.current) {
@@ -228,7 +244,7 @@ const SophisticatedVoiceAssistant = () => {
       }
       setAudioIntensity(0);
       onEndCallback?.();
-      if (isOpenRef.current) {
+      if (isOpenRef.current && !stopPermanentlyRef.current) {
         startListening();
       }
     };
@@ -236,8 +252,13 @@ const SophisticatedVoiceAssistant = () => {
     isSpeakingRef.current = true;
     setIsSpeaking(true);
     stopListening();
-    stopSpeaking();
+    stopSpeaking(); // Clear any previous speech and timeout
     setAiResponse(text);
+
+    // Set a fallback timeout to ensure onSpeechEnd is called even if native events fail
+    // Estimate time based on text length, plus a buffer
+    const estimatedSpeechTime = (text.length / 15) * 1000 + 3000; // ~15 chars/sec + 3s buffer
+    speechTimeoutRef.current = setTimeout(onSpeechEnd, estimatedSpeechTime);
 
     try {
       if (currentSettings.voice_model === "browser" && synthRef.current) {
@@ -265,34 +286,39 @@ const SophisticatedVoiceAssistant = () => {
         await audioRef.current.play();
         runAudioAnalysis();
       } else {
-        onSpeechEnd();
+        console.warn("[SophisticatedVoiceAssistant] No valid voice model or OpenAI API key for speech. Falling back to onSpeechEnd.");
+        onSpeechEnd(); // If no speech, just call onSpeechEnd immediately
       }
-    } catch (e) {
+    } catch (e: any) {
       showError(`Erro na síntese de voz: ${e.message}`);
-      onEndCallback?.(); // Ensure callback is called even on error
+      onSpeechEnd(); // Ensure onSpeechEnd is called even on error
     }
   }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
   const executeClientAction = useCallback((action) => {
     stopListening();
     speak("Ok, executando.", () => {
+      console.log("[SophisticatedVoiceAssistant] onEndCallback for 'Ok, executando.' reached. Executing action:", action.action_type, action.action_payload);
       switch (action.action_type) {
         case 'OPEN_URL':
           window.open(action.action_payload.url, '_blank', 'noopener,noreferrer');
-          startListening();
+          // startListening will be called by speak's onSpeechEnd
           break;
         case 'SHOW_IMAGE':
           setImageToShow(action.action_payload);
+          // startListening will be called by ImageModal's onClose
           break;
         case 'OPEN_IFRAME_URL':
           setUrlToOpenInIframe(action.action_payload.url);
+          // startListening will be called by UrlIframeModal's onClose
           break;
         default:
-          startListening();
+          console.warn(`[SophisticatedVoiceAssistant] Unknown client action type: ${action.action_type}`);
+          // startListening will be called by speak's onSpeechEnd
           break;
       }
     });
-  }, [speak, startListening, stopListening]);
+  }, [speak, stopListening]);
 
   const runConversation = useCallback(async (userMessage) => {
     if (!userMessage) {
@@ -324,7 +350,7 @@ const SophisticatedVoiceAssistant = () => {
             parameters = schema;
           }
         } catch (e) {
-          console.warn(`Invalid parameters_schema for power "${power.name}". Using default. Error: ${e.message}`);
+          console.warn(`[SophisticatedVoiceAssistant] Invalid parameters_schema for power "${power.name}". Using default. Error:`, e);
         }
       }
       return {
@@ -361,9 +387,13 @@ const SophisticatedVoiceAssistant = () => {
         const functionName = toolCall.function.name;
         const functionArgs = JSON.parse(toolCall.function.arguments);
         speak(`Ok, vou usar a função ${functionName}.`, async () => {
+          console.log(`[SophisticatedVoiceAssistant] onEndCallback for 'Ok, vou usar a função ${functionName}.' reached. Invoking Supabase function: ${functionName}`);
           try {
             const { data: functionResult, error: functionError } = await supabase.functions.invoke(functionName, { body: functionArgs });
-            if (functionError) throw functionError;
+            if (functionError) {
+              console.error(`[SophisticatedVoiceAssistant] Error invoking Supabase function '${functionName}':`, functionError);
+              throw functionError;
+            }
             const toolResponseMessage = { tool_call_id: toolCall.id, role: "tool", name: functionName, content: JSON.stringify(functionResult) };
             const nextMessageHistory = [...newMessageHistory, aiMessage, toolResponseMessage];
             setMessageHistory(nextMessageHistory);
@@ -380,14 +410,18 @@ const SophisticatedVoiceAssistant = () => {
             const secondData = await secondResponse.json();
             const finalMessage = secondData.choices[0].message;
             setMessageHistory(prev => [...prev, finalMessage]);
-            speak(finalMessage.content);
+            speak(finalMessage.content, () => {
+              console.log("[SophisticatedVoiceAssistant] onEndCallback for final AI content reached.");
+            });
           } catch (e: any) {
             console.error("Error executing tool or second OpenAI call:", e);
             speak(`Desculpe, houve um erro ao executar a função ${functionName}. Detalhes: ${e.message}`);
           }
         });
       } else {
-        speak(aiMessage.content);
+        speak(aiMessage.content, () => {
+          console.log("[SophisticatedVoiceAssistant] onEndCallback for AI content reached.");
+        });
       }
     } catch (e: any) {
       console.error("Error in runConversation:", e);
