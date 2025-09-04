@@ -209,8 +209,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onended = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
       } else {
         onSpeechEnd();
@@ -504,17 +504,20 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           <div /> 
           <div className="text-center select-text">
             {displayedAiResponse && (
-              <div className="bg-black/30 backdrop-blur-sm border border-white/20 rounded-lg p-4 max-w-lg mx-auto">
+              <div className="bg-black/40 backdrop-blur-md border border-purple-500/20 rounded-xl p-6 max-w-2xl mx-auto shadow-lg shadow-purple-500/10">
                 <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">{displayedAiResponse}</p>
               </div>
             )}
             {transcript && <p className="text-gray-400 text-lg mt-4">{transcript}</p>}
           </div>
 
-          <div className="flex items-center justify-center gap-4 p-4 bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 pointer-events-auto">
+          <div className="flex items-center justify-center gap-4 p-4 bg-black/30 backdrop-blur-md rounded-2xl border border-cyan-400/20 shadow-lg shadow-cyan-500/10">
             <AudioVisualizer isSpeaking={isSpeaking} />
-            <div className="p-3 bg-white/10 rounded-full">
-              <Mic className={cn("h-6 w-6 text-white", isListening && "text-cyan-400 animate-pulse")} />
+            <div className="p-4 bg-cyan-900/20 rounded-full border border-cyan-400/30">
+              <Mic className={cn(
+                  "h-8 w-8 text-cyan-300 transition-all", 
+                  isListening && "text-cyan-200 animate-pulse drop-shadow-[0_0_8px_rgba(0,255,255,0.8)]"
+              )} />
             </div>
             <AudioVisualizer isSpeaking={isSpeaking} />
           </div>
