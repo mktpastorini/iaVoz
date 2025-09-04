@@ -189,6 +189,12 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
         return;
       }
 
+      if (!hasUserInteracted) {
+        console.warn("[speak] Blocked speech: user has not interacted with the page yet.");
+        onEndCallback?.();
+        return;
+      }
+
       const onSpeechEnd = () => {
         isTransitioningToSpeakRef.current = false;
         isSpeakingRef.current = false;
@@ -285,6 +291,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
       startListening,
       setupAudioAnalysis,
       runAudioAnalysis,
+      hasUserInteracted,
     ]
   );
 
