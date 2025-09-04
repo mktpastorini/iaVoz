@@ -1,6 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import * as THREE from "three";
+import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/contexts/SessionContext";
@@ -78,6 +81,100 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
     </div>
   </div>
 );
+
+// 3D Orb Component
+const OrbParticles = () => {
+  const particlesRef = useRef<THREE.Points>(null);
+  const linesRef = useRef<THREE.LineSegments>(null);
+
+  const [positions, connections] = useMemo(() => {
+    const particleCount = 3000;
+    const radius = 2.5;
+    const pos = new Float32Array(particleCount * 3);
+    const con: number[] = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      const theta = Math.random() * 2 * Math.PI;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const x = radius * Math.sin(phi) * Math.cos(theta);
+      const y = radius * Math.sin(phi) * Math.sin(theta);
+      const z = radius * Math.cos(phi);
+      pos[i * 3] = x;
+      pos[i * 3 + 1] = y;
+      pos[i * 3 + 2] = z;
+    }
+
+    for (let i = 0; i < particleCount; i++) {
+      for (let j = i + 1; j < particleCount; j++) {
+        const p1 = new THREE.Vector3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+        const p2 = new THREE.Vector3(pos[j * 3], pos[j * 3 + 1], pos[j * 3 + 2]);
+        if (p1.distanceTo(p2) < 0.2) {
+          con.push(i, j);
+        }
+      }
+    }
+
+    return [pos, con];
+  }, []);
+
+  useFrame((state) => {
+    const { clock } = state;
+    if (particlesRef.current) {
+      particlesRef.current.rotation.y = clock.getElapsedTime() * 0.1;
+      particlesRef.current.rotation.x = clock.getElapsedTime() * 0.05;
+    }
+    if (linesRef.current) {
+      linesRef.current.rotation.y = clock.getElapsedTime() * 0.1;
+      linesRef.current.rotation.x = clock.getElapsedTime() * 0.05;
+    }
+  });
+
+  return (
+    <>
+      <points ref={particlesRef}>
+        <bufferGeometry attach="geometry">
+          <bufferAttribute
+            attach="attributes-position"
+            count={positions.length / 3}
+            array={positions}
+            itemSize={3}
+          />
+        </bufferGeometry>
+        <pointsMaterial
+          attach="material"
+          size={0.008}
+          color="#87CEEB"
+          sizeAttenuation
+          transparent
+          opacity={0.8}
+        />
+      </points>
+      <lineSegments ref={linesRef}>
+        <bufferGeometry attach="geometry">
+          <bufferAttribute
+            attach="attributes-position"
+            count={positions.length / 3}
+            array={positions}
+            itemSize={3}
+          />
+          <bufferAttribute
+            attach="index"
+            count={connections.length}
+            array={new Uint16Array(connections)}
+            itemSize={1}
+          />
+        </bufferGeometry>
+        <lineBasicMaterial
+          attach="material"
+          color="#FFFFFF"
+          transparent
+          opacity={0.05}
+        />
+      </lineSegments>
+    </>
+  );
+};
+
 
 // Main Component
 const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
@@ -507,21 +604,47 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   return (
     <>
       <MicrophonePermissionModal isOpen={isPermissionModalOpen} onAllow={handleAllowMic} onClose={() => setIsPermissionModalOpen(false)} />
-      {micPermission === 'denied' && (
+      {micPermission === 'denied' && !isOpen && (
         <div className="fixed bottom-4 right-4 md:bottom-8 md:right-8 z-50">
-          <Button onClick={checkAndRequestMicPermission} size="lg" className="rounded-full w-16 h-16 shadow-lg"><Mic size={32} /></Button>
+          <Button onClick={checkAndRequestMicPermission} size="lg" className="rounded-full w-16 h-16 shadow-lg bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"><Mic size={32} /></Button>
         </div>
       )}
       {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl!} altText={imageToShow.altText} onClose={() => { setImageToShow(null); startListening(); }} />}
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
-      <div className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center p-4 transition-all duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
-        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={() => setIsOpen(false)}></div>
-        <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
-          <div className="flex-grow flex items-center justify-center">
-            <p className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">{displayedAiResponse}</p>
+      
+      <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-purple-950" onClick={() => setIsOpen(false)}></div>
+        
+        <Canvas
+          camera={{ position: [0, 0, 5], fov: 75 }}
+          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 1 }}
+        >
+          <ambientLight intensity={0.5} />
+          <pointLight position={[10, 10, 10]} />
+          <OrbParticles />
+          <EffectComposer>
+            <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
+          </EffectComposer>
+        </Canvas>
+
+        <div className="relative z-10 flex flex-col items-center justify-between w-full h-full p-8">
+          <div /> 
+          <div className="text-center">
+            {displayedAiResponse && (
+              <div className="bg-black/30 backdrop-blur-sm border border-white/20 rounded-lg p-4 max-w-lg mx-auto">
+                <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">{displayedAiResponse}</p>
+              </div>
+            )}
+            {transcript && <p className="text-gray-400 text-lg mt-4">{transcript}</p>}
           </div>
-          <AudioVisualizer isSpeaking={isSpeaking} />
-          <div className="h-16"><p className="text-gray-400 text-lg md:text-xl">{transcript}</p></div>
+
+          <div className="flex items-center justify-center gap-4 p-4 bg-black/20 backdrop-blur-sm rounded-xl border border-white/10">
+            <AudioVisualizer isSpeaking={isSpeaking} />
+            <div className="p-3 bg-white/10 rounded-full">
+              <Mic className={cn("h-6 w-6 text-white", isListening && "text-cyan-400 animate-pulse")} />
+            </div>
+            <AudioVisualizer isSpeaking={isSpeaking} />
+          </div>
         </div>
       </div>
     </>
