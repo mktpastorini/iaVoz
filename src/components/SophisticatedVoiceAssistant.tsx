@@ -89,7 +89,7 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
 const CosmicBackground = () => {
   const { particles } = useMemo(() => {
     const count = 500;
-    const radius = 10; // Much larger radius
+    const radius = 10;
     const positions = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       const u = Math.random();
@@ -104,9 +104,9 @@ const CosmicBackground = () => {
   }, []);
 
   const pointsRef = useRef<THREE.Points>(null);
-  useFrame((state) => {
+  useFrame(() => {
     if (pointsRef.current) {
-      pointsRef.current.rotation.y += 0.0001; // Very slow rotation
+      pointsRef.current.rotation.y += 0.0001;
     }
   });
 
@@ -123,16 +123,16 @@ const CosmicBackground = () => {
       <pointsMaterial
         attach="material"
         size={0.015}
-        color="#555555"
+        color="#222222"
         transparent
-        opacity={0.5}
+        opacity={0.3}
       />
     </points>
   );
 };
 
 // Layer 2: Energy Lines
-const EnergyLine = ({ curve, speed, birth }: { curve: THREE.CatmullRomCurve3, speed: number, birth: number }) => {
+const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRomCurve3, speed: number, birth: number, thickness: number }) => {
   const materialRef = useRef<THREE.MeshBasicMaterial>(null);
   useFrame(({ clock }) => {
     if (materialRef.current) {
@@ -141,7 +141,7 @@ const EnergyLine = ({ curve, speed, birth }: { curve: THREE.CatmullRomCurve3, sp
   });
 
   return (
-    <Tube args={[curve, 64, 0.005, 8, false]}>
+    <Tube args={[curve, 64, thickness, 8, false]}>
       <meshBasicMaterial
         ref={materialRef}
         attach="material"
@@ -154,7 +154,7 @@ const EnergyLine = ({ curve, speed, birth }: { curve: THREE.CatmullRomCurve3, sp
   );
 };
 
-const EnergyLines = ({ count = 5, radius = 1.5 }) => {
+const EnergyLines = ({ count = 8, radius = 1.5 }) => {
   const lines = useMemo(() => {
     return Array.from({ length: count }, () => {
       const points = Array.from({ length: 10 }, () =>
@@ -162,12 +162,13 @@ const EnergyLines = ({ count = 5, radius = 1.5 }) => {
           (Math.random() - 0.5) * radius,
           (Math.random() - 0.5) * radius,
           (Math.random() - 0.5) * radius
-        ).normalize().multiplyScalar(radius * (0.5 + Math.random() * 0.5))
+        ).normalize().multiplyScalar(radius * (0.5 + Math.random() * 1.0)) // Can extend beyond the core
       );
       return {
         curve: new THREE.CatmullRomCurve3(points),
         speed: Math.random() * 0.2 + 0.1,
         birth: Math.random() * 10,
+        thickness: 0.002 + Math.random() * 0.006,
       };
     });
   }, [count, radius]);
@@ -280,8 +281,8 @@ const ParticleOrb = () => {
     void main() {
       vUv = uv;
       vec3 pos = position;
-      float displacement = snoise(vec4(pos * 0.5, uTime * 0.2));
-      pos += normalize(position) * displacement * 0.2 * (0.5 + uPulseIntensity * 0.5);
+      float displacement = snoise(vec4(pos * 0.8, uTime * 0.3));
+      pos += normalize(position) * displacement * 0.35 * (0.5 + uPulseIntensity * 0.5);
       gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
       gl_PointSize = 2.0;
     }
@@ -775,7 +776,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
             <EnergyLines />
 
             <EffectComposer>
-              <Bloom intensity={2.0} luminanceThreshold={0.05} mipmapBlur={true} />
+              <Bloom intensity={2.5} luminanceThreshold={0.05} mipmapBlur={true} />
             </EffectComposer>
           </Canvas>
         </div>
