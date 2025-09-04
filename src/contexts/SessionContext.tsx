@@ -37,32 +37,42 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
 
   const lastUserIdRef = useRef<string | null>(null);
+  const isMounted = useRef(true);
 
   useEffect(() => {
+    isMounted.current = true;
+
     const loadSessionAndUser = async () => {
       const { data: { session: initialSession }, error } = await supabase.auth.getSession();
       if (error) {
         console.error('Error fetching initial session:', error);
         showError('Erro ao carregar sessão inicial.');
       }
-      setSession(initialSession);
-      setUser(initialSession?.user || null);
+      if (isMounted.current) {
+        setSession(initialSession);
+        setUser(initialSession?.user || null);
+      }
     };
 
     loadSessionAndUser();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
+      if (!isMounted.current) return;
       setSession(currentSession);
       if (currentSession?.user?.id !== lastUserIdRef.current) {
         setUser(currentSession?.user || null);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted.current = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     const fetchUserData = async () => {
+      if (!isMounted.current) return;
       if (user && user.id) {
         if (user.id === lastUserIdRef.current) {
           setInitialLoadComplete(true);
@@ -80,19 +90,19 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
           if (profileError) {
             if (profileError.code === 'PGRST116') {
               // Nenhum perfil encontrado, não é erro crítico
-              setProfile(null);
+              if (isMounted.current) setProfile(null);
             } else {
               console.error('Error fetching profile:', profileError, 'Status:', status);
               showError('Erro ao carregar perfil.');
-              setProfile(null);
+              if (isMounted.current) setProfile(null);
             }
           } else {
-            setProfile(profileData);
+            if (isMounted.current) setProfile(profileData);
           }
         } catch (err) {
           console.error('Unexpected error fetching profile:', err);
           showError('Erro inesperado ao carregar perfil.');
-          setProfile(null);
+          if (isMounted.current) setProfile(null);
         }
 
         const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', {
@@ -102,16 +112,18 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         if (workspaceError) {
           console.error('Error ensuring workspace:', workspaceError);
           showError('Erro ao garantir workspace.');
-          setWorkspace(null);
+          if (isMounted.current) setWorkspace(null);
         } else {
-          setWorkspace(workspaceData);
+          if (isMounted.current) setWorkspace(workspaceData);
         }
       } else {
         lastUserIdRef.current = null;
-        setProfile(null);
-        setWorkspace(null);
+        if (isMounted.current) {
+          setProfile(null);
+          setWorkspace(null);
+        }
       }
-      setInitialLoadComplete(true);
+      if (isMounted.current) setInitialLoadComplete(true);
     };
 
     if (user !== undefined) {
