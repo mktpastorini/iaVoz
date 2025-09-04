@@ -102,6 +102,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
+  const [audioIntensity, setAudioIntensity] = useState(0);
 
   // Refs para estados e props dinâmicos
   const settingsRef = useRef(settings);
@@ -122,6 +123,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const activationTriggerRef = useRef(0);
   const activationRequestedViaButton = useRef(false);
   const isTransitioningToSpeakRef = useRef(false);
+
+  // Refs para Web Audio API
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
@@ -162,8 +169,47 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    setAudioIntensity(0);
     if (isSpeakingRef.current) {
       setIsSpeaking(false);
+    }
+  }, []);
+
+  const setupAudioAnalysis = useCallback(() => {
+    if (!audioContextRef.current && audioRef.current) {
+      const context = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 256;
+      const source = context.createMediaElementSource(audioRef.current);
+      
+      source.connect(analyser);
+      analyser.connect(context.destination);
+      
+      audioContextRef.current = context;
+      analyserRef.current = analyser;
+      sourceRef.current = source;
+    }
+  }, []);
+
+  const runAudioAnalysis = useCallback(() => {
+    if (analyserRef.current) {
+      const bufferLength = analyserRef.current.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      analyserRef.current.getByteFrequencyData(dataArray);
+      
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i];
+      }
+      const average = sum / bufferLength;
+      const normalized = Math.min(average / 128, 1.0); // Normaliza para 0-1
+      setAudioIntensity(normalized);
+      
+      animationFrameRef.current = requestAnimationFrame(runAudioAnalysis);
     }
   }, []);
 
@@ -178,6 +224,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       isTransitioningToSpeakRef.current = false;
       isSpeakingRef.current = false;
       setIsSpeaking(false);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      setAudioIntensity(0);
       onEndCallback?.();
       if (isOpenRef.current) {
         startListening();
@@ -209,16 +260,20 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
+        
+        setupAudioAnalysis();
+        
+        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
+        runAudioAnalysis();
       } else {
         onSpeechEnd();
       }
     } catch {
       onSpeechEnd();
     }
-  }, [stopSpeaking, stopListening, startListening]);
+  }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
   const runConversation = useCallback(async (userInput: string) => {
     const currentSettings = settingsRef.current;
@@ -497,7 +552,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" onClick={() => setIsOpen(false)}></div>
         
         <div className="absolute inset-0 z-10 pointer-events-none">
-          <AIScene />
+          <AIScene audioIntensity={audioIntensity} />
         </div>
 
         <div className="relative z-20 flex flex-col items-center justify-between w-full h-full p-8 pointer-events-auto">

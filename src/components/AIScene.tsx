@@ -10,7 +10,11 @@ import { NebulaWisps } from "./NebulaWisps";
 import { Starfield } from "./Starfield";
 import { OrbCore } from "./OrbCore";
 
-export const AIScene: React.FC = () => {
+interface AISceneProps {
+  audioIntensity: number;
+}
+
+export const AIScene: React.FC<AISceneProps> = ({ audioIntensity }) => {
   return (
     <Canvas camera={{ position: [0, 0, 5] }}>
       <color attach="background" args={["#0B022D"]} />
@@ -21,7 +25,7 @@ export const AIScene: React.FC = () => {
 
       {/* Elemento Central */}
       <OrbCore />
-      <ParticleOrb />
+      <ParticleOrb audioIntensity={audioIntensity} />
       <EnergyLines />
 
       <EffectComposer>
