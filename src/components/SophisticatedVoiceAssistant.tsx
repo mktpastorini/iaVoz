@@ -494,7 +494,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
       
       <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-auto")}>
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-900/95 via-blue-950/95 to-purple-950/95 backdrop-blur-sm" onClick={() => setIsOpen(false)}></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-900/80 via-blue-950/80 to-purple-950/80 backdrop-blur-md" onClick={() => setIsOpen(false)}></div>
         
         <div className="absolute inset-0 z-10 pointer-events-none">
           <AIScene />
