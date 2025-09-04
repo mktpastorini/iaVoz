@@ -105,25 +105,68 @@ const ParticleOrb = () => {
       positions[i * 3 + 1] = y;
       positions[i * 3 + 2] = z;
 
-      // Normalize y position to range [0, 1] for gradient
-      uv[i * 2] = 0.5; // u coordinate is not used
+      uv[i * 2] = 0.5;
       uv[i * 2 + 1] = (y + radius) / (2 * radius);
     }
     return { particles: positions, uv };
   }, []);
 
   const uniforms = useMemo(() => ({
-    u_time: { value: 0.0 },
-    u_colorA: { value: new THREE.Color("#00FFFF") }, // Cyan
-    u_colorB: { value: new THREE.Color("#FF00FF") }, // Magenta/Purple
+    uTime: { value: 0.0 },
+    uPulseIntensity: { value: 0.0 },
+    u_colorA: { value: new THREE.Color("#00FFFF") },
+    u_colorB: { value: new THREE.Color("#FF00FF") },
   }), []);
 
   const vertexShader = `
+    uniform float uTime;
+    uniform float uPulseIntensity;
     varying vec2 vUv;
+
+    // GLSL Simplex Noise 4D function by Ian McEwan, Stefan Gustavson
+    vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+    vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+    float snoise(vec4 v){ 
+      const vec2  C = vec2(0.138196601125010504, 0.309016994374947451);
+      vec4 i  = floor(v + dot(v, C.yyyy) );
+      vec4 x0 = v -   i + dot(i, C.xxxx);
+      vec4 i0;
+      vec3 g00, g01, g02, g03;
+      g00 = vec3(0.0);
+      g01 = vec3(0.0);
+      g02 = vec3(0.0);
+      g03 = vec3(0.0);
+      i0.x = dot( C.xy, vec2( i.x, i.y ) );
+      i0.y = dot( C.xy, vec2( i.y, i.z ) );
+      i0.z = dot( C.xy, vec2( i.z, i.w ) );
+      i0.w = dot( C.xy, vec2( i.w, i.x ) );
+      vec4 i1 = i0;
+      vec4 i2 = i0;
+      vec4 i3 = i0;
+      i1.x += 1.0; i2.y += 1.0; i3.z += 1.0;
+      vec4 x1 = x0 - 1.0 + C.xxxx;
+      vec4 x2 = x0 - 2.0 + C.yyyy;
+      vec4 x3 = x0 - 1.0 + C.yyyy;
+      i = mod(i, 289.0); 
+      vec4 p = permute( permute( permute( 
+                 i.z + vec4(0.0, i1.z, i2.z, i3.z ))
+               + i.y + vec4(0.0, i1.y, i2.y, i3.y )) 
+               + i.x + vec4(0.0, i1.x, i2.x, i3.x ));
+      vec4 m = max(0.5 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+      m = m*m ;
+      return 42.0 * dot( m*m, vec4( dot(p,g00), dot(p,g01), dot(p,g02), dot(p,g03) ) );
+    }
+
     void main() {
       vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      gl_PointSize = 3.0;
+      vec3 pos = position;
+      
+      float displacement = snoise(vec4(pos * 0.5, uTime * 0.2));
+      
+      pos += normalize(position) * displacement * 0.2 * (0.5 + uPulseIntensity * 0.5);
+
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+      gl_PointSize = 2.0;
     }
   `;
 
@@ -139,15 +182,9 @@ const ParticleOrb = () => {
 
   useFrame((state) => {
     const { clock } = state;
-    if (pointsRef.current) {
-      pointsRef.current.rotation.y = clock.getElapsedTime() * 0.05;
-      pointsRef.current.rotation.x = clock.getElapsedTime() * 0.03;
-      
-      const pulse = 1 + Math.sin(clock.elapsedTime * 0.5) * 0.1;
-      pointsRef.current.scale.set(pulse, pulse, pulse);
-    }
     if (shaderMaterialRef.current) {
-      shaderMaterialRef.current.uniforms.u_time.value = clock.getElapsedTime();
+      shaderMaterialRef.current.uniforms.uTime.value = clock.elapsedTime;
+      shaderMaterialRef.current.uniforms.uPulseIntensity.value = 0.5 + 0.5 * Math.sin(clock.elapsedTime * 0.8);
     }
   });
 
