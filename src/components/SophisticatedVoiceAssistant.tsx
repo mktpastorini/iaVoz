@@ -23,7 +23,6 @@ import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 
 // --- 3D Components (mesmos da última versão, omitidos para brevidade) ---
 
-// Main Component
 const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   settings,
   isLoading,
@@ -80,26 +79,108 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
-  // Funções para controle do microfone e fala (mesmas da última versão, omitidas para brevidade)
-
-  // Inicialização do reconhecimento de voz e síntese (mesmo da última versão)
-
-  // Controle de permissão do microfone (mesmo da última versão)
-
-  // Ativação manual do assistente (mesmo da última versão)
-
-  // Efeito para ativar assistente via contexto
-  useEffect(() => {
-    if (activationTrigger > activationTriggerRef.current) {
-      activationTriggerRef.current = activationTrigger;
-      if (!isOpenRef.current) {
-        setIsOpen(true);
-        // Pode iniciar escuta aqui se desejar
+  const startListening = useCallback(() => {
+    if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        // Pode lançar erro se já estiver rodando, ignorar
       }
     }
-  }, [activationTrigger]);
+  }, []);
 
-  // Efeito para verificar permissão e inicializar reconhecimento
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current && isListeningRef.current) {
+      recognitionRef.current.stop();
+    }
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    if (synthRef.current?.speaking) {
+      synthRef.current.cancel();
+    }
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    if (isSpeakingRef.current) {
+      setIsSpeaking(false);
+    }
+  }, []);
+
+  // Inicializa reconhecimento de voz e eventos
+  const initializeAssistant = useCallback(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showError("Reconhecimento de voz não suportado neste navegador.");
+      setMicPermission('denied');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "pt-BR";
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      if (isTransitioningToSpeakRef.current) return;
+      if (!stopPermanentlyRef.current) {
+        startListening();
+      }
+    };
+
+    recognition.onerror = (event) => {
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        setMicPermission('denied');
+        showError("Permissão para microfone negada.");
+      }
+    };
+
+    recognition.onresult = (event) => {
+      const lastResult = event.results[event.results.length - 1];
+      const transcript = lastResult[0].transcript.trim().toLowerCase();
+
+      if (!isOpenRef.current) {
+        if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
+          setIsOpen(true);
+          const welcomeMsg = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
+            ? settingsRef.current.continuation_phrase
+            : settingsRef.current.welcome_message;
+          speak(welcomeMsg);
+          setHasBeenActivated(true);
+        }
+        return;
+      }
+
+      // Se assistente aberto, tratar comandos
+      const closeCommands = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
+      if (closeCommands.some(cmd => transcript.includes(cmd))) {
+        setIsOpen(false);
+        setAiResponse("");
+        setTranscript("");
+        stopSpeaking();
+        return;
+      }
+
+      const matchedAction = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
+      if (matchedAction) {
+        executeClientAction(matchedAction);
+        return;
+      }
+
+      runConversation(transcript);
+    };
+
+    recognitionRef.current = recognition;
+  }, [startListening, speak, stopSpeaking, executeClientAction, runConversation]);
+
+  // Funções speak, runConversation, executeClientAction permanecem iguais (omitidas aqui para brevidade)
+
+  // Verifica permissão do microfone e inicializa
   useEffect(() => {
     if (isLoading) return;
     const checkPermissionAndInit = async () => {
@@ -126,9 +207,17 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
     };
-  }, [isLoading]);
+  }, [isLoading, initializeAssistant, startListening]);
 
-  // Carregar poderes e ações (mesmo da última versão)
+  // Efeito para ativar assistente via contexto
+  useEffect(() => {
+    if (activationTrigger > activationTriggerRef.current) {
+      activationTriggerRef.current = activationTrigger;
+      if (!isOpenRef.current) {
+        setIsOpen(true);
+      }
+    }
+  }, [activationTrigger]);
 
   if (isLoading || !settings) return null;
 
@@ -141,7 +230,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
             setIsPermissionModalOpen(false);
             if (activationRequestedViaButton.current) {
               activationRequestedViaButton.current = false;
-              // handleManualActivation();
             }
           }).catch(() => {
             setMicPermission('denied');
@@ -165,8 +253,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           }} size="lg" className="rounded-full w-16 h-16 shadow-lg bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"><Mic size={32} /></Button>
         </div>
       )}
-      {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl!} altText={imageToShow.altText} onClose={() => { setImageToShow(null); /* startListening(); */ }} />}
-      {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); /* startListening(); */ }} />}
+      {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl!} altText={imageToShow.altText} onClose={() => { setImageToShow(null); }} />}
+      {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); }} />}
       
       <div
         className={cn(
