@@ -226,24 +226,28 @@ const SophisticatedVoiceAssistant = () => {
     }
 
     const onSpeechEnd = () => {
-      if (!isSpeakingRef.current) {
-        console.warn("[SophisticatedVoiceAssistant] onSpeechEnd called but not in speaking state.");
-        return;
-      }
-
+      // Always clear the timeout when onSpeechEnd is called, regardless of the source
       if (speechTimeoutRef.current) {
         clearTimeout(speechTimeoutRef.current);
         speechTimeoutRef.current = null;
       }
 
-      isSpeakingRef.current = false;
-      setIsSpeaking(false);
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
+      // Only update UI state if we were actually in a speaking state
+      if (isSpeakingRef.current) {
+        isSpeakingRef.current = false;
+        setIsSpeaking(false);
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+        setAudioIntensity(0);
+      } else {
+        console.warn("[SophisticatedVoiceAssistant] onSpeechEnd called but not in speaking state. UI state already reset.");
       }
-      setAudioIntensity(0);
-      onEndCallback?.();
+
+      onEndCallback?.(); // Always call the callback to ensure flow continues
+
+      // Always attempt to restart listening if the assistant is open and not permanently stopped
       if (isOpenRef.current && !stopPermanentlyRef.current) {
         startListening();
       }
@@ -253,7 +257,6 @@ const SophisticatedVoiceAssistant = () => {
     setIsSpeaking(true);
     stopListening();
     stopSpeaking(); // Clear any previous speech and timeout
-    setAiResponse(text);
 
     // Set a fallback timeout to ensure onSpeechEnd is called even if native events fail
     // Estimate time based on text length, plus a buffer
@@ -291,7 +294,7 @@ const SophisticatedVoiceAssistant = () => {
       }
     } catch (e: any) {
       showError(`Erro na síntese de voz: ${e.message}`);
-      onSpeechEnd(); // Ensure onSpeechEnd is called even on error
+      onEndCallback?.(); // Ensure callback is called even on error
     }
   }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
@@ -350,7 +353,7 @@ const SophisticatedVoiceAssistant = () => {
             parameters = schema;
           }
         } catch (e) {
-          console.warn(`[SophisticatedVoiceAssistant] Invalid parameters_schema for power "${power.name}". Using default. Error:`, e);
+          console.warn(`[SophisticatedVoiceAssistant] Invalid parameters_schema for power "${power.name}". Using default. Error: ${e.message}`);
         }
       }
       return {
