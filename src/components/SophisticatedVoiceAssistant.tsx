@@ -20,6 +20,9 @@ import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import { AIScene } from "./AIScene"; // Importação da cena principal
 
+// Definição da URL da API OpenAI TTS
+const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
+
 // Interfaces
 interface Settings {
   welcome_message?: string;
@@ -463,7 +466,12 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
           const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
             ? settingsRef.current.continuation_phrase
             : settingsRef.current.welcome_message;
-          speak(messageToSpeak);
+          // Aqui garantimos que o microfone só será reiniciado após a fala terminar
+          speak(messageToSpeak, () => {
+            if (isOpenRef.current) {
+              startListening();
+            }
+          });
           setHasBeenActivated(true);
         }
       }
@@ -515,7 +523,11 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current?.continuation_phrase
         ? settingsRef.current.continuation_phrase
         : settingsRef.current?.welcome_message;
-      speak(messageToSpeak);
+      speak(messageToSpeak, () => {
+        if (isOpenRef.current) {
+          startListening();
+        }
+      });
       setHasBeenActivated(true);
     }
   }, [micPermission, checkAndRequestMicPermission, speak]);
