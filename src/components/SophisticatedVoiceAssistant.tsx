@@ -18,6 +18,17 @@ import { AIScene } from "./AIScene";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 
+const ImageModal = ({ imageUrl, altText, onClose }) => (
+  <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80" onClick={onClose}>
+    <div className="relative max-w-4xl max-h-[80vh] p-4" onClick={(e) => e.stopPropagation()}>
+      <img src={imageUrl} alt={altText} className="w-full h-full object-contain rounded-lg" />
+      <Button variant="destructive" size="icon" className="absolute top-6 right-6 rounded-full" onClick={onClose}>
+        <X className="h-4 w-4" />
+      </Button>
+    </div>
+  </div>
+);
+
 const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
   const { session } = useSession();
   const { systemVariables } = useSystem();
@@ -286,7 +297,134 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     ]
   );
 
-  // Função initializeAssistant declarada corretamente
+  const executeClientAction = useCallback((action) => {
+    stopListening();
+    speak("Ok, executando.", () => {
+      switch (action.action_type) {
+        case 'OPEN_URL':
+          window.open(action.action_payload.url, '_blank', 'noopener,noreferrer');
+          startListening();
+          break;
+        case 'SHOW_IMAGE':
+          setImageToShow(action.action_payload);
+          break;
+        case 'OPEN_IFRAME_URL':
+          setUrlToOpenInIframe(action.action_payload.url);
+          break;
+        default:
+          startListening();
+          break;
+      }
+    });
+  }, [speak, startListening, stopListening]);
+
+  const runConversation = useCallback(async (userMessage) => {
+    setTranscript(userMessage);
+    stopListening();
+  
+    const newMessageHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
+    setMessageHistory(newMessageHistory);
+  
+    const systemPrompt = replacePlaceholders(settingsRef.current.system_prompt, systemVariablesRef.current);
+  
+    const tools = powersRef.current.map(power => ({
+      type: "function",
+      function: {
+        name: power.name,
+        description: power.description,
+        parameters: power.parameters_schema || { type: "object", properties: {} },
+      },
+    }));
+  
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${settingsRef.current.openai_api_key}`,
+        },
+        body: JSON.stringify({
+          model: settingsRef.current.ai_model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...newMessageHistory.slice(-settingsRef.current.conversation_memory_length),
+          ],
+          tools: tools.length > 0 ? tools : undefined,
+          tool_choice: tools.length > 0 ? "auto" : undefined,
+        }),
+      });
+  
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`OpenAI API Error: ${errorData.error.message}`);
+      }
+  
+      const data = await response.json();
+      const aiMessage = data.choices[0].message;
+  
+      setMessageHistory(prev => [...prev, aiMessage]);
+  
+      if (aiMessage.tool_calls) {
+        const toolCall = aiMessage.tool_calls[0];
+        const functionName = toolCall.function.name;
+        const functionArgs = JSON.parse(toolCall.function.arguments);
+  
+        speak(`Ok, vou usar a função ${functionName}.`, async () => {
+          try {
+            const { data: functionResult, error: functionError } = await supabase.functions.invoke(functionName, {
+              body: functionArgs,
+            });
+  
+            if (functionError) throw functionError;
+  
+            const toolResponseMessage = {
+              tool_call_id: toolCall.id,
+              role: "tool",
+              name: functionName,
+              content: JSON.stringify(functionResult),
+            };
+  
+            const nextMessageHistory = [...newMessageHistory, aiMessage, toolResponseMessage];
+            setMessageHistory(nextMessageHistory);
+  
+            const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${settingsRef.current.openai_api_key}`,
+              },
+              body: JSON.stringify({
+                model: settingsRef.current.ai_model,
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  ...nextMessageHistory.slice(-settingsRef.current.conversation_memory_length),
+                ],
+              }),
+            });
+  
+            if (!secondResponse.ok) {
+              const errorData = await secondResponse.json();
+              throw new Error(`OpenAI API Error: ${errorData.error.message}`);
+            }
+  
+            const secondData = await secondResponse.json();
+            const finalMessage = secondData.choices[0].message;
+            setMessageHistory(prev => [...prev, finalMessage]);
+            speak(finalMessage.content);
+  
+          } catch (e) {
+            speak(`Desculpe, houve um erro ao executar a função ${functionName}.`);
+          }
+        });
+      } else {
+        speak(aiMessage.content);
+      }
+    } catch (e) {
+      showError(`Erro na conversa: ${e.message}`);
+      speak("Desculpe, não consegui processar sua solicitação.");
+    }
+  }, [speak, stopListening]);
+
   const initializeAssistant = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -361,7 +499,6 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     }
   }, [executeClientAction, runConversation, speak, startListening, stopSpeaking]);
 
-  // Função checkAndRequestMicPermission declarada corretamente
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
       const permissionStatus = await navigator.permissions.query({
@@ -381,7 +518,23 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     }
   }, [initializeAssistant, startListening]);
 
-  // Função para ativar manualmente o assistente via botão
+  const handleAllowMic = useCallback(async () => {
+    setIsPermissionModalOpen(false);
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicPermission("granted");
+      if (!recognitionRef.current) initializeAssistant();
+      startListening();
+      if (activationRequestedViaButton.current) {
+        handleManualActivation();
+        activationRequestedViaButton.current = false;
+      }
+    } catch {
+      setMicPermission("denied");
+      showError("Permissão para microfone negada.");
+    }
+  }, [initializeAssistant, startListening, handleManualActivation]);
+
   const handleManualActivation = useCallback(() => {
     if (isOpenRef.current) return;
     setHasUserInteracted(true);
@@ -497,7 +650,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
       <div
         className={cn(
           "fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-opacity duration-500",
-          isOpen ? "opacity-100" : "opacity-0 pointer-events-auto"
+          isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         )}
       >
         <div
