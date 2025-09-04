@@ -479,6 +479,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
           settingsRef.current &&
           transcript.includes(settingsRef.current.activation_phrase.toLowerCase())
         ) {
+          if (!hasUserInteracted) setHasUserInteracted(true);
           setIsOpen(true);
           const messageToSpeak =
             hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
@@ -497,7 +498,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     if ("speechSynthesis" in window) {
       synthRef.current = window.speechSynthesis;
     }
-  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking]);
+  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, hasUserInteracted]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
@@ -654,8 +655,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
         )}
       >
         <div
-          className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl"
-          onClick={() => setIsOpen(false)}
+          className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl pointer-events-none"
         ></div>
 
         <div className="absolute inset-0 z-10 pointer-events-none">
