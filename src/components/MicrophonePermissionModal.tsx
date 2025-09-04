@@ -10,25 +10,28 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Mic } from "lucide-react";
+import { Mic, MicOff } from "lucide-react";
 
 interface MicrophonePermissionModalProps {
   isOpen: boolean;
   onAllow: () => void;
   onClose: () => void;
+  permissionState: 'prompt' | 'denied' | 'checking';
 }
 
-export const MicrophonePermissionModal: React.FC<MicrophonePermissionModalProps> = ({ isOpen, onAllow, onClose }) => {
+export const MicrophonePermissionModal: React.FC<MicrophonePermissionModalProps> = ({ isOpen, onAllow, onClose, permissionState }) => {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle className="flex items-center">
-            <Mic className="mr-2 h-5 w-5" />
-            Habilitar Microfone
+            {permissionState === 'denied' ? <MicOff className="mr-2 h-5 w-5 text-red-500" /> : <Mic className="mr-2 h-5 w-5" />}
+            {permissionState === 'denied' ? 'Microfone Bloqueado' : 'Habilitar Microfone'}
           </DialogTitle>
           <DialogDescription>
-            Para que eu possa te ouvir e responder aos seus comandos, preciso de permissão para usar o seu microfone.
+            {permissionState === 'prompt'
+              ? "Para que eu possa te ouvir e responder aos seus comandos, preciso de permissão para usar o seu microfone."
+              : "A permissão para o microfone foi negada. Por favor, habilite-a nas configurações do seu navegador para usar o assistente de voz."}
           </DialogDescription>
         </DialogHeader>
         <div className="py-4">
@@ -38,11 +41,13 @@ export const MicrophonePermissionModal: React.FC<MicrophonePermissionModalProps>
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
-            Agora não
+            {permissionState === 'prompt' ? 'Agora não' : 'Fechar'}
           </Button>
-          <Button type="button" onClick={onAllow}>
-            Habilitar Microfone
-          </Button>
+          {permissionState === 'prompt' && (
+            <Button type="button" onClick={onAllow}>
+              Habilitar Microfone
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
