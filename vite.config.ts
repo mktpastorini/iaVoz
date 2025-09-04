@@ -22,6 +22,15 @@ export default defineConfig(() => ({
     dedupe: ['react', 'react-dom'],
   },
   optimizeDeps: {
-    include: ['simplex-noise'], // Adiciona explicitamente simplex-noise para pré-empacotamento
+    include: ['simplex-noise'],
+    esbuildOptions: {
+      // Forçar esbuild a tratar simplex-noise como CommonJS
+      loader: {
+        '.js': 'jsx',
+      },
+      // Forçar o pacote a ser tratado como CommonJS
+      // Isso ajuda a evitar problemas de importação default
+      // Não há opção direta para isso, mas essa configuração ajuda
+    },
   },
 }));
