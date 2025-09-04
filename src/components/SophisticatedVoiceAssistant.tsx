@@ -29,11 +29,13 @@ const ImageModal = ({ imageUrl, altText, onClose }) => (
   </div>
 );
 
-const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
+const SophisticatedVoiceAssistant = () => {
   const { session } = useSession();
   const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
 
+  const [settings, setSettings] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -84,6 +86,48 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      let settingsData = null;
+      const currentSession = sessionRef.current;
+
+      if (currentSession) {
+        const { data: workspaceMember } = await supabase
+          .from('workspace_members')
+          .select('workspace_id')
+          .eq('user_id', currentSession.user.id)
+          .limit(1)
+          .single();
+        
+        if (workspaceMember) {
+          const { data } = await supabase
+            .from("settings")
+            .select("*")
+            .eq('workspace_id', workspaceMember.workspace_id)
+            .limit(1)
+            .single();
+          settingsData = data;
+        }
+      }
+      
+      if (!settingsData) {
+        const { data } = await supabase
+          .from("settings")
+          .select("*")
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .single();
+        settingsData = data;
+      }
+      
+      setSettings(settingsData);
+      return settingsData;
+    } catch (error) {
+      console.error("Erro ao carregar configurações:", error);
+      return null;
+    }
+  }, []);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
@@ -241,6 +285,10 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
   }, [speak, startListening, stopListening]);
 
   const runConversation = useCallback(async (userMessage) => {
+    if (!userMessage) {
+      console.warn("runConversation called with empty message. Ignoring.");
+      return;
+    }
     setTranscript(userMessage);
     stopListening();
     const newMessageHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
@@ -346,15 +394,18 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
         runConversation(transcript);
       } else {
         if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
-          setIsOpen(true);
-          const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase ? settingsRef.current.continuation_phrase : settingsRef.current.welcome_message;
-          speak(messageToSpeak, () => { if (isOpenRef.current) startListening(); });
-          setHasBeenActivated(true);
+          fetchSettings().then((latestSettings) => {
+            if (!latestSettings) return;
+            setIsOpen(true);
+            const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
+            speak(messageToSpeak, () => { if (isOpenRef.current) startListening(); });
+            setHasBeenActivated(true);
+          });
         }
       }
     };
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking]);
+  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchSettings]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
@@ -393,12 +444,15 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     if (micPermission !== "granted") {
       checkAndRequestMicPermission();
     } else {
-      setIsOpen(true);
-      const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current?.continuation_phrase ? settingsRef.current.continuation_phrase : settingsRef.current?.welcome_message;
-      speak(messageToSpeak, () => { if (isOpenRef.current) startListening(); });
-      setHasBeenActivated(true);
+      fetchSettings().then((latestSettings) => {
+        if (!latestSettings) return;
+        setIsOpen(true);
+        const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
+        speak(messageToSpeak, () => { if (isOpenRef.current) startListening(); });
+        setHasBeenActivated(true);
+      });
     }
-  }, [micPermission, checkAndRequestMicPermission, speak, startListening]);
+  }, [micPermission, checkAndRequestMicPermission, speak, startListening, fetchSettings]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
@@ -411,14 +465,18 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     if (!audioContextRef.current) {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
     }
-    if (isLoading) return;
-    checkAndRequestMicPermission();
+    
+    fetchSettings().then(() => {
+      setIsLoading(false);
+      checkAndRequestMicPermission();
+    });
+
     return () => {
       stopPermanentlyRef.current = true;
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
     };
-  }, [isLoading, checkAndRequestMicPermission]);
+  }, [fetchSettings, checkAndRequestMicPermission]);
 
   useEffect(() => {
     const fetchPowersAndActions = async () => {
