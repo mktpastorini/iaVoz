@@ -247,8 +247,14 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       if (currentSettings.voice_model === "browser" && synthRef.current) {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
-        utterance.onend = onSpeechEnd;
-        utterance.onerror = () => onSpeechEnd();
+        utterance.onend = () => {
+          onSpeechEnd();
+          console.log("[speak] Browser TTS ended, restarting listening");
+        };
+        utterance.onerror = () => {
+          onSpeechEnd();
+          console.log("[speak] Browser TTS error, restarting listening");
+        };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         const response = await fetch(OPENAI_TTS_API_URL, {
@@ -263,14 +269,23 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         
         setupAudioAnalysis();
         
-        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onended = () => {
+          onSpeechEnd();
+          URL.revokeObjectURL(audioUrl);
+          console.log("[speak] OpenAI TTS audio ended, restarting listening");
+        };
+        audioRef.current.onerror = () => {
+          onSpeechEnd();
+          URL.revokeObjectURL(audioUrl);
+          console.log("[speak] OpenAI TTS audio error, restarting listening");
+        };
         await audioRef.current.play();
         runAudioAnalysis();
       } else {
         onSpeechEnd();
       }
-    } catch {
+    } catch (e) {
+      console.error("[speak] Error during speech synthesis:", e);
       onSpeechEnd();
     }
   }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
