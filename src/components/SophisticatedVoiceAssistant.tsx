@@ -67,7 +67,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
-  // Sync refs with state
+  // Sincronizar refs com estados
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
@@ -286,7 +286,82 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     ]
   );
 
-  // Definição da função checkAndRequestMicPermission dentro do componente
+  // Função initializeAssistant declarada corretamente
+  const initializeAssistant = useCallback(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showError("Reconhecimento de voz não suportado.");
+      setMicPermission("denied");
+      return;
+    }
+    recognitionRef.current = new SpeechRecognition();
+    recognitionRef.current.continuous = true;
+    recognitionRef.current.interimResults = false;
+    recognitionRef.current.lang = "pt-BR";
+
+    recognitionRef.current.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognitionRef.current.onend = () => {
+      setIsListening(false);
+      if (isTransitioningToSpeakRef.current) return;
+      if (!stopPermanentlyRef.current) startListening();
+    };
+
+    recognitionRef.current.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        setMicPermission("denied");
+        showError("Permissão para microfone negada.");
+      }
+    };
+
+    recognitionRef.current.onresult = (event) => {
+      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
+
+      if (isOpenRef.current) {
+        if (closePhrases.some((phrase) => transcript.includes(phrase))) {
+          setIsOpen(false);
+          setAiResponse("");
+          setTranscript("");
+          stopSpeaking();
+          return;
+        }
+        const matchedAction = clientActionsRef.current.find((a) =>
+          transcript.includes(a.trigger_phrase.toLowerCase())
+        );
+        if (matchedAction) {
+          executeClientAction(matchedAction);
+          return;
+        }
+        runConversation(transcript);
+      } else {
+        if (
+          settingsRef.current &&
+          transcript.includes(settingsRef.current.activation_phrase.toLowerCase())
+        ) {
+          setIsOpen(true);
+          const messageToSpeak =
+            hasBeenActivatedRef.current && settingsRef.current.continuation_phrase
+              ? settingsRef.current.continuation_phrase
+              : settingsRef.current.welcome_message;
+          speak(messageToSpeak, () => {
+            if (isOpenRef.current) {
+              startListening();
+            }
+          });
+          setHasBeenActivated(true);
+        }
+      }
+    };
+
+    if ("speechSynthesis" in window) {
+      synthRef.current = window.speechSynthesis;
+    }
+  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking]);
+
+  // Função checkAndRequestMicPermission declarada corretamente
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
       const permissionStatus = await navigator.permissions.query({
@@ -328,11 +403,48 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     }
   }, [micPermission, checkAndRequestMicPermission, speak, startListening]);
 
-  // Resto do componente permanece igual...
+  useEffect(() => {
+    if (activationTrigger > activationTriggerRef.current) {
+      activationTriggerRef.current = activationTrigger;
+      if (hasUserInteracted) {
+        handleManualActivation();
+      } else {
+        console.log(
+          "Ignorando ativação por palavra porque o usuário ainda não interagiu."
+        );
+      }
+    }
+  }, [activationTrigger, handleManualActivation, hasUserInteracted]);
 
-  // ... (outros métodos e useEffects)
+  useEffect(() => {
+    if (isLoading) return;
+    checkAndRequestMicPermission();
+    return () => {
+      stopPermanentlyRef.current = true;
+      recognitionRef.current?.abort();
+      if (synthRef.current?.speaking) synthRef.current.cancel();
+    };
+  }, [isLoading, checkAndRequestMicPermission]);
 
-  // Renderização
+  useEffect(() => {
+    const fetchPowersAndActions = async () => {
+      const { data: powersData, error: powersError } = await supabase
+        .from("powers")
+        .select("*");
+      if (powersError) showError("Erro ao carregar os poderes da IA.");
+      else setPowers(powersData || []);
+
+      const { data: actionsData, error: actionsError } = await supabase
+        .from("client_actions")
+        .select("*");
+      if (actionsError) showError("Erro ao carregar ações do cliente.");
+      else setClientActions(actionsData || []);
+    };
+    fetchPowersAndActions();
+  }, []);
+
+  if (isLoading || !settings) return null;
+
   return (
     <>
       <MicrophonePermissionModal
