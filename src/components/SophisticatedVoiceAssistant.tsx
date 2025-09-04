@@ -79,7 +79,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
-  // Sincronizar refs com estados
+  // Sync refs with state
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
@@ -658,12 +658,9 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
           isOpen ? "opacity-100" : "opacity-0"
         )}
       >
-        <div className="absolute inset-0 -z-10">
-          <div
-            className={cn(
-              "absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl"
-            )}
-          />
+        {/* Background and Nebula */}
+        <div className="absolute inset-0 -z-10 pointer-events-none">
+          <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
           <AIScene audioIntensity={audioIntensity} />
         </div>
 
@@ -671,9 +668,9 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
         <div />
 
         {/* AI Response Area */}
-        <div className="text-center select-text pointer-events-auto">
+        <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
           {displayedAiResponse && (
-            <div className="bg-black/40 backdrop-blur-md border border-purple-500/20 rounded-xl p-6 max-w-2xl mx-auto shadow-lg shadow-purple-500/20">
+            <div className="bg-black/40 backdrop-blur-md border border-purple-500/20 rounded-xl p-6 shadow-lg shadow-purple-500/20">
               <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">
                 {displayedAiResponse}
               </p>
