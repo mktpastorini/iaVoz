@@ -480,8 +480,11 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
           settingsRef.current &&
           transcript.includes(settingsRef.current.activation_phrase.toLowerCase())
         ) {
+          // Permite ativar por voz mesmo sem interação, mas bloqueia fala até interação
           if (!hasUserInteractedRef.current) {
-            showError("Por favor, clique no botão do microfone uma vez para ativar o áudio.");
+            setIsOpen(true);
+            setAiResponse("Por favor, clique no botão do microfone para ativar o áudio.");
+            setTranscript("");
             return;
           }
           setIsOpen(true);
@@ -654,8 +657,8 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
 
       <div
         className={cn(
-          "fixed inset-0 z-[9999] flex flex-col items-center justify-between p-8 transition-opacity duration-500 pointer-events-none",
-          isOpen ? "opacity-100" : "opacity-0"
+          "fixed inset-0 z-[9999] flex flex-col items-center justify-between p-8 transition-opacity duration-500",
+          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         )}
       >
         {/* Background and Nebula */}
