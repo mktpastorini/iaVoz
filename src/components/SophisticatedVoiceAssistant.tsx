@@ -83,95 +83,55 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
 );
 
 // 3D Orb Component
-const OrbParticles = () => {
-  const particlesRef = useRef<THREE.Points>(null);
-  const linesRef = useRef<THREE.LineSegments>(null);
+const ParticleOrb = () => {
+  const pointsRef = useRef<THREE.Points>(null);
 
-  const [positions, connections] = useMemo(() => {
-    const particleCount = 3000;
-    const radius = 2.5;
-    const pos = new Float32Array(particleCount * 3);
-    const con: number[] = [];
-
-    for (let i = 0; i < particleCount; i++) {
+  const particles = useMemo(() => {
+    const count = 5000;
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(2 * Math.random() - 1);
-      const x = radius * Math.sin(phi) * Math.cos(theta);
-      const y = radius * Math.sin(phi) * Math.sin(theta);
-      const z = radius * Math.cos(phi);
-      pos[i * 3] = x;
-      pos[i * 3 + 1] = y;
-      pos[i * 3 + 2] = z;
+      const r = 1.5 + Math.random() * 0.2;
+      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3 + 2] = r * Math.cos(phi);
     }
-
-    for (let i = 0; i < particleCount; i++) {
-      for (let j = i + 1; j < particleCount; j++) {
-        const p1 = new THREE.Vector3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
-        const p2 = new THREE.Vector3(pos[j * 3], pos[j * 3 + 1], pos[j * 3 + 2]);
-        if (p1.distanceTo(p2) < 0.2) {
-          con.push(i, j);
-        }
-      }
-    }
-
-    return [pos, con];
+    return positions;
   }, []);
 
   useFrame((state) => {
     const { clock } = state;
-    if (particlesRef.current) {
-      particlesRef.current.rotation.y = clock.getElapsedTime() * 0.1;
-      particlesRef.current.rotation.x = clock.getElapsedTime() * 0.05;
-    }
-    if (linesRef.current) {
-      linesRef.current.rotation.y = clock.getElapsedTime() * 0.1;
-      linesRef.current.rotation.x = clock.getElapsedTime() * 0.05;
+    if (pointsRef.current) {
+      pointsRef.current.rotation.y = clock.getElapsedTime() * 0.05;
+      pointsRef.current.rotation.x = clock.getElapsedTime() * 0.03;
+      
+      // Pulsation effect
+      const scale = 1 + Math.sin(clock.getElapsedTime() * 0.5) * 0.05;
+      pointsRef.current.scale.set(scale, scale, scale);
     }
   });
 
   return (
-    <>
-      <points ref={particlesRef}>
-        <bufferGeometry attach="geometry">
-          <bufferAttribute
-            attach="attributes-position"
-            count={positions.length / 3}
-            array={positions}
-            itemSize={3}
-          />
-        </bufferGeometry>
-        <pointsMaterial
-          attach="material"
-          size={0.008}
-          color="#87CEEB"
-          sizeAttenuation
-          transparent
-          opacity={0.8}
+    <points ref={pointsRef}>
+      <bufferGeometry attach="geometry">
+        <bufferAttribute
+          attach="attributes-position"
+          count={particles.length / 3}
+          array={particles}
+          itemSize={3}
         />
-      </points>
-      <lineSegments ref={linesRef}>
-        <bufferGeometry attach="geometry">
-          <bufferAttribute
-            attach="attributes-position"
-            count={positions.length / 3}
-            array={positions}
-            itemSize={3}
-          />
-          <bufferAttribute
-            attach="index"
-            count={connections.length}
-            array={new Uint16Array(connections)}
-            itemSize={1}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial
-          attach="material"
-          color="#FFFFFF"
-          transparent
-          opacity={0.05}
-        />
-      </lineSegments>
-    </>
+      </bufferGeometry>
+      <pointsMaterial
+        attach="material"
+        size={0.015}
+        color="#4ddcff"
+        blending={THREE.AdditiveBlending}
+        transparent
+        depthWrite={false}
+        sizeAttenuation
+      />
+    </points>
   );
 };
 
@@ -621,7 +581,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
         >
           <ambientLight intensity={0.5} />
           <pointLight position={[10, 10, 10]} />
-          <OrbParticles />
+          <ParticleOrb />
           <EffectComposer>
             <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
           </EffectComposer>
