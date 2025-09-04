@@ -87,7 +87,8 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
-  const fetchSettings = useCallback(async () => {
+  const fetchAllAssistantData = useCallback(async () => {
+    setIsLoading(true);
     try {
       let settingsData = null;
       const currentSession = sessionRef.current;
@@ -122,10 +123,19 @@ const SophisticatedVoiceAssistant = () => {
       }
       
       setSettings(settingsData);
+
+      const { data: powersData } = await supabase.from("powers").select("*");
+      setPowers(powersData || []);
+      const { data: actionsData } = await supabase.from("client_actions").select("*");
+      setClientActions(actionsData || []);
+
       return settingsData;
     } catch (error) {
-      console.error("Erro ao carregar configurações:", error);
+      console.error("Erro ao carregar dados do assistente:", error);
+      showError("Erro ao carregar dados do assistente.");
       return null;
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
@@ -259,7 +269,7 @@ const SophisticatedVoiceAssistant = () => {
       }
     } catch (e) {
       showError(`Erro na síntese de voz: ${e.message}`);
-      onSpeechEnd();
+      onEndCallback?.(); // Ensure callback is called even on error
     }
   }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
@@ -293,7 +303,15 @@ const SophisticatedVoiceAssistant = () => {
     stopListening();
     const newMessageHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
     setMessageHistory(newMessageHistory);
-    const systemPrompt = replacePlaceholders(settingsRef.current.system_prompt, systemVariablesRef.current);
+    
+    const currentSettings = settingsRef.current;
+    if (!currentSettings || !currentSettings.openai_api_key) {
+      speak("Desculpe, a chave da API OpenAI não está configurada. Por favor, configure-a nas configurações.");
+      showError("Chave da API OpenAI não configurada.");
+      return;
+    }
+
+    const systemPrompt = replacePlaceholders(currentSettings.system_prompt, systemVariablesRef.current);
     
     const tools = powersRef.current.map(power => {
       let parameters = { type: "object", properties: {} };
@@ -306,7 +324,7 @@ const SophisticatedVoiceAssistant = () => {
             parameters = schema;
           }
         } catch (e) {
-          console.warn(`Invalid parameters_schema for power "${power.name}". Using default.`);
+          console.warn(`Invalid parameters_schema for power "${power.name}". Using default. Error: ${e.message}`);
         }
       }
       return {
@@ -322,15 +340,19 @@ const SophisticatedVoiceAssistant = () => {
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${settingsRef.current.openai_api_key}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
         body: JSON.stringify({
-          model: settingsRef.current.ai_model,
-          messages: [{ role: "system", content: systemPrompt }, ...newMessageHistory.slice(-settingsRef.current.conversation_memory_length)],
+          model: currentSettings.ai_model,
+          messages: [{ role: "system", content: systemPrompt }, ...newMessageHistory.slice(-currentSettings.conversation_memory_length)],
           tools: tools.length > 0 ? tools : undefined,
           tool_choice: tools.length > 0 ? "auto" : undefined,
         }),
       });
-      if (!response.ok) { const errorData = await response.json(); throw new Error(`OpenAI API Error: ${errorData.error.message}`); }
+      if (!response.ok) { 
+        const errorData = await response.json(); 
+        console.error("OpenAI API Error Response:", errorData);
+        throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); 
+      }
       const data = await response.json();
       const aiMessage = data.choices[0].message;
       setMessageHistory(prev => [...prev, aiMessage]);
@@ -347,22 +369,28 @@ const SophisticatedVoiceAssistant = () => {
             setMessageHistory(nextMessageHistory);
             const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
               method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${settingsRef.current.openai_api_key}` },
-              body: JSON.stringify({ model: settingsRef.current.ai_model, messages: [{ role: "system", content: systemPrompt }, ...nextMessageHistory.slice(-settingsRef.current.conversation_memory_length)] }),
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+              body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...nextMessageHistory.slice(-currentSettings.conversation_memory_length)] }),
             });
-            if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error.message}`); }
+            if (!secondResponse.ok) { 
+              const errorData = await secondResponse.json(); 
+              console.error("OpenAI API Second Call Error Response:", errorData);
+              throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); 
+            }
             const secondData = await secondResponse.json();
             const finalMessage = secondData.choices[0].message;
             setMessageHistory(prev => [...prev, finalMessage]);
             speak(finalMessage.content);
-          } catch (e) {
-            speak(`Desculpe, houve um erro ao executar a função ${functionName}.`);
+          } catch (e: any) {
+            console.error("Error executing tool or second OpenAI call:", e);
+            speak(`Desculpe, houve um erro ao executar a função ${functionName}. Detalhes: ${e.message}`);
           }
         });
       } else {
         speak(aiMessage.content);
       }
-    } catch (e) {
+    } catch (e: any) {
+      console.error("Error in runConversation:", e);
       showError(`Erro na conversa: ${e.message}`);
       speak("Desculpe, não consegui processar sua solicitação.");
     }
@@ -415,7 +443,7 @@ const SophisticatedVoiceAssistant = () => {
         runConversation(transcript);
       } else {
         if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
-          fetchSettings().then((latestSettings) => {
+          fetchAllAssistantData().then((latestSettings) => {
             if (!latestSettings) return;
             setIsOpen(true);
             const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
@@ -426,7 +454,7 @@ const SophisticatedVoiceAssistant = () => {
       }
     };
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchSettings]);
+  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
@@ -465,7 +493,7 @@ const SophisticatedVoiceAssistant = () => {
     if (micPermission !== "granted") {
       checkAndRequestMicPermission();
     } else {
-      fetchSettings().then((latestSettings) => {
+      fetchAllAssistantData().then((latestSettings) => {
         if (!latestSettings) return;
         setIsOpen(true);
         const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
@@ -473,7 +501,7 @@ const SophisticatedVoiceAssistant = () => {
         setHasBeenActivated(true);
       });
     }
-  }, [micPermission, checkAndRequestMicPermission, speak, startListening, fetchSettings]);
+  }, [micPermission, checkAndRequestMicPermission, speak, startListening, fetchAllAssistantData]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
@@ -487,8 +515,7 @@ const SophisticatedVoiceAssistant = () => {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
     }
     
-    fetchSettings().then(() => {
-      setIsLoading(false);
+    fetchAllAssistantData().then(() => {
       checkAndRequestMicPermission();
     });
 
@@ -497,17 +524,7 @@ const SophisticatedVoiceAssistant = () => {
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
     };
-  }, [fetchSettings, checkAndRequestMicPermission]);
-
-  useEffect(() => {
-    const fetchPowersAndActions = async () => {
-      const { data: powersData } = await supabase.from("powers").select("*");
-      setPowers(powersData || []);
-      const { data: actionsData } = await supabase.from("client_actions").select("*");
-      setClientActions(actionsData || []);
-    };
-    fetchPowersAndActions();
-  }, []);
+  }, [fetchAllAssistantData, checkAndRequestMicPermission]);
 
   if (isLoading || !settings) return null;
 
