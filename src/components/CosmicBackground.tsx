@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { ShootingStars } from "./ShootingStars";
+import { Comets } from "./Comets";
+import { NebulaWisps } from "./NebulaWisps";
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
@@ -34,6 +35,7 @@ export const CosmicBackground: React.FC = () => {
 
   return (
     <>
+      {/* Camada 1: Estrelas distantes */}
       <points ref={starDustRef}>
         <bufferGeometry>
           <bufferAttribute
@@ -51,7 +53,12 @@ export const CosmicBackground: React.FC = () => {
           depthWrite={false}
         />
       </points>
-      <ShootingStars />
+      
+      {/* Camada 2: Névoa de Nebulosa */}
+      <NebulaWisps />
+
+      {/* Camada 3: Cometas com Rastros */}
+      <Comets />
     </>
   );
 };
