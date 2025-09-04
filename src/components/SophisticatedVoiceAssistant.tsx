@@ -203,7 +203,7 @@ const ParticleOrb = () => {
       uv[i * 2] = 0.5;
       uv[i * 2 + 1] = (y + radius) / (2 * radius);
     }
-    return { particles, uv };
+    return { particles: positions, uv };
   }, []);
 
   const uniforms = useMemo(() => ({
