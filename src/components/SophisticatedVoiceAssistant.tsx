@@ -19,6 +19,11 @@ import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 
+// Simplex noise for smooth randomness
+import SimplexNoise from "simplex-noise";
+
+const simplex = new SimplexNoise();
+
 // Interfaces
 interface Settings {
   welcome_message?: string;
@@ -75,7 +80,7 @@ const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 
 // Modal Component
 const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?: string; onClose: () => void }) => (
-  <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70" onClick={onClose}>
+  <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90" onClick={onClose}>
     <div className="relative max-w-4xl max-h-full p-4" onClick={(e) => e.stopPropagation()}>
       <img src={imageUrl} alt={altText || 'Imagem exibida pelo assistente'} className="max-w-full max-h-[80vh] rounded-lg shadow-2xl" />
       <Button variant="destructive" size="icon" className="absolute -top-2 -right-2 rounded-full" onClick={onClose}><X /></Button>
@@ -85,7 +90,7 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
 
 // --- 3D Components ---
 
-// Layer 3: Cosmic Background
+// Layer 3: Cosmic Background (darker, subtle)
 const CosmicBackground = () => {
   const { particles } = useMemo(() => {
     const count = 500;
@@ -106,7 +111,7 @@ const CosmicBackground = () => {
   const pointsRef = useRef<THREE.Points>(null);
   useFrame(() => {
     if (pointsRef.current) {
-      pointsRef.current.rotation.y += 0.00015;
+      pointsRef.current.rotation.y += 0.0001;
     }
   });
 
@@ -123,21 +128,20 @@ const CosmicBackground = () => {
       <pointsMaterial
         attach="material"
         size={0.012}
-        color="#111111"
+        color="#0a0a0a"
         transparent
-        opacity={0.25}
+        opacity={0.15}
       />
     </points>
   );
 };
 
-// Layer 2: Energy Lines
+// Layer 2: Energy Lines (more vibrant, pulsating)
 const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRomCurve3, speed: number, birth: number, thickness: number }) => {
   const materialRef = useRef<THREE.MeshBasicMaterial>(null);
   useFrame(({ clock }) => {
     if (materialRef.current) {
-      // Opacidade pulsante mais forte para efeito energético
-      materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.6 + 0.4;
+      materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.7 + 0.3;
     }
   });
 
@@ -155,25 +159,25 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
   );
 };
 
-const EnergyLines = ({ count = 15, radius = 1.5 }) => {
+const EnergyLines = ({ count = 20, radius = 1.5 }) => {
   const lines = useMemo(() => {
     return Array.from({ length: count }, () => {
-      // Pontos que se estendem bem além do núcleo para efeito expansivo
+      // Points extending beyond the core for expansion effect
       const points = Array.from({ length: 12 }, (_, i) => {
         const direction = new THREE.Vector3(
           (Math.random() - 0.5),
           (Math.random() - 0.5),
           (Math.random() - 0.5)
         ).normalize();
-        // Para os primeiros pontos, dentro do raio, para os últimos, estender além do raio (até 3x)
-        const scalar = i < 6 ? radius * (0.3 + Math.random() * 0.7) : radius * (2.0 + Math.random() * 2.0);
+        // First half inside radius, second half extending 2x to 4x radius
+        const scalar = i < 6 ? radius * (0.3 + Math.random() * 0.7) : radius * (2 + Math.random() * 2);
         return direction.multiplyScalar(scalar);
       });
       return {
         curve: new THREE.CatmullRomCurve3(points),
-        speed: Math.random() * 0.5 + 0.3,
+        speed: Math.random() * 0.6 + 0.3,
         birth: Math.random() * 10,
-        thickness: 0.003 + Math.random() * 0.01,
+        thickness: 0.003 + Math.random() * 0.012,
       };
     });
   }, [count, radius]);
@@ -187,7 +191,7 @@ const EnergyLines = ({ count = 15, radius = 1.5 }) => {
   );
 };
 
-// Layer 1: Main Particle Orb with expanding and stretching particles
+// Layer 1: Main Particle Orb with organic expansion and random movement
 const ParticleOrb = () => {
   const shaderMaterialRef = useRef<THREE.ShaderMaterial>(null);
 
@@ -215,8 +219,8 @@ const ParticleOrb = () => {
   const uniforms = useMemo(() => ({
     uTime: { value: 0.0 },
     uPulseIntensity: { value: 0.0 },
-    u_colorA: { value: new THREE.Color("#00FFFF") },
-    u_colorB: { value: new THREE.Color("#FF00FF") },
+    u_colorA: { value: new THREE.Color("#00ffff") },
+    u_colorB: { value: new THREE.Color("#ff00ff") },
   }), []);
 
   const vertexShader = `
@@ -224,6 +228,7 @@ const ParticleOrb = () => {
     uniform float uPulseIntensity;
     varying vec2 vUv;
 
+    // Simplex noise functions (omitted here for brevity, same as before)
     vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
     float mod289(float x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
     vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
@@ -287,27 +292,25 @@ const ParticleOrb = () => {
       vUv = uv;
       vec3 pos = position;
 
-      // Direção do vetor normalizado para alongar partículas para fora
       vec3 dir = normalize(pos);
 
-      // Tempo para animação
-      float t = uTime * 0.8;
+      float t = uTime * 0.3;
 
-      // Distância base da esfera
-      float baseRadius = 1.5;
+      // Movimento orgânico aleatório com simplex noise para expansão lenta e não repetitiva
+      float noiseX = snoise(vec4(pos * 0.5, t));
+      float noiseY = snoise(vec4(pos * 0.5 + 100.0, t));
+      float noiseZ = snoise(vec4(pos * 0.5 + 200.0, t));
 
-      // Expansão oscilante para simular partículas saindo e esticando
-      float expansion = 0.5 + 1.0 * abs(sin(t + pos.x * 10.0 + pos.y * 10.0 + pos.z * 10.0));
+      vec3 noiseVec = vec3(noiseX, noiseY, noiseZ);
 
-      // Alongamento na direção do vetor normal
-      pos += dir * expansion * uPulseIntensity * 1.2;
+      // Expansão oscilante com ruído para movimento aleatório
+      float expansion = 0.5 + 0.8 * abs(sin(t + pos.x * 5.0 + pos.y * 5.0 + pos.z * 5.0));
 
-      // Ruído para dar aspecto nebuloso e instável
-      float displacement = snoise(vec4(pos * 0.8, uTime * 0.5));
-      pos += dir * displacement * 0.25 * (0.5 + uPulseIntensity * 0.5);
+      // Aplica expansão e ruído para esticar partículas para fora
+      pos += dir * expansion * uPulseIntensity * 1.5 + noiseVec * 0.3 * uPulseIntensity;
 
       gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-      gl_PointSize = 2.5 + 3.0 * uPulseIntensity;
+      gl_PointSize = 2.5 + 4.0 * uPulseIntensity;
     }
   `;
 
@@ -325,7 +328,7 @@ const ParticleOrb = () => {
     const { clock } = state;
     if (shaderMaterialRef.current) {
       shaderMaterialRef.current.uniforms.uTime.value = clock.elapsedTime;
-      shaderMaterialRef.current.uniforms.uPulseIntensity.value = 0.7 + 0.7 * Math.sin(clock.elapsedTime * 1.5);
+      shaderMaterialRef.current.uniforms.uPulseIntensity.value = 0.7 + 0.7 * Math.sin(clock.elapsedTime * 0.7);
     }
   });
 
@@ -787,7 +790,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
       
       <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-950 via-gray-900 to-purple-950" onClick={() => setIsOpen(false)}></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-black via-gray-900 to-purple-950" onClick={() => setIsOpen(false)}></div>
         
         <div className="absolute inset-0 z-10 pointer-events-none">
           <Canvas camera={{ position: [0, 0, 5], fov: 75 }}>
@@ -799,7 +802,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
             <EnergyLines />
 
             <EffectComposer>
-              <Bloom intensity={3.0} luminanceThreshold={0.04} mipmapBlur={true} />
+              <Bloom intensity={3.5} luminanceThreshold={0.03} mipmapBlur={true} />
             </EffectComposer>
           </Canvas>
         </div>
