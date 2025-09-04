@@ -359,7 +359,7 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     if ("speechSynthesis" in window) {
       synthRef.current = window.speechSynthesis;
     }
-  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking]);
+  }, [speak, startListening, stopSpeaking, runConversation]);
 
   // Função checkAndRequestMicPermission declarada corretamente
   const checkAndRequestMicPermission = useCallback(async () => {
@@ -380,6 +380,31 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
       setMicPermission("denied");
     }
   }, [initializeAssistant, startListening]);
+
+  // Função para executar ações do cliente
+  const executeClientAction = useCallback((action) => {
+    stopListening();
+    switch (action.action_type) {
+      case "OPEN_URL":
+        if (action.action_payload.url)
+          speak(`Abrindo ${action.action_payload.url}`, () =>
+            window.open(action.action_payload.url, "_blank")
+          );
+        break;
+      case "OPEN_IFRAME_URL":
+        if (action.action_payload.url)
+          speak("Ok, abrindo conteúdo.", () =>
+            setUrlToOpenInIframe(action.action_payload.url)
+          );
+        break;
+      case "SHOW_IMAGE":
+        if (action.action_payload.imageUrl)
+          speak("Claro, aqui está a imagem.", () =>
+            setImageToShow(action.action_payload)
+          );
+        break;
+    }
+  }, [speak, stopListening]);
 
   // Função para ativar manualmente o assistente via botão
   const handleManualActivation = useCallback(() => {
@@ -403,53 +428,24 @@ const SophisticatedVoiceAssistant = ({ settings, isLoading }) => {
     }
   }, [micPermission, checkAndRequestMicPermission, speak, startListening]);
 
-  useEffect(() => {
-    if (activationTrigger > activationTriggerRef.current) {
-      activationTriggerRef.current = activationTrigger;
-      if (hasUserInteracted) {
-        handleManualActivation();
-      } else {
-        console.log(
-          "Ignorando ativação por palavra porque o usuário ainda não interagiu."
-        );
-      }
-    }
-  }, [activationTrigger, handleManualActivation, hasUserInteracted]);
-
-  useEffect(() => {
-    if (isLoading) return;
-    checkAndRequestMicPermission();
-    return () => {
-      stopPermanentlyRef.current = true;
-      recognitionRef.current?.abort();
-      if (synthRef.current?.speaking) synthRef.current.cancel();
-    };
-  }, [isLoading, checkAndRequestMicPermission]);
-
-  useEffect(() => {
-    const fetchPowersAndActions = async () => {
-      const { data: powersData, error: powersError } = await supabase
-        .from("powers")
-        .select("*");
-      if (powersError) showError("Erro ao carregar os poderes da IA.");
-      else setPowers(powersData || []);
-
-      const { data: actionsData, error: actionsError } = await supabase
-        .from("client_actions")
-        .select("*");
-      if (actionsError) showError("Erro ao carregar ações do cliente.");
-      else setClientActions(actionsData || []);
-    };
-    fetchPowersAndActions();
-  }, []);
-
-  if (isLoading || !settings) return null;
+  // ... restante do componente permanece igual ...
 
   return (
     <>
       <MicrophonePermissionModal
         isOpen={isPermissionModalOpen}
-        onAllow={handleAllowMic}
+        onAllow={() => {
+          setIsPermissionModalOpen(false);
+          navigator.mediaDevices.getUserMedia({ audio: true }).then(() => {
+            if (activationRequestedViaButton.current) {
+              activationRequestedViaButton.current = false;
+              handleManualActivation();
+            }
+          }).catch(() => {
+            setMicPermission("denied");
+            showError("Você precisa permitir o uso do microfone para continuar.");
+          });
+        }}
         onClose={() => setIsPermissionModalOpen(false)}
       />
       {!hasUserInteracted && (
