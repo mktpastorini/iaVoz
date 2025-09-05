@@ -10,7 +10,6 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
 
   useFrame(({ clock }) => {
     if (materialRef.current) {
-      // Fade in and out effect
       materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.4 + 0.1;
     }
   });
@@ -28,47 +27,46 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
   );
 };
 
-export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ count = 6, radius = 2.5 }) => {
+export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ count = 12, radius = 2.5 }) => {
   const lines = useMemo(() => {
     return Array.from({ length: count }, () => {
       const points = [];
-      const numPoints = 30;
+      const numPoints = 20;
       
-      // Start near the core
       const startPoint = new THREE.Vector3(
-        (Math.random() - 0.5) * 0.1,
-        (Math.random() - 0.5) * 0.1,
-        (Math.random() - 0.5) * 0.1
+        THREE.MathUtils.randFloatSpread(radius * 2),
+        THREE.MathUtils.randFloatSpread(radius * 2),
+        THREE.MathUtils.randFloatSpread(radius * 2)
+      ).normalize().multiplyScalar(radius * 0.5 + Math.random() * radius);
+
+      const endPoint = new THREE.Vector3(
+        THREE.MathUtils.randFloatSpread(radius * 2),
+        THREE.MathUtils.randFloatSpread(radius * 2),
+        THREE.MathUtils.randFloatSpread(radius * 2)
+      ).normalize().multiplyScalar(radius * 0.5 + Math.random() * radius);
+
+      const controlPoint1 = new THREE.Vector3().lerpVectors(startPoint, endPoint, 0.25).add(
+        new THREE.Vector3(
+          THREE.MathUtils.randFloatSpread(radius),
+          THREE.MathUtils.randFloatSpread(radius),
+          THREE.MathUtils.randFloatSpread(radius)
+        )
       );
-      points.push(startPoint);
+      const controlPoint2 = new THREE.Vector3().lerpVectors(startPoint, endPoint, 0.75).add(
+        new THREE.Vector3(
+          THREE.MathUtils.randFloatSpread(radius),
+          THREE.MathUtils.randFloatSpread(radius),
+          THREE.MathUtils.randFloatSpread(radius)
+        )
+      );
 
-      // Create a path that extends outwards
-      let currentPoint = startPoint.clone();
-      const direction = new THREE.Vector3(
-          (Math.random() - 0.5) * 2,
-          (Math.random() - 0.5) * 2,
-          (Math.random() - 0.5) * 2
-      ).normalize();
-
-      for (let i = 1; i < numPoints; i++) {
-        const stepLength = (radius / numPoints) * (1 + (i/numPoints)); // Accelerate outwards
-        const wobble = new THREE.Vector3(
-          (Math.random() - 0.5) * 0.5,
-          (Math.random() - 0.5) * 0.5,
-          (Math.random() - 0.5) * 0.5
-        );
-        direction.add(wobble).normalize();
-        
-        const nextPoint = currentPoint.clone().add(direction.clone().multiplyScalar(stepLength));
-        points.push(nextPoint);
-        currentPoint = nextPoint;
-      }
-
+      const curve = new THREE.CubicBezierCurve3(startPoint, controlPoint1, controlPoint2, endPoint);
+      
       return {
-        curve: new THREE.CatmullRomCurve3(points),
+        curve: curve,
         speed: Math.random() * 0.5 + 0.2,
         birth: Math.random() * 10,
-        thickness: 0.005 + Math.random() * 0.008,
+        thickness: 0.002 + Math.random() * 0.003, // Thinner lines
       };
     });
   }, [count, radius]);
