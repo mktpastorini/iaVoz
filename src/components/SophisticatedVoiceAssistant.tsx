@@ -205,34 +205,17 @@ const SophisticatedVoiceAssistant = () => {
   }, []);
 
   const speak = useCallback(async (text, onEndCallback) => {
-    console.log("[SophisticatedVoiceAssistant] speak function called with text:", text);
     const currentSettings = settingsRef.current;
     if (!text || !currentSettings) {
       onEndCallback?.();
       return;
     }
 
-    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-      setAiResponse("O áudio está bloqueado. Clique na tela para ativar o som e eu repetirei a mensagem.");
-      const unlockAndRetry = async () => {
-        await audioContextRef.current.resume();
-        window.removeEventListener('click', unlockAndRetry);
-        window.removeEventListener('touchstart', unlockAndRetry);
-        speak(text, onEndCallback);
-      };
-      window.addEventListener('click', unlockAndRetry, { once: true });
-      window.addEventListener('touchstart', unlockAndRetry, { once: true });
-      return;
-    }
-
     const onSpeechEnd = () => {
-      // Always clear the timeout when onSpeechEnd is called, regardless of the source
       if (speechTimeoutRef.current) {
         clearTimeout(speechTimeoutRef.current);
         speechTimeoutRef.current = null;
       }
-
-      // Only update UI state if we were actually in a speaking state
       if (isSpeakingRef.current) {
         isSpeakingRef.current = false;
         setIsSpeaking(false);
@@ -241,26 +224,21 @@ const SophisticatedVoiceAssistant = () => {
           animationFrameRef.current = null;
         }
         setAudioIntensity(0);
-      } else {
-        console.warn("[SophisticatedVoiceAssistant] onSpeechEnd called but not in speaking state. UI state already reset.");
-      }
-
-      onEndCallback?.(); // Always call the callback to ensure flow continues
-
-      // Always attempt to restart listening if the assistant is open and not permanently stopped
-      if (isOpenRef.current && !stopPermanentlyRef.current) {
-        startListening();
+        onEndCallback?.();
+        if (isOpenRef.current && !stopPermanentlyRef.current) {
+          startListening();
+        }
       }
     };
 
+    stopSpeaking();
+    stopListening();
+
     isSpeakingRef.current = true;
     setIsSpeaking(true);
-    stopListening();
-    stopSpeaking(); // Clear any previous speech and timeout
+    setAiResponse(text);
 
-    // Set a fallback timeout to ensure onSpeechEnd is called even if native events fail
-    // Estimate time based on text length, plus a buffer
-    const estimatedSpeechTime = (text.length / 15) * 1000 + 3000; // ~15 chars/sec + 3s buffer
+    const estimatedSpeechTime = (text.length / 15) * 1000 + 3000;
     speechTimeoutRef.current = setTimeout(onSpeechEnd, estimatedSpeechTime);
 
     try {
@@ -268,10 +246,7 @@ const SophisticatedVoiceAssistant = () => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
-        utterance.onerror = (e) => {
-          console.error("SpeechSynthesis Error:", e);
-          onSpeechEnd();
-        };
+        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         const response = await fetch(OPENAI_TTS_API_URL, {
@@ -289,82 +264,48 @@ const SophisticatedVoiceAssistant = () => {
         await audioRef.current.play();
         runAudioAnalysis();
       } else {
-        console.warn("[SophisticatedVoiceAssistant] No valid voice model or OpenAI API key for speech. Falling back to onSpeechEnd.");
-        onSpeechEnd(); // If no speech, just call onSpeechEnd immediately
+        onSpeechEnd();
       }
     } catch (e: any) {
       showError(`Erro na síntese de voz: ${e.message}`);
-      onEndCallback?.(); // Ensure callback is called even on error
+      onSpeechEnd();
     }
   }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
   const executeClientAction = useCallback((action) => {
     stopListening();
     speak("Ok, executando.", () => {
-      console.log("[SophisticatedVoiceAssistant] onEndCallback for 'Ok, executando.' reached. Executing action:", action.action_type, action.action_payload);
       switch (action.action_type) {
-        case 'OPEN_URL':
-          window.open(action.action_payload.url, '_blank', 'noopener,noreferrer');
-          // startListening will be called by speak's onSpeechEnd
-          break;
-        case 'SHOW_IMAGE':
-          setImageToShow(action.action_payload);
-          // startListening will be called by ImageModal's onClose
-          break;
-        case 'OPEN_IFRAME_URL':
-          setUrlToOpenInIframe(action.action_payload.url);
-          // startListening will be called by UrlIframeModal's onClose
-          break;
-        default:
-          console.warn(`[SophisticatedVoiceAssistant] Unknown client action type: ${action.action_type}`);
-          // startListening will be called by speak's onSpeechEnd
-          break;
+        case 'OPEN_URL': window.open(action.action_payload.url, '_blank', 'noopener,noreferrer'); break;
+        case 'SHOW_IMAGE': setImageToShow(action.action_payload); break;
+        case 'OPEN_IFRAME_URL': setUrlToOpenInIframe(action.action_payload.url); break;
+        default: console.warn(`Unknown client action type: ${action.action_type}`); break;
       }
     });
   }, [speak, stopListening]);
 
   const runConversation = useCallback(async (userMessage) => {
-    if (!userMessage) {
-      console.warn("runConversation called with empty message. Ignoring.");
-      return;
-    }
+    if (!userMessage) return;
     setTranscript(userMessage);
+    setAiResponse("");
     stopListening();
-    const newMessageHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
-    setMessageHistory(newMessageHistory);
+
+    const currentHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
+    setMessageHistory(currentHistory);
     
     const currentSettings = settingsRef.current;
     if (!currentSettings || !currentSettings.openai_api_key) {
-      speak("Desculpe, a chave da API OpenAI não está configurada. Por favor, configure-a nas configurações.");
+      const errorMsg = "Desculpe, a chave da API OpenAI não está configurada.";
+      speak(errorMsg);
       showError("Chave da API OpenAI não configurada.");
       return;
     }
 
     const systemPrompt = replacePlaceholders(currentSettings.system_prompt, systemVariablesRef.current);
-    
-    const tools = powersRef.current.map(power => {
-      let parameters = { type: "object", properties: {} };
-      if (power.parameters_schema) {
-        try {
-          const schema = typeof power.parameters_schema === 'string'
-            ? JSON.parse(power.parameters_schema)
-            : power.parameters_schema;
-          if (typeof schema === 'object' && schema !== null) {
-            parameters = schema;
-          }
-        } catch (e) {
-          console.warn(`[SophisticatedVoiceAssistant] Invalid parameters_schema for power "${power.name}". Using default. Error: ${e.message}`);
-        }
-      }
-      return {
-        type: "function",
-        function: {
-          name: power.name,
-          description: power.description,
-          parameters: parameters,
-        },
-      };
-    });
+    const tools = powersRef.current.map(power => ({
+      type: "function",
+      function: { name: power.name, description: power.description, parameters: power.parameters_schema || { type: "object", properties: {} } },
+    }));
 
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -372,64 +313,55 @@ const SophisticatedVoiceAssistant = () => {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
         body: JSON.stringify({
           model: currentSettings.ai_model,
-          messages: [{ role: "system", content: systemPrompt }, ...newMessageHistory.slice(-currentSettings.conversation_memory_length)],
+          messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
           tools: tools.length > 0 ? tools : undefined,
           tool_choice: tools.length > 0 ? "auto" : undefined,
         }),
       });
-      if (!response.ok) { 
-        const errorData = await response.json(); 
-        console.error("OpenAI API Error Response:", errorData);
-        throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); 
-      }
+      if (!response.ok) { const errorData = await response.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
       const data = await response.json();
       const aiMessage = data.choices[0].message;
-      setMessageHistory(prev => [...prev, aiMessage]);
+
+      const newHistoryWithAIMessage = [...currentHistory, aiMessage];
+      setMessageHistory(newHistoryWithAIMessage);
+
       if (aiMessage.tool_calls) {
         const toolCall = aiMessage.tool_calls[0];
         const functionName = toolCall.function.name;
         const functionArgs = JSON.parse(toolCall.function.arguments);
+        
         speak(`Ok, vou usar a função ${functionName}.`, async () => {
-          console.log(`[SophisticatedVoiceAssistant] onEndCallback for 'Ok, vou usar a função ${functionName}.' reached. Invoking Supabase function: ${functionName}`);
           try {
             const { data: functionResult, error: functionError } = await supabase.functions.invoke(functionName, { body: functionArgs });
-            if (functionError) {
-              console.error(`[SophisticatedVoiceAssistant] Error invoking Supabase function '${functionName}':`, functionError);
-              throw functionError;
-            }
+            if (functionError) throw functionError;
+
             const toolResponseMessage = { tool_call_id: toolCall.id, role: "tool", name: functionName, content: JSON.stringify(functionResult) };
-            const nextMessageHistory = [...newMessageHistory, aiMessage, toolResponseMessage];
-            setMessageHistory(nextMessageHistory);
+            const historyForSecondCall = [...newHistoryWithAIMessage, toolResponseMessage];
+            setMessageHistory(historyForSecondCall);
+
             const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-              body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...nextMessageHistory.slice(-currentSettings.conversation_memory_length)] }),
+              body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)] }),
             });
-            if (!secondResponse.ok) { 
-              const errorData = await secondResponse.json(); 
-              console.error("OpenAI API Second Call Error Response:", errorData);
-              throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); 
-            }
+            if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
             const secondData = await secondResponse.json();
             const finalMessage = secondData.choices[0].message;
             setMessageHistory(prev => [...prev, finalMessage]);
-            speak(finalMessage.content, () => {
-              console.log("[SophisticatedVoiceAssistant] onEndCallback for final AI content reached.");
-            });
+            speak(finalMessage.content);
           } catch (e: any) {
-            console.error("Error executing tool or second OpenAI call:", e);
-            speak(`Desculpe, houve um erro ao executar a função ${functionName}. Detalhes: ${e.message}`);
+            const errorMsg = `Desculpe, houve um erro ao executar a função ${functionName}.`;
+            speak(errorMsg);
           }
         });
       } else {
-        speak(aiMessage.content, () => {
-          console.log("[SophisticatedVoiceAssistant] onEndCallback for AI content reached.");
-        });
+        speak(aiMessage.content);
       }
     } catch (e: any) {
       console.error("Error in runConversation:", e);
+      const errorMsg = `Desculpe, não consegui processar sua solicitação.`;
+      speak(errorMsg);
       showError(`Erro na conversa: ${e.message}`);
-      speak("Desculpe, não consegui processar sua solicitação.");
     }
   }, [speak, stopListening]);
 
@@ -444,16 +376,11 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.continuous = true;
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
-    recognitionRef.current.onstart = () => {
-      isListeningRef.current = true;
-      setIsListening(true);
-    };
+    recognitionRef.current.onstart = () => { isListeningRef.current = true; setIsListening(true); };
     recognitionRef.current.onend = () => {
       isListeningRef.current = false;
       setIsListening(false);
-      if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
-        startListening();
-      }
+      if (!isSpeakingRef.current && !stopPermanentlyRef.current) startListening();
     };
     recognitionRef.current.onerror = (e) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
@@ -484,7 +411,7 @@ const SophisticatedVoiceAssistant = () => {
             if (!latestSettings) return;
             setIsOpen(true);
             const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-            speak(messageToSpeak, () => { if (isOpenRef.current) startListening(); });
+            speak(messageToSpeak);
             setHasBeenActivated(true);
           });
         }
@@ -534,7 +461,7 @@ const SophisticatedVoiceAssistant = () => {
         if (!latestSettings) return;
         setIsOpen(true);
         const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-        speak(messageToSpeak, () => { if (isOpenRef.current) startListening(); });
+        speak(messageToSpeak);
         setHasBeenActivated(true);
       });
     }
