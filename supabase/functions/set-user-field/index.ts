@@ -3,40 +3,36 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'content-type',
 };
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders, status: 204 });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized: Missing Authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Cria um cliente Supabase autenticado com o token do usuário
+    // Criar cliente Supabase sem autenticação
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
+      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     );
 
-    // Obtém o usuário a partir do cliente autenticado
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    // Usar workspace padrão (primeiro workspace criado)
+    const { data: defaultWorkspace, error: dwError } = await supabaseClient
+      .from('workspaces')
+      .select('id')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single();
 
-    if (authError || !user) {
-      console.error("[set-user-field] Auth error:", authError?.message);
-      return new Response(JSON.stringify({ error: 'Unauthorized: Invalid token' }), {
-        status: 401,
+    if (dwError || !defaultWorkspace) {
+      return new Response(JSON.stringify({ error: 'No workspace available' }), {
+        status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+    const workspaceId = defaultWorkspace.id;
 
     const { field_name, field_value } = await req.json();
 
@@ -47,23 +43,6 @@ serve(async (req) => {
       });
     }
 
-    const { data: workspaceMember, error: wmError } = await supabaseClient
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single();
-
-    if (wmError || !workspaceMember) {
-      console.error("[set-user-field] Error fetching workspace for user:", wmError?.message);
-      return new Response(JSON.stringify({ error: 'User not associated with a workspace' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const workspaceId = workspaceMember.workspace_id;
-
     const { data: fieldDefinition, error: fieldDefError } = await supabaseClient
       .from('user_data_fields')
       .select('id, type')
@@ -73,7 +52,6 @@ serve(async (req) => {
       .single();
 
     if (fieldDefError || !fieldDefinition) {
-      console.error("[set-user-field] Error fetching field definition:", fieldDefError?.message);
       return new Response(JSON.stringify({ error: `Field '${field_name}' not found or not defined for this workspace.` }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -110,7 +88,7 @@ serve(async (req) => {
       .from('user_field_values')
       .upsert(
         {
-          user_id: user.id,
+          user_id: 'anonymous', // No user id since no auth, or omit user_id if possible
           field_id: fieldDefinition.id,
           value: formattedValue,
           updated_at: new Date().toISOString(),
@@ -119,7 +97,6 @@ serve(async (req) => {
       );
 
     if (upsertError) {
-      console.error("[set-user-field] Error upserting field value:", upsertError?.message);
       return new Response(JSON.stringify({ error: 'Error saving field value.' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -134,9 +111,8 @@ serve(async (req) => {
       }
     );
   } catch (error) {
-    console.error('[set-user-field] Edge Function Error:', error);
     return new Response(
-      JSON.stringify({ error: error.message, stack: error.stack }),
+      JSON.stringify({ error: error.message }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
