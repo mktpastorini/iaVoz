@@ -248,7 +248,6 @@ const SophisticatedVoiceAssistant = () => {
           setIsPermissionModalOpen(false);
           setMicPermission("granted");
           if (!recognitionRef.current) {
-            // Inicializa reconhecimento se ainda não inicializado
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (SpeechRecognition) {
               recognitionRef.current = new SpeechRecognition();
