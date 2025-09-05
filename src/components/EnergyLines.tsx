@@ -10,7 +10,8 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
 
   useFrame(({ clock }) => {
     if (materialRef.current) {
-      materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.4 + 0.1;
+      // Reduced opacity for a subtler effect
+      materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.2 + 0.05;
     }
   });
 
@@ -66,7 +67,8 @@ export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ cou
         curve: curve,
         speed: Math.random() * 0.5 + 0.2,
         birth: Math.random() * 10,
-        thickness: 0.002 + Math.random() * 0.003, // Thinner lines
+        // Reduced thickness for a subtler effect
+        thickness: 0.0015 + Math.random() * 0.002,
       };
     });
   }, [count, radius]);

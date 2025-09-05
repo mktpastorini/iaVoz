@@ -529,7 +529,7 @@ const SophisticatedVoiceAssistant = () => {
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
           {displayedAiResponse && (
-            <div className="bg-black/40 backdrop-blur-md border border-purple-500/20 rounded-xl p-6 shadow-lg shadow-purple-500/20">
+            <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)]">
               <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">
                 {displayedAiResponse}
               </p>
@@ -539,7 +539,7 @@ const SophisticatedVoiceAssistant = () => {
             <p className="text-gray-200 text-lg mt-4 drop-shadow-md">{transcript}</p>
           )}
         </div>
-        <div className="flex items-center justify-center gap-4 p-4 bg-black/30 backdrop-blur-md rounded-2xl border border-cyan-400/20 shadow-lg shadow-cyan-500/20 pointer-events-auto">
+        <div className="flex items-center justify-center gap-4 p-4 bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-2xl shadow-[0_0_20px_rgba(0,255,255,0.1)] pointer-events-auto">
           <AudioVisualizer isSpeaking={isSpeaking} />
           <div className="p-4 bg-cyan-900/20 rounded-full border border-cyan-400/30">
             <Mic className={cn("h-8 w-8 text-cyan-300 transition-all", isListening && "text-cyan-200 animate-pulse drop-shadow-[0_0_8px_rgba(0,255,255,0.8)]")} />

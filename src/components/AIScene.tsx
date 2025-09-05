@@ -36,8 +36,8 @@ export const AIScene: React.FC<AISceneProps> = ({ audioIntensity, isMobile }) =>
 
       <EffectComposer>
         <Bloom
-          intensity={2.0}
-          luminanceThreshold={0.1}
+          intensity={2.8}
+          luminanceThreshold={0.05}
           luminanceSmoothing={0.2}
           mipmapBlur
         />
