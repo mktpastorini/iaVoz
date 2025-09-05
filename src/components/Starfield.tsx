@@ -65,18 +65,16 @@ const StarLayer = ({ count, radius, size, color, isCometLayer }: { count: number
   );
 };
 
-export const Starfield: React.FC<{ layers?: any[] }> = ({ layers }) => {
-  // Permite passar camadas customizadas para performance
-  const defaultLayers = [
-    { count: 800, radius: 30, size: 0.02, color: '#557799' },
-    { count: 120, radius: 25, size: 0.04, color: '#FFFFFF' },
-    { count: 8, radius: 20, size: 0.08, color: '#FFFFDD', isCometLayer: true },
+export const Starfield: React.FC = () => {
+  const layers = [
+    { count: 2000, radius: 30, size: 0.02, color: '#557799' },
+    { count: 300, radius: 25, size: 0.04, color: '#FFFFFF' },
+    { count: 20, radius: 20, size: 0.08, color: '#FFFFDD', isCometLayer: true },
   ];
-  const usedLayers = layers || defaultLayers;
 
   return (
     <group>
-      {usedLayers.map((layer, i) => (
+      {layers.map((layer, i) => (
         <StarLayer key={i} {...layer} />
       ))}
     </group>

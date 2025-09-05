@@ -27,7 +27,7 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
   );
 };
 
-export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ count = 4, radius = 1.5 }) => {
+export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ count = 10, radius = 1.5 }) => {
   const lines = useMemo(() => {
     return Array.from({ length: count }, (_, index) => {
       const isInternal = index < count / 2;
@@ -39,9 +39,11 @@ export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ cou
         ).normalize();
         
         if (isInternal) {
+          // Arcos de plasma internos
           const scalar = radius * (0.1 + Math.random() * 0.8);
           return direction.multiplyScalar(scalar);
         } else {
+          // Raios que emanam do centro para fora
           const scalar = (i / 14) * radius * (2 + Math.random() * 2);
           return direction.multiplyScalar(scalar);
         }

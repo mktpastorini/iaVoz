@@ -4,22 +4,24 @@ import React, { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
-export const NebulaWisps: React.FC<{ particleCount?: number }> = ({ particleCount = 300 }) => {
+export const NebulaWisps: React.FC = () => {
+  const particleCount = 1000;
   const pointsRef = useRef<THREE.Points>(null);
 
   const { positions, colors } = useMemo(() => {
     const pos = new Float32Array(particleCount * 3);
     const col = new Float32Array(particleCount * 3);
     const colorOptions = [
-      new THREE.Color("#7B2FF7"),
-      new THREE.Color("#FF00FF"),
-      new THREE.Color("#00FFFF"),
+      new THREE.Color("#7B2FF7"), // Roxo
+      new THREE.Color("#FF00FF"), // Magenta
+      new THREE.Color("#00FFFF"), // Ciano
     ];
 
     for (let i = 0; i < particleCount; i++) {
+      // Distribute in a wide, flat-ish area
       pos[i * 3] = THREE.MathUtils.randFloatSpread(40);
       pos[i * 3 + 1] = THREE.MathUtils.randFloatSpread(20);
-      pos[i * 3 + 2] = THREE.MathUtils.randFloatSpread(10) - 15;
+      pos[i * 3 + 2] = THREE.MathUtils.randFloatSpread(10) - 15; // Positioned behind the orb
 
       const c = colorOptions[Math.floor(Math.random() * colorOptions.length)];
       col[i * 3] = c.r;
