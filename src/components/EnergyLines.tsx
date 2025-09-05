@@ -10,8 +10,16 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
 
   useFrame(({ clock }) => {
     if (materialRef.current) {
-      // Reduced opacity for a subtler effect
-      materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.2 + 0.05;
+      // Opacity pulsates between 0.05 and 0.25
+      const baseOpacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.2 + 0.05;
+
+      // Additional subtle "running light" effect using a sine wave offset by position along curve
+      // We'll simulate this by modulating opacity with a slow moving wave
+      const time = clock.elapsedTime;
+      const pulseSpeed = 0.5; // slow pulse speed
+      const pulse = (Math.sin(time * pulseSpeed + birth * 5) + 1) / 2 * 0.3; // 0 to 0.3
+
+      materialRef.current.opacity = THREE.MathUtils.clamp(baseOpacity + pulse, 0, 0.5);
     }
   });
 
@@ -67,7 +75,6 @@ export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ cou
         curve: curve,
         speed: Math.random() * 0.5 + 0.2,
         birth: Math.random() * 10,
-        // Reduced thickness for a subtler effect
         thickness: 0.0015 + Math.random() * 0.002,
       };
     });
