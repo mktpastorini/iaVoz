@@ -329,6 +329,7 @@ const SophisticatedVoiceAssistant = () => {
 
       if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
         speak(`Ok, um momento enquanto eu acesso minhas ferramentas.`, async () => {
+            let toolResponses;
             try {
                 const toolPromises = aiMessage.tool_calls.map(async (toolCall) => {
                     const functionName = toolCall.function.name;
@@ -344,25 +345,32 @@ const SophisticatedVoiceAssistant = () => {
                         content: JSON.stringify(functionResult),
                     };
                 });
-
-                const toolResponses = await Promise.all(toolPromises);
-                const historyForSecondCall = [...newHistoryWithAIMessage, ...toolResponses];
-                setMessageHistory(historyForSecondCall);
-
-                const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-                    body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)] }),
-                });
-                if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
-                const secondData = await secondResponse.json();
-                const finalMessage = secondData.choices[0].message;
-                setMessageHistory(prev => [...prev, finalMessage]);
-                speak(finalMessage.content);
+                toolResponses = await Promise.all(toolPromises);
             } catch (e: any) {
+                // Se qualquer ferramenta falhar, crie uma resposta de erro para cada chamada de ferramenta
+                toolResponses = aiMessage.tool_calls.map(toolCall => ({
+                    tool_call_id: toolCall.id,
+                    role: "tool",
+                    name: toolCall.function.name,
+                    content: JSON.stringify({ error: "Failed to execute tool.", details: e.message }),
+                }));
                 const errorMsg = `Desculpe, houve um erro ao usar minhas ferramentas.`;
                 speak(errorMsg);
             }
+
+            const historyForSecondCall = [...newHistoryWithAIMessage, ...toolResponses];
+            setMessageHistory(historyForSecondCall);
+
+            const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+                body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)] }),
+            });
+            if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
+            const secondData = await secondResponse.json();
+            const finalMessage = secondData.choices[0].message;
+            setMessageHistory(prev => [...prev, finalMessage]);
+            speak(finalMessage.content);
         });
       } else {
         speak(aiMessage.content);
