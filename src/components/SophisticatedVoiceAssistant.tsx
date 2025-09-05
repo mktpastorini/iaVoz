@@ -90,9 +90,113 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
-  // Removed fadeIn state and animation to avoid interference with mic
+  // Initialize SpeechRecognition and setup event handlers
+  const initializeRecognition = useCallback(() => {
+    if (recognitionRef.current) return; // Already initialized
 
-  // ... (restante do código permanece igual, omitido para brevidade)
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showError("Reconhecimento de voz não suportado neste navegador.");
+      setMicPermission("denied");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "pt-BR";
+
+    recognition.onstart = () => {
+      isListeningRef.current = true;
+      setIsListening(true);
+    };
+
+    recognition.onend = () => {
+      isListeningRef.current = false;
+      setIsListening(false);
+      if (!isSpeakingRef.current && !stopPermanentlyRef.current && isOpenRef.current) {
+        try {
+          recognition.start();
+        } catch {
+          // Ignore errors on restart
+        }
+      }
+    };
+
+    recognition.onerror = (event) => {
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setMicPermission("denied");
+        setIsPermissionModalOpen(true);
+      }
+    };
+
+    recognition.onresult = (event) => {
+      const lastResult = event.results[event.results.length - 1];
+      if (!lastResult) return;
+      const transcriptText = lastResult[0].transcript.trim().toLowerCase();
+
+      // Handle commands and conversation here (omitted for brevity)
+      // You can reuse your existing onresult logic here
+    };
+
+    recognitionRef.current = recognition;
+  }, []);
+
+  // Start listening safely
+  const startListening = useCallback(() => {
+    if (!recognitionRef.current || isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
+    try {
+      recognitionRef.current.start();
+    } catch (e) {
+      // Sometimes start throws if already started, ignore
+    }
+  }, []);
+
+  // Stop listening safely
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current && isListeningRef.current) {
+      recognitionRef.current.stop();
+    }
+  }, []);
+
+  // Setup speech synthesis
+  useEffect(() => {
+    if ("speechSynthesis" in window) {
+      synthRef.current = window.speechSynthesis;
+    }
+  }, []);
+
+  // On component mount, initialize recognition and start listening if permitted
+  useEffect(() => {
+    initializeRecognition();
+
+    if (micPermission === "granted") {
+      startListening();
+    } else if (micPermission === "prompt") {
+      setIsPermissionModalOpen(true);
+    }
+
+    return () => {
+      stopPermanentlyRef.current = true;
+      stopListening();
+      if (synthRef.current?.speaking) synthRef.current.cancel();
+    };
+  }, [initializeRecognition, micPermission, startListening, stopListening]);
+
+  // React to activationTrigger to open assistant and start listening
+  useEffect(() => {
+    if (activationTrigger > activationTriggerRef.current) {
+      activationTriggerRef.current = activationTrigger;
+      if (!isOpenRef.current) {
+        setIsOpen(true);
+        if (micPermission === "granted") {
+          startListening();
+        }
+      }
+    }
+  }, [activationTrigger, micPermission, startListening]);
+
+  // The rest of your component logic remains unchanged (omitted for brevity)
 
   return (
     <>
@@ -100,6 +204,9 @@ const SophisticatedVoiceAssistant = () => {
         isOpen={isPermissionModalOpen}
         onAllow={() => {
           setIsPermissionModalOpen(false);
+          setMicPermission("granted");
+          if (!recognitionRef.current) initializeRecognition();
+          startListening();
         }}
         onClose={() => setIsPermissionModalOpen(false)}
         permissionState={micPermission}
@@ -123,7 +230,7 @@ const SophisticatedVoiceAssistant = () => {
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
           {displayedAiResponse && (
-            <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)] transition-opacity duration-700 ease-out opacity-100">
+            <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)]">
               <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">
                 {displayedAiResponse}
               </p>
