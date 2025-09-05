@@ -325,34 +325,42 @@ const SophisticatedVoiceAssistant = () => {
       const newHistoryWithAIMessage = [...currentHistory, aiMessage];
       setMessageHistory(newHistoryWithAIMessage);
 
-      if (aiMessage.tool_calls) {
-        const toolCall = aiMessage.tool_calls[0];
-        const functionName = toolCall.function.name;
-        const functionArgs = JSON.parse(toolCall.function.arguments);
-        
-        speak(`Ok, vou usar a função ${functionName}.`, async () => {
-          try {
-            const { data: functionResult, error: functionError } = await supabase.functions.invoke(functionName, { body: functionArgs });
-            if (functionError) throw functionError;
+      if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
+        speak(`Ok, um momento enquanto eu acesso minhas ferramentas.`, async () => {
+            try {
+                const toolPromises = aiMessage.tool_calls.map(async (toolCall) => {
+                    const functionName = toolCall.function.name;
+                    const functionArgs = JSON.parse(toolCall.function.arguments);
+                    const { data: functionResult, error: functionError } = await supabase.functions.invoke(functionName, { body: functionArgs });
+                    if (functionError) {
+                        throw new Error(`Error invoking function ${functionName}: ${functionError.message}`);
+                    }
+                    return {
+                        tool_call_id: toolCall.id,
+                        role: "tool",
+                        name: functionName,
+                        content: JSON.stringify(functionResult),
+                    };
+                });
 
-            const toolResponseMessage = { tool_call_id: toolCall.id, role: "tool", name: functionName, content: JSON.stringify(functionResult) };
-            const historyForSecondCall = [...newHistoryWithAIMessage, toolResponseMessage];
-            setMessageHistory(historyForSecondCall);
+                const toolResponses = await Promise.all(toolPromises);
+                const historyForSecondCall = [...newHistoryWithAIMessage, ...toolResponses];
+                setMessageHistory(historyForSecondCall);
 
-            const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-              body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)] }),
-            });
-            if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
-            const secondData = await secondResponse.json();
-            const finalMessage = secondData.choices[0].message;
-            setMessageHistory(prev => [...prev, finalMessage]);
-            speak(finalMessage.content);
-          } catch (e: any) {
-            const errorMsg = `Desculpe, houve um erro ao executar a função ${functionName}.`;
-            speak(errorMsg);
-          }
+                const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+                    body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)] }),
+                });
+                if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
+                const secondData = await secondResponse.json();
+                const finalMessage = secondData.choices[0].message;
+                setMessageHistory(prev => [...prev, finalMessage]);
+                speak(finalMessage.content);
+            } catch (e: any) {
+                const errorMsg = `Desculpe, houve um erro ao usar minhas ferramentas.`;
+                speak(errorMsg);
+            }
         });
       } else {
         speak(aiMessage.content);
