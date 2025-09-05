@@ -290,7 +290,7 @@ const SophisticatedVoiceAssistant = () => {
         runAudioAnalysis();
       } else {
         console.warn("[SophisticatedVoiceAssistant] No valid voice model or OpenAI API key for speech. Falling back to onSpeechEnd.");
-        onEndCallback?.(); // If no speech, just call onEndCallback immediately
+        onSpeechEnd(); // If no speech, just call onSpeechEnd immediately
       }
     } catch (e: any) {
       showError(`Erro na síntese de voz: ${e.message}`);
@@ -330,11 +330,9 @@ const SophisticatedVoiceAssistant = () => {
     }
     setTranscript(userMessage);
     stopListening();
-
-    // Start building the conversation history for this turn
-    let currentConversationHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
-    setMessageHistory(currentConversationHistory); // Update state immediately with user message
-
+    const newMessageHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
+    setMessageHistory(newMessageHistory);
+    
     const currentSettings = settingsRef.current;
     if (!currentSettings || !currentSettings.openai_api_key) {
       speak("Desculpe, a chave da API OpenAI não está configurada. Por favor, configure-a nas configurações.");
@@ -369,33 +367,28 @@ const SophisticatedVoiceAssistant = () => {
     });
 
     try {
-      // First OpenAI call
-      const firstResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
         body: JSON.stringify({
           model: currentSettings.ai_model,
-          messages: [{ role: "system", content: systemPrompt }, ...currentConversationHistory.slice(-currentSettings.conversation_memory_length)],
+          messages: [{ role: "system", content: systemPrompt }, ...newMessageHistory.slice(-currentSettings.conversation_memory_length)],
           tools: tools.length > 0 ? tools : undefined,
           tool_choice: tools.length > 0 ? "auto" : undefined,
         }),
       });
-      if (!firstResponse.ok) { 
-        const errorData = await firstResponse.json(); 
-        console.error("OpenAI API Error Response (first call):", errorData);
+      if (!response.ok) { 
+        const errorData = await response.json(); 
+        console.error("OpenAI API Error Response:", errorData);
         throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); 
       }
-      const firstData = await firstResponse.json();
-      const aiMessage = firstData.choices[0].message;
-      
-      currentConversationHistory = [...currentConversationHistory, aiMessage]; // Add AI message to local history
-      setMessageHistory(currentConversationHistory); // Update state with AI message
-
+      const data = await response.json();
+      const aiMessage = data.choices[0].message;
+      setMessageHistory(prev => [...prev, aiMessage]);
       if (aiMessage.tool_calls) {
         const toolCall = aiMessage.tool_calls[0];
         const functionName = toolCall.function.name;
         const functionArgs = JSON.parse(toolCall.function.arguments);
-        
         speak(`Ok, vou usar a função ${functionName}.`, async () => {
           console.log(`[SophisticatedVoiceAssistant] onEndCallback for 'Ok, vou usar a função ${functionName}.' reached. Invoking Supabase function: ${functionName}`);
           try {
@@ -405,15 +398,12 @@ const SophisticatedVoiceAssistant = () => {
               throw functionError;
             }
             const toolResponseMessage = { tool_call_id: toolCall.id, role: "tool", name: functionName, content: JSON.stringify(functionResult) };
-            
-            currentConversationHistory = [...currentConversationHistory, toolResponseMessage]; // Add tool message to local history
-            setMessageHistory(currentConversationHistory); // Update state with tool message
-
-            // Second OpenAI call
+            const nextMessageHistory = [...newMessageHistory, aiMessage, toolResponseMessage];
+            setMessageHistory(nextMessageHistory);
             const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-              body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...currentConversationHistory.slice(-currentSettings.conversation_memory_length)] }),
+              body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...nextMessageHistory.slice(-currentSettings.conversation_memory_length)] }),
             });
             if (!secondResponse.ok) { 
               const errorData = await secondResponse.json(); 
@@ -422,10 +412,7 @@ const SophisticatedVoiceAssistant = () => {
             }
             const secondData = await secondResponse.json();
             const finalMessage = secondData.choices[0].message;
-            
-            currentConversationHistory = [...currentConversationHistory, finalMessage]; // Add final AI message to local history
-            setMessageHistory(currentConversationHistory); // Update state with final AI message
-
+            setMessageHistory(prev => [...prev, finalMessage]);
             speak(finalMessage.content, () => {
               console.log("[SophisticatedVoiceAssistant] onEndCallback for final AI content reached.");
             });
@@ -444,7 +431,7 @@ const SophisticatedVoiceAssistant = () => {
       showError(`Erro na conversa: ${e.message}`);
       speak("Desculpe, não consegui processar sua solicitação.");
     }
-  }, [speak, stopListening, systemVariables, session]);
+  }, [speak, stopListening]);
 
   const initializeAssistant = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
