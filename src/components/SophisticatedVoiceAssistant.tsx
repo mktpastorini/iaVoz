@@ -536,7 +536,7 @@ const SophisticatedVoiceAssistant = () => {
             </div>
           )}
           {transcript && (
-            <p className="text-gray-400 text-lg mt-4">{transcript}</p>
+            <p className="text-gray-200 text-lg mt-4 drop-shadow-md">{transcript}</p>
           )}
         </div>
         <div className="flex items-center justify-center gap-4 p-4 bg-black/30 backdrop-blur-md rounded-2xl border border-cyan-400/20 shadow-lg shadow-cyan-500/20 pointer-events-auto">
