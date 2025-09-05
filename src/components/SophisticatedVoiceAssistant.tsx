@@ -39,7 +39,6 @@ const SophisticatedVoiceAssistant = () => {
   const [settings, setSettings] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
-  const [fadeIn, setFadeIn] = useState(false); // For fade in animation
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -91,14 +90,7 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
-  // Trigger fade in animation when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setFadeIn(true);
-    } else {
-      setFadeIn(false);
-    }
-  }, [isOpen]);
+  // Removed fadeIn state and animation to avoid interference with mic
 
   // ... (restante do código permanece igual, omitido para brevidade)
 
@@ -108,16 +100,15 @@ const SophisticatedVoiceAssistant = () => {
         isOpen={isPermissionModalOpen}
         onAllow={() => {
           setIsPermissionModalOpen(false);
-          // Additional logic if needed
         }}
         onClose={() => setIsPermissionModalOpen(false)}
         permissionState={micPermission}
       />
       {imageToShow && (
-        <ImageModal imageUrl={imageToShow.imageUrl} altText={imageToShow.altText} onClose={() => { setImageToShow(null); /* restart listening if needed */ }} />
+        <ImageModal imageUrl={imageToShow.imageUrl} altText={imageToShow.altText} onClose={() => { setImageToShow(null); }} />
       )}
       {urlToOpenInIframe && (
-        <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); /* restart listening if needed */ }} />
+        <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); }} />
       )}
       <div
         className={cn(
@@ -130,14 +121,9 @@ const SophisticatedVoiceAssistant = () => {
           <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
         </div>
         <div />
-        <div
-          className={cn(
-            "text-center select-text pointer-events-auto max-w-2xl mx-auto w-full",
-            fadeIn ? "opacity-100 transition-opacity duration-700 ease-out" : "opacity-0"
-          )}
-        >
+        <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
           {displayedAiResponse && (
-            <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)]">
+            <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)] transition-opacity duration-700 ease-out opacity-100">
               <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">
                 {displayedAiResponse}
               </p>
@@ -149,20 +135,16 @@ const SophisticatedVoiceAssistant = () => {
         </div>
         <div
           className={cn(
-            "flex items-center justify-center gap-4 p-4 bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-2xl shadow-[0_0_20px_rgba(0,255,255,0.1)] pointer-events-auto",
-            "transition-shadow duration-300",
+            "flex items-center justify-center gap-4 p-4 bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-2xl shadow-[0_0_20px_rgba(0,255,255,0.1)] pointer-events-auto transition-shadow duration-300",
             isListening ? "shadow-cyan-500/60" : "shadow-cyan-500/20"
           )}
         >
           <AudioVisualizer isSpeaking={isSpeaking} />
           <div
             className={cn(
-              "p-4 bg-cyan-900/20 rounded-full border border-cyan-400/30 cursor-pointer",
-              "transition-colors duration-300",
-              isListening ? "text-cyan-200" : "text-cyan-300",
-              "hover:text-cyan-400 hover:drop-shadow-[0_0_12px_rgba(0,255,255,0.8)]"
+              "p-4 bg-cyan-900/20 rounded-full border border-cyan-400/30 cursor-pointer transition-colors duration-300 hover:text-cyan-400 hover:drop-shadow-[0_0_12px_rgba(0,255,255,0.8)]",
+              isListening ? "text-cyan-200" : "text-cyan-300"
             )}
-            // Optional: add onClick to toggle listening if desired
           >
             <Mic className="h-8 w-8" />
           </div>
