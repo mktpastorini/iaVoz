@@ -38,9 +38,13 @@ const SophisticatedVoiceAssistant = () => {
 
   const activationTriggerRef = useRef(0);
 
+  const { settings, clientActions, isLoading, fetchAllAssistantData, runConversation, setSpeakFunction } = useAssistantAPI();
   const { speak, isSpeaking, audioIntensity, stopSpeaking } = useSpeechSynthesis(settings);
-  const { settings, clientActions, isLoading, fetchAllAssistantData, runConversation } = useAssistantAPI(speak);
   
+  useEffect(() => {
+    setSpeakFunction(speak);
+  }, [speak, setSpeakFunction]);
+
   const handleTranscript = useCallback((text) => {
     const closePhrases = ["fechar", "encerrar", "desligar", "cancelar"];
     if (isOpen) {

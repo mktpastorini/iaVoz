@@ -7,7 +7,7 @@ import { replacePlaceholders } from '@/lib/utils';
 import { useSession } from '@/contexts/SessionContext';
 import { useSystem } from '@/contexts/SystemContext';
 
-export const useAssistantAPI = (speak) => {
+export const useAssistantAPI = () => {
   const { session } = useSession();
   const { systemVariables } = useSystem();
   const [settings, setSettings] = useState(null);
@@ -15,6 +15,12 @@ export const useAssistantAPI = (speak) => {
   const [clientActions, setClientActions] = useState([]);
   const [messageHistory, setMessageHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  const speakRef = useRef(() => {});
+
+  const setSpeakFunction = useCallback((fn) => {
+    speakRef.current = fn;
+  }, []);
 
   const sessionRef = useRef(session);
   useEffect(() => { sessionRef.current = session; }, [session]);
@@ -44,7 +50,7 @@ export const useAssistantAPI = (speak) => {
     setMessageHistory(currentHistory);
 
     if (!settings.openai_api_key) {
-      speak("OpenAI API key is not configured.");
+      speakRef.current("OpenAI API key is not configured.");
       return;
     }
 
@@ -72,7 +78,7 @@ export const useAssistantAPI = (speak) => {
       setMessageHistory(prev => [...prev, aiMessage]);
 
       if (aiMessage.tool_calls) {
-        speak("Ok, one moment while I access my tools.", async () => {
+        speakRef.current("Ok, one moment while I access my tools.", async () => {
           const toolPromises = aiMessage.tool_calls.map(async (call) => {
             const { data, error } = await supabase.functions.invoke(call.function.name, { body: JSON.parse(call.function.arguments) });
             if (error) throw new Error(error.message);
@@ -91,16 +97,16 @@ export const useAssistantAPI = (speak) => {
           const secondData = await secondResponse.json();
           const finalMessage = secondData.choices[0].message;
           setMessageHistory(prev => [...prev, finalMessage]);
-          speak(finalMessage.content);
+          speakRef.current(finalMessage.content);
         });
       } else {
-        speak(aiMessage.content);
+        speakRef.current(aiMessage.content);
       }
     } catch (error) {
       console.error("Conversation error:", error);
-      speak("Sorry, I encountered an error.");
+      speakRef.current("Sorry, I encountered an error.");
     }
-  }, [settings, powers, systemVariables, messageHistory, speak]);
+  }, [settings, powers, systemVariables, messageHistory]);
 
   return {
     settings,
@@ -108,5 +114,6 @@ export const useAssistantAPI = (speak) => {
     isLoading,
     fetchAllAssistantData,
     runConversation,
+    setSpeakFunction,
   };
 };
