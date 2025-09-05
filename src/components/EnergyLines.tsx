@@ -15,7 +15,7 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
   });
 
   return (
-    <Tube args={[curve, 64, thickness, 8, false]}>
+    <Tube args={[curve, 32, thickness, 8, false]}>
       <meshBasicMaterial
         ref={materialRef}
         color="#00FFFF"

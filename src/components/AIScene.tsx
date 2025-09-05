@@ -16,10 +16,10 @@ interface AISceneProps {
 }
 
 export const AIScene: React.FC<AISceneProps> = ({ audioIntensity, isMobile }) => {
-  // Otimizações para mobile
-  const particleCount = isMobile ? 1000 : 2000;
+  // Valores otimizados para performance
+  const particleCount = isMobile ? 800 : 1500;
   const energyLinesCount = isMobile ? 3 : 6;
-  const nebulaWispsCount = isMobile ? 150 : 400;
+  const nebulaWispsCount = isMobile ? 100 : 200;
   const starfieldFactor = isMobile ? 0.3 : 1;
 
   return (
@@ -37,9 +37,9 @@ export const AIScene: React.FC<AISceneProps> = ({ audioIntensity, isMobile }) =>
 
       <EffectComposer>
         <Bloom
-          intensity={2.0}
-          luminanceThreshold={0.02}
-          luminanceSmoothing={0.1}
+          intensity={1.5}
+          luminanceThreshold={0.15}
+          luminanceSmoothing={0.2}
           mipmapBlur
         />
       </EffectComposer>
