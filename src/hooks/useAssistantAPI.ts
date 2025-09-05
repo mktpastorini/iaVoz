@@ -46,11 +46,17 @@ export const useAssistantAPI = () => {
   const runConversation = useCallback(async (userMessage) => {
     if (!userMessage || !settings) return;
 
+    const speak = speakRef.current;
+    if (typeof speak !== "function") {
+      showError("O assistente de voz ainda está carregando. Por favor, aguarde um instante e tente novamente.");
+      return;
+    }
+
     const currentHistory = [...messageHistory, { role: "user", content: userMessage }];
     setMessageHistory(currentHistory);
 
     if (!settings.openai_api_key) {
-      speakRef.current("OpenAI API key is not configured.");
+      speak("OpenAI API key is not configured.");
       return;
     }
 
@@ -78,7 +84,7 @@ export const useAssistantAPI = () => {
       setMessageHistory(prev => [...prev, aiMessage]);
 
       if (aiMessage.tool_calls) {
-        speakRef.current("Ok, one moment while I access my tools.", async () => {
+        speak("Ok, one moment while I access my tools.", async () => {
           const toolPromises = aiMessage.tool_calls.map(async (call) => {
             const { data, error } = await supabase.functions.invoke(call.function.name, { body: JSON.parse(call.function.arguments) });
             if (error) throw new Error(error.message);
@@ -97,14 +103,14 @@ export const useAssistantAPI = () => {
           const secondData = await secondResponse.json();
           const finalMessage = secondData.choices[0].message;
           setMessageHistory(prev => [...prev, finalMessage]);
-          speakRef.current(finalMessage.content);
+          speak(finalMessage.content);
         });
       } else {
-        speakRef.current(aiMessage.content);
+        speak(aiMessage.content);
       }
     } catch (error) {
       console.error("Conversation error:", error);
-      speakRef.current("Sorry, I encountered an error.");
+      speak("Sorry, I encountered an error.");
     }
   }, [settings, powers, systemVariables, messageHistory]);
 
