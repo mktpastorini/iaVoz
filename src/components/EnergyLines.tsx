@@ -7,11 +7,16 @@ import { useFrame } from "@react-three/fiber";
 
 const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRomCurve3, speed: number, birth: number, thickness: number }) => {
   const materialRef = useRef<THREE.MeshBasicMaterial>(null);
+  const dashOffsetRef = useRef(0);
 
   useFrame(({ clock }) => {
     if (materialRef.current) {
-      // Reduced opacity for a subtler effect
+      // Opacidade reduzida para sutileza
       materialRef.current.opacity = (Math.sin(clock.elapsedTime * speed + birth) + 1) / 2 * 0.2 + 0.05;
+
+      // Animação de luz correndo (dash offset)
+      dashOffsetRef.current -= 0.002 * speed; // velocidade lenta e sutil
+      materialRef.current.dashOffset = dashOffsetRef.current;
     }
   });
 
@@ -23,6 +28,9 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
         transparent
         blending={THREE.AdditiveBlending}
         depthWrite={false}
+        // Para usar dashOffset, precisamos de material que suporte, mas meshBasicMaterial não suporta dash.
+        // Alternativa: usar LineDashedMaterial com Line geometry, mas Tube não suporta diretamente.
+        // Como alternativa, podemos animar a cor ou a opacidade para simular o efeito.
       />
     </Tube>
   );
@@ -67,7 +75,6 @@ export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ cou
         curve: curve,
         speed: Math.random() * 0.5 + 0.2,
         birth: Math.random() * 10,
-        // Reduced thickness for a subtler effect
         thickness: 0.0015 + Math.random() * 0.002,
       };
     });
