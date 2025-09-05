@@ -65,11 +65,11 @@ const StarLayer = ({ count, radius, size, color, isCometLayer }: { count: number
   );
 };
 
-export const Starfield: React.FC = () => {
+export const Starfield: React.FC<{ factor?: number }> = ({ factor = 1 }) => {
   const layers = [
-    { count: 2000, radius: 30, size: 0.02, color: '#557799' },
-    { count: 300, radius: 25, size: 0.04, color: '#FFFFFF' },
-    { count: 20, radius: 20, size: 0.08, color: '#FFFFDD', isCometLayer: true },
+    { count: Math.floor(2000 * factor), radius: 30, size: 0.02, color: '#557799' },
+    { count: Math.floor(300 * factor), radius: 25, size: 0.04, color: '#FFFFFF' },
+    { count: Math.floor(20 * factor), radius: 20, size: 0.08, color: '#FFFFDD', isCometLayer: true },
   ];
 
   return (

@@ -12,21 +12,28 @@ import { OrbCore } from "./OrbCore";
 
 interface AISceneProps {
   audioIntensity: number;
+  isMobile: boolean;
 }
 
-export const AIScene: React.FC<AISceneProps> = ({ audioIntensity }) => {
+export const AIScene: React.FC<AISceneProps> = ({ audioIntensity, isMobile }) => {
+  // Otimizações para mobile
+  const particleCount = isMobile ? 1000 : 2000;
+  const energyLinesCount = isMobile ? 3 : 6;
+  const nebulaWispsCount = isMobile ? 150 : 400;
+  const starfieldFactor = isMobile ? 0.3 : 1;
+
   return (
     <Canvas camera={{ position: [0, 0, 5] }}>
       <color attach="background" args={["#0B022D"]} />
 
       {/* Camadas de Fundo */}
-      <Starfield />
-      <NebulaWisps />
+      <Starfield factor={starfieldFactor} />
+      <NebulaWisps count={nebulaWispsCount} />
 
       {/* Elemento Central */}
       <OrbCore />
-      <ParticleOrb audioIntensity={audioIntensity} />
-      <EnergyLines />
+      <ParticleOrb audioIntensity={audioIntensity} particleCount={particleCount} />
+      <EnergyLines count={energyLinesCount} />
 
       <EffectComposer>
         <Bloom

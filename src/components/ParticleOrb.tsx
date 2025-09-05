@@ -11,7 +11,7 @@ interface ParticleOrbProps {
 }
 
 export const ParticleOrb: React.FC<ParticleOrbProps> = ({
-  particleCount = 5000,
+  particleCount = 2000,
   radius = 1.5,
   audioIntensity = 0,
 }) => {

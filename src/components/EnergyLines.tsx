@@ -27,32 +27,44 @@ const EnergyLine = ({ curve, speed, birth, thickness }: { curve: THREE.CatmullRo
   );
 };
 
-export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ count = 10, radius = 1.5 }) => {
+export const EnergyLines: React.FC<{ count?: number; radius?: number }> = ({ count = 6, radius = 1.5 }) => {
   const lines = useMemo(() => {
-    return Array.from({ length: count }, (_, index) => {
-      const isInternal = index < count / 2;
-      const points = Array.from({ length: 15 }, (_, i) => {
-        const direction = new THREE.Vector3(
-          (Math.random() - 0.5),
-          (Math.random() - 0.5),
-          (Math.random() - 0.5)
-        ).normalize();
-        
-        if (isInternal) {
-          // Arcos de plasma internos
-          const scalar = radius * (0.1 + Math.random() * 0.8);
-          return direction.multiplyScalar(scalar);
-        } else {
-          // Raios que emanam do centro para fora
-          const scalar = (i / 14) * radius * (2 + Math.random() * 2);
-          return direction.multiplyScalar(scalar);
-        }
-      });
+    return Array.from({ length: count }, () => {
+      const points = [];
+      const numPoints = 20; // Mais pontos para uma curva mais suave
+      
+      // Começa perto do núcleo
+      let currentPoint = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.2,
+        (Math.random() - 0.5) * 0.2,
+        (Math.random() - 0.5) * 0.2
+      );
+      points.push(currentPoint.clone());
+
+      // Cria um caminho "errante"
+      let direction = new THREE.Vector3().subVectors(currentPoint, new THREE.Vector3(0,0,0)).normalize();
+      
+      for (let i = 1; i < numPoints; i++) {
+        // Adiciona uma "oscilação" aleatória à direção
+        const wobble = new THREE.Vector3(
+          (Math.random() - 0.5) * 0.8,
+          (Math.random() - 0.5) * 0.8,
+          (Math.random() - 0.5) * 0.8
+        );
+        direction.add(wobble).normalize();
+
+        // Move o próximo ponto ao longo da nova direção
+        const stepLength = (radius * 2) / numPoints;
+        const nextPoint = currentPoint.clone().add(direction.clone().multiplyScalar(stepLength));
+        points.push(nextPoint);
+        currentPoint = nextPoint;
+      }
+
       return {
-        curve: new THREE.CatmullRomCurve3(isInternal ? points : [new THREE.Vector3(0,0,0), ...points.slice(1)]),
+        curve: new THREE.CatmullRomCurve3(points),
         speed: Math.random() * 0.5 + 0.2,
         birth: Math.random() * 10,
-        thickness: 0.001 + Math.random() * 0.005,
+        thickness: 0.002 + Math.random() * 0.006,
       };
     });
   }, [count, radius]);

@@ -4,8 +4,8 @@ import React, { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
-export const NebulaWisps: React.FC = () => {
-  const particleCount = 1000;
+export const NebulaWisps: React.FC<{ count?: number }> = ({ count = 400 }) => {
+  const particleCount = count;
   const pointsRef = useRef<THREE.Points>(null);
 
   const { positions, colors } = useMemo(() => {

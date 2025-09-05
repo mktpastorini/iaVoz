@@ -15,11 +15,12 @@ import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import { AIScene } from "./AIScene";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 
 const ImageModal = ({ imageUrl, altText, onClose }) => (
-  <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80" onClick={onClose}>
+  <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/80" onClick={onClose}>
     <div className="relative max-w-4xl max-h-[80vh] p-4" onClick={(e) => e.stopPropagation()}>
       <img src={imageUrl} alt={altText} className="w-full h-full object-contain rounded-lg" />
       <Button variant="destructive" size="icon" className="absolute top-6 right-6 rounded-full" onClick={onClose}>
@@ -33,6 +34,7 @@ const SophisticatedVoiceAssistant = () => {
   const { session } = useSession();
   const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
+  const isMobile = useIsMobile();
 
   const [settings, setSettings] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -522,7 +524,7 @@ const SophisticatedVoiceAssistant = () => {
       >
         <div className="absolute inset-0 -z-10 pointer-events-none">
           <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
-          <AIScene audioIntensity={audioIntensity} />
+          <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
         </div>
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
