@@ -257,6 +257,7 @@ const SophisticatedVoiceAssistant = () => {
     setIsSpeaking(true);
     stopListening();
     stopSpeaking(); // Clear any previous speech and timeout
+    setAiResponse(text);
 
     // Set a fallback timeout to ensure onSpeechEnd is called even if native events fail
     // Estimate time based on text length, plus a buffer
@@ -446,36 +447,59 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, [speak, stopListening, systemVariables, session]);
 
-  const initializeAssistant = useCallback(() => {
+  // --- NEW: Dedicated useEffect for SpeechRecognition setup ---
+  useEffect(() => {
+    // Initialize SpeechSynthesis
+    synthRef.current = window.speechSynthesis;
+
+    // Initialize SpeechRecognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      showError("Reconhecimento de voz não suportado.");
+      showError("Reconhecimento de voz não suportado neste navegador.");
       setMicPermission("denied");
       return;
     }
-    recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = true;
-    recognitionRef.current.interimResults = false;
-    recognitionRef.current.lang = "pt-BR";
-    recognitionRef.current.onstart = () => {
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "pt-BR";
+
+    recognition.onstart = () => {
       isListeningRef.current = true;
       setIsListening(true);
     };
-    recognitionRef.current.onend = () => {
+
+    recognition.onend = () => {
       isListeningRef.current = false;
       setIsListening(false);
-      if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
-        startListening();
+      // Add a small delay before restarting to avoid race conditions
+      // Only restart if not speaking and not permanently stopped, and assistant is open
+      if (!isSpeakingRef.current && !stopPermanentlyRef.current && isOpenRef.current) {
+        setTimeout(() => {
+          if (!isSpeakingRef.current && !stopPermanentlyRef.current && isOpenRef.current) {
+            startListening();
+          }
+        }, 100); // Small delay
       }
     };
-    recognitionRef.current.onerror = (e) => {
+
+    recognition.onerror = (e) => {
+      console.error("SpeechRecognition Error:", e);
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         setMicPermission("denied");
         setIsPermissionModalOpen(true);
       }
+      isListeningRef.current = false; // Ensure listening state is reset on error
+      setIsListening(false);
     };
-    recognitionRef.current.onresult = (event) => {
+
+    recognition.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      if (!transcript) { // Ignore empty transcripts
+        console.warn("Empty transcript received, ignoring.");
+        return;
+      }
       const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
       if (isOpenRef.current) {
         if (closePhrases.some((phrase) => transcript.includes(phrase))) {
@@ -493,6 +517,7 @@ const SophisticatedVoiceAssistant = () => {
         runConversation(transcript);
       } else {
         if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
+          // Fetch latest settings, powers, and actions when activated
           fetchAllAssistantData().then((latestSettings) => {
             if (!latestSettings) return;
             setIsOpen(true);
@@ -503,15 +528,22 @@ const SophisticatedVoiceAssistant = () => {
         }
       }
     };
-    if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData]);
+    recognitionRef.current = recognition;
+
+    return () => {
+      stopPermanentlyRef.current = true;
+      recognitionRef.current?.abort();
+      if (synthRef.current?.speaking) synthRef.current.cancel();
+    };
+  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData]); // Dependencies for useCallback
+
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
       const permissionStatus = await navigator.permissions.query({ name: "microphone" });
       setMicPermission(permissionStatus.state);
       if (permissionStatus.state === "granted") {
-        if (!recognitionRef.current) initializeAssistant();
+        // recognitionRef.current should already be initialized by the dedicated useEffect
         startListening();
       } else {
         setIsPermissionModalOpen(true);
@@ -520,7 +552,7 @@ const SophisticatedVoiceAssistant = () => {
     } catch {
       setMicPermission("denied");
     }
-  }, [initializeAssistant, startListening]);
+  }, [startListening]); // Removed initializeAssistant from deps
 
   const handleAllowMic = useCallback(async () => {
     setIsPermissionModalOpen(false);
@@ -530,13 +562,13 @@ const SophisticatedVoiceAssistant = () => {
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       setMicPermission("granted");
-      if (!recognitionRef.current) initializeAssistant();
+      // recognitionRef.current should already be initialized by the dedicated useEffect
       startListening();
     } catch {
       setMicPermission("denied");
       setIsPermissionModalOpen(true);
     }
-  }, [initializeAssistant, startListening]);
+  }, [startListening]); // Removed initializeAssistant from deps
 
   const handleManualActivation = useCallback(() => {
     if (isOpenRef.current) return;
