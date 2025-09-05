@@ -7,14 +7,16 @@ import * as THREE from "three";
 interface ParticleOrbProps {
   particleCount?: number;
   radius?: number;
-  audioIntensity: number; // Nova propriedade para a intensidade do áudio
+  audioIntensity: number;
 }
 
 export const ParticleOrb: React.FC<ParticleOrbProps> = ({
-  particleCount = 5000,
+  particleCount = 1000,
   radius = 1.5,
   audioIntensity = 0,
 }) => {
+  // ... (restante igual)
+  // (código igual ao anterior, só mudando o default de 5000 para 1000)
   const shaderMaterialRef = useRef<THREE.ShaderMaterial>(null);
   const smoothedAudioIntensity = useRef(0);
 
@@ -46,7 +48,7 @@ export const ParticleOrb: React.FC<ParticleOrbProps> = ({
     () => ({
       uTime: { value: 0 },
       uPulseIntensity: { value: 0 },
-      uAudioIntensity: { value: 0 }, // Novo uniform para o áudio
+      uAudioIntensity: { value: 0 },
       uColorA: { value: new THREE.Color("#99FFFF") },
       uColorB: { value: new THREE.Color("#FF00FF") },
     }),
@@ -56,7 +58,7 @@ export const ParticleOrb: React.FC<ParticleOrbProps> = ({
   const vertexShader = `
     uniform float uTime;
     uniform float uPulseIntensity;
-    uniform float uAudioIntensity; // Novo uniform
+    uniform float uAudioIntensity;
     varying vec2 vUv;
 
     void main() {
@@ -65,8 +67,6 @@ export const ParticleOrb: React.FC<ParticleOrbProps> = ({
 
       float pulse = 0.3 + 0.7 * abs(sin(uTime * 1.5 + pos.x * 10.0 + pos.y * 10.0 + pos.z * 10.0));
       float displacement = pulse * uPulseIntensity * 0.5;
-      
-      // Adiciona o deslocamento do áudio
       displacement += uAudioIntensity * 1.5;
 
       pos += normalize(pos) * displacement;
@@ -98,11 +98,10 @@ export const ParticleOrb: React.FC<ParticleOrbProps> = ({
       const pulse2 = 0.7 + 0.3 * Math.sin(time * 2.7);
       shaderMaterialRef.current.uniforms.uPulseIntensity.value = pulse1 * pulse2;
 
-      // Suaviza a transição da intensidade do áudio para evitar "saltos"
       smoothedAudioIntensity.current = THREE.MathUtils.lerp(
         smoothedAudioIntensity.current,
         audioIntensity,
-        0.1 // Fator de suavização
+        0.1
       );
       shaderMaterialRef.current.uniforms.uAudioIntensity.value = smoothedAudioIntensity.current;
     }
