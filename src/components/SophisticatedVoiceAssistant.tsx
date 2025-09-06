@@ -90,6 +90,13 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
+  // Função para executar ação do cliente (placeholder)
+  const executeClientAction = useCallback((action) => {
+    console.log("[executeClientAction] Executando ação do cliente:", action);
+    // Aqui você pode implementar a lógica para abrir URL, mostrar imagem, etc.
+    // Por enquanto, só loga no console.
+  }, []);
+
   // ... (restante do código permanece igual)
 
   const initializeAssistant = useCallback(() => {
