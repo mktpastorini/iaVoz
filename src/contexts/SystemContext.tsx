@@ -74,11 +74,11 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
     const fetchPowers = async () => {
       console.log(`[SystemContext] Loading powers for workspace ${effectiveWorkspace.id}...`);
       try {
+        // Removido filtro .eq('enabled', true) pois coluna não existe em powers
         const { data: powersData, error: powersError } = await supabase
           .from('powers')
           .select('*')
           .eq('workspace_id', effectiveWorkspace.id)
-          .eq('enabled', true)
           .order('created_at', { ascending: true });
 
         if (powersError) {
