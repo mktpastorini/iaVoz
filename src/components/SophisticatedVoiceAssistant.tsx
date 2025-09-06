@@ -34,30 +34,18 @@ const SophisticatedVoiceAssistant = () => {
   const settingsRef = useRef(settings);
   const powersRef = useRef(powers);
   const isSpeakingRef = useRef(isSpeaking);
-  const isOpenRef = useRef(isOpen);
+  const isListeningRef = useRef(isListening);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { powersRef.current = powers; }, [powers]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
-  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
 
   const logAction = (message: string, data?: any) => {
-    console.groupCollapsed(`[Assistant] ${message}`);
-    if (data !== undefined) console.log(data);
-    console.groupEnd();
+    console.log(`[Assistant] ${message}`, data !== undefined ? data : "");
   };
-
-  const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListening) {
-      try {
-        recognitionRef.current.start();
-      } catch (e) {
-        logAction("Recognition start error.", e);
-      }
-    }
-  }, [isListening]);
 
   const speak = useCallback((text: string, onEndCallback?: () => void) => {
     logAction("Speaking:", text);
@@ -65,24 +53,30 @@ const SophisticatedVoiceAssistant = () => {
       onEndCallback?.();
       return;
     }
-    if (recognitionRef.current) recognitionRef.current.stop();
+    
     setIsSpeaking(true);
     setAiResponse(text);
 
-    const onSpeechEnd = () => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'pt-BR';
+    
+    utterance.onstart = () => {
+      recognitionRef.current?.stop();
+    };
+
+    utterance.onend = () => {
       logAction("Finished speaking.");
       setIsSpeaking(false);
       onEndCallback?.();
-      // Do not automatically restart listening here, onend handler will do it.
     };
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'pt-BR';
-    utterance.onend = onSpeechEnd;
+    
     utterance.onerror = (e) => {
       logAction("Speech error", e);
-      onSpeechEnd();
+      setIsSpeaking(false);
+      onEndCallback?.();
     };
+    
+    window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   }, []);
 
@@ -144,10 +138,7 @@ const SophisticatedVoiceAssistant = () => {
 
   const requestMicPermission = useCallback(() => {
     navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(() => {
-        setMicPermission("granted");
-        setIsPermissionModalOpen(false);
-      })
+      .then(() => setMicPermission("granted"))
       .catch(() => setMicPermission("denied"));
   }, []);
 
@@ -172,24 +163,19 @@ const SophisticatedVoiceAssistant = () => {
     recognition.lang = 'pt-BR';
     recognition.interimResults = false;
 
-    recognition.onstart = () => {
-      logAction("Recognition started.");
-      setIsListening(true);
-    };
-
+    recognition.onstart = () => setIsListening(true);
     recognition.onend = () => {
-      logAction("Recognition ended.");
       setIsListening(false);
       if (!isSpeakingRef.current && micPermission === 'granted') {
-        setTimeout(() => startListening(), 250);
+        setTimeout(() => {
+          if (!isListeningRef.current) recognition.start();
+        }, 250);
       }
     };
-
     recognition.onerror = (event) => {
-      logAction("Recognition error", { error: event.error });
+      logAction("Recognition error", event.error);
       if (event.error === 'not-allowed') setMicPermission('denied');
     };
-
     recognition.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
       const activationPhrase = settingsRef.current?.activation_phrase?.toLowerCase() || 'ativar';
@@ -199,30 +185,32 @@ const SophisticatedVoiceAssistant = () => {
         setIsOpen(true);
         setListeningMode('command');
         const continuationPhrase = settingsRef.current?.continuation_phrase || "Pois não?";
-        speak(continuationPhrase);
-      } else if (listeningMode === 'command' && isOpenRef.current) {
+        speak(continuationPhrase, () => {
+          // After speaking, recognition will restart via its onend handler
+        });
+      } else if (listeningMode === 'command' && isOpen) {
         logAction("Processing command:", transcript);
         runConversation(transcript);
-        setListeningMode('hotword'); // Reset to hotword after command
       }
     };
 
     navigator.permissions.query({ name: "microphone" as PermissionName }).then((result) => {
       setMicPermission(result.state as any);
       if (result.state === 'prompt') setIsPermissionModalOpen(true);
-      result.onchange = () => setMicPermission(result.state as any);
+      else if (result.state === 'granted') recognition.start();
+      result.onchange = () => {
+        setMicPermission(result.state as any);
+        if (result.state === 'granted' && !isListeningRef.current) {
+          recognition.start();
+        }
+      };
     });
 
     return () => {
+      recognition.onend = null;
       recognition.stop();
     };
-  }, [listeningMode, runConversation, speak, startListening, micPermission]);
-
-  useEffect(() => {
-    if (micPermission === 'granted') {
-      startListening();
-    }
-  }, [micPermission, startListening]);
+  }, [listeningMode, runConversation, speak, micPermission, isOpen]);
 
   if (!isOpen) {
     return (

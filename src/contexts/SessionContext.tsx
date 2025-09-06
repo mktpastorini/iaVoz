@@ -47,7 +47,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       }
       setSession(initialSession);
       setUser(initialSession?.user || null);
-      // Mark initial load as complete once we have the session info
       setInitialLoadComplete(true);
     };
 
@@ -56,26 +55,26 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
       setSession(currentSession);
       setUser(currentSession?.user || null);
-      setInitialLoadComplete(true); // Also mark as complete on change
+      setInitialLoadComplete(true);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    // This effect now only handles LOGGED-IN user data
     const fetchUserData = async () => {
-      if (user && user.id) {
-        if (user.id === lastUserIdRef.current) {
+      // More robust check: ensure we have a user and an active session.
+      if (session && session.user && session.user.id) {
+        if (session.user.id === lastUserIdRef.current) {
           return; // Data already loaded for this user
         }
-        lastUserIdRef.current = user.id;
+        lastUserIdRef.current = session.user.id;
 
         // Fetch Profile
         const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('*')
-          .eq('id', user.id)
+          .eq('id', session.user.id)
           .single();
 
         if (profileError && profileError.code !== 'PGRST116') {
@@ -87,7 +86,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
         // Fetch Workspace
         const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', {
-          p_user_id: user.id,
+          p_user_id: session.user.id,
         });
 
         if (workspaceError) {
@@ -104,11 +103,10 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       }
     };
     
-    // Only run if the initial session load is complete
     if(initialLoadComplete) {
       fetchUserData();
     }
-  }, [user, initialLoadComplete]);
+  }, [session, initialLoadComplete]);
 
   const loading = !initialLoadComplete;
 
