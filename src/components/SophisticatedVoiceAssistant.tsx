@@ -151,7 +151,20 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
-  // ... (restante do código permanece igual)
+  // Função para parar a fala
+  const stopSpeaking = useCallback(() => {
+    if (synthRef.current && synthRef.current.speaking) {
+      synthRef.current.cancel();
+      setIsSpeaking(false);
+    }
+  }, []);
+
+  // Função para buscar dados do assistente (placeholder)
+  const fetchAllAssistantData = useCallback(async () => {
+    // Aqui você pode implementar a lógica para buscar configurações, poderes, etc.
+    // Por enquanto, retorna as configurações atuais
+    return settingsRef.current;
+  }, []);
 
   const initializeAssistant = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -223,11 +236,14 @@ const SophisticatedVoiceAssistant = () => {
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
   }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData]);
 
-  // ... (restante do código permanece igual)
+  // Inicializa o assistente na montagem
+  useEffect(() => {
+    initializeAssistant();
+  }, [initializeAssistant]);
 
   return (
     <>
-      {/* ... */}
+      {/* Aqui você pode renderizar a UI do assistente */}
     </>
   );
 };
