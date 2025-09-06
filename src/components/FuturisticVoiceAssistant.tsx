@@ -2,12 +2,32 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Loader2 } from "lucide-react";
+import { Mic, MicOff } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { showError } from "@/utils/toast";
 
 interface VoiceAssistantProps {
   settings: any | null;
   isLoading: boolean;
 }
+
+interface Message {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+interface ClientAction {
+  id: string;
+  trigger_phrase: string;
+  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL';
+  action_payload: {
+    url?: string;
+    imageUrl?: string;
+    altText?: string;
+  };
+}
+
+const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 
 const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isLoading }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -15,6 +35,8 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
+  const [messageHistory, setMessageHistory] = useState<Message[]>([]);
+  const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const isMounted = useRef(true);
@@ -41,7 +63,6 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
     recognition.onend = () => {
       if (isMounted.current) setIsListening(false);
       console.log("Reconhecimento de voz finalizado.");
-      // Reiniciar escuta se assistente estiver aberto
       if (isOpen) {
         recognition.start();
       }
@@ -58,8 +79,7 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
       const text = event.results[last][0].transcript.trim();
       console.log("Texto reconhecido:", text);
       setTranscript(text);
-      // Aqui você pode adicionar lógica para processar o comando
-      setAiResponse(`Você disse: ${text}`);
+      handleUserInput(text);
     };
 
     recognitionRef.current = recognition;
@@ -80,6 +100,19 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
       }
     };
   }, [isOpen]);
+
+  useEffect(() => {
+    // Carregar ações do cliente para gatilhos
+    const fetchClientActions = async () => {
+      const { data, error } = await supabase.from('client_actions').select('*');
+      if (error) {
+        showError("Erro ao carregar ações do cliente.");
+      } else {
+        setClientActions(data || []);
+      }
+    };
+    fetchClientActions();
+  }, []);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening) {
@@ -118,12 +151,90 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
     synthRef.current.speak(utterance);
   };
 
+  const handleUserInput = async (input: string) => {
+    if (!settings?.openai_api_key) {
+      speak("Chave API OpenAI não configurada.");
+      return;
+    }
+
+    // Verificar se input corresponde a alguma ação do cliente
+    const matchedAction = clientActions.find(action =>
+      input.toLowerCase().includes(action.trigger_phrase.toLowerCase())
+    );
+
+    if (matchedAction) {
+      executeClientAction(matchedAction);
+      return;
+    }
+
+    // Atualizar histórico de mensagens
+    const newHistory = [...messageHistory, { role: "user", content: input }];
+    setMessageHistory(newHistory);
+    setAiResponse("Pensando...");
+
+    try {
+      const messagesForApi = [
+        { role: "system", content: settings.system_prompt || "" },
+        ...newHistory,
+      ];
+
+      const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${settings.openai_api_key}`,
+        },
+        body: JSON.stringify({
+          model: settings.ai_model || "gpt-4o-mini",
+          messages: messagesForApi,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json();
+        throw new Error(errorBody.error?.message || "Erro na API OpenAI");
+      }
+
+      const data = await response.json();
+      const assistantMessage = data.choices?.[0]?.message?.content || "Desculpe, não entendi.";
+
+      setMessageHistory([...newHistory, { role: "assistant", content: assistantMessage }]);
+      setAiResponse(assistantMessage);
+      speak(assistantMessage);
+    } catch (error: any) {
+      console.error("Erro na conversa:", error);
+      speak("Desculpe, ocorreu um erro ao processar sua solicitação.");
+    }
+  };
+
+  const executeClientAction = (action: ClientAction) => {
+    stopListening();
+    switch (action.action_type) {
+      case 'OPEN_URL':
+        if (action.action_payload.url) {
+          speak(`Abrindo ${action.action_payload.url}`, () => window.open(action.action_payload.url, '_blank'));
+        }
+        break;
+      case 'OPEN_IFRAME_URL':
+        // Aqui você pode implementar modal iframe se quiser
+        speak("Abrindo conteúdo em overlay, mas essa funcionalidade ainda não está implementada.");
+        break;
+      case 'SHOW_IMAGE':
+        // Aqui você pode implementar modal de imagem se quiser
+        speak("Mostrando imagem, mas essa funcionalidade ainda não está implementada.");
+        break;
+      default:
+        speak("Ação desconhecida.");
+    }
+  };
+
   const toggleAssistant = () => {
     if (isOpen) {
       setIsOpen(false);
       stopListening();
       setTranscript("");
       setAiResponse("");
+      setMessageHistory([]);
     } else {
       setIsOpen(true);
       speak(settings?.welcome_message || "Assistente ativado.");
