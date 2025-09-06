@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/integrations/supabase/client'; // Usar instância compartilhada
 import { showError } from '@/utils/toast';
 import { useSession } from './SessionContext';
 import { replacePlaceholders } from '@/lib/utils';
@@ -13,11 +13,6 @@ interface SystemContextType {
 }
 
 const SystemContext = createContext<SystemContextType | undefined>(undefined);
-
-const SUPABASE_URL = "https://mcnegecxqstyqlbcrhxp.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jbmVnZWN4cXN0eXFsYmNyaHhwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYyNTIzNjcsImV4cCI6MjA3MTgyODM2N30.DShdQDIBdmpnorYtZvOM1boXyY61R78jdMrRJgGfmlk";
-
-const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const GET_CLIENT_IP_FUNCTION_URL = `https://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/get-client-ip`;
 
@@ -38,7 +33,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
     const fetchDefaultWorkspace = async () => {
       if (workspace || sessionLoading) return;
       try {
-        const { data: defaultWorkspace, error } = await supabaseClient
+        const { data: defaultWorkspace, error } = await supabase
           .from('workspaces')
           .select('id, name, plan, created_by')
           .order('created_at', { ascending: true })
@@ -78,7 +73,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
     console.log("[SystemContext] Starting execution of system powers...");
 
     try {
-      const { data: enabledPowers, error } = await supabaseClient
+      const { data: enabledPowers, error } = await supabase
         .from('system_powers')
         .select('*')
         .eq('workspace_id', workspace.id)
@@ -145,7 +140,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
             console.log(`[SystemContext] Invoking 'proxy-api' for power '${power.name}' with URL: ${payload.url}`);
 
             try {
-              const { data: proxyData, error: proxyError } = await supabaseClient.functions.invoke('proxy-api', { body: payload, noResolveJson: true });
+              const { data: proxyData, error: proxyError } = await supabase.functions.invoke('proxy-api', { body: payload, noResolveJson: true });
               if (proxyError) {
                 if (proxyError.message && proxyError.message.toLowerCase().includes('jwt')) {
                   console.warn(`[SystemContext] Ignoring JWT error for power '${power.name}':`, proxyError.message);
