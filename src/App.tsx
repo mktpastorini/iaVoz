@@ -18,7 +18,7 @@ import { SystemContextProvider } from "./contexts/SystemContext";
 import React, { useEffect, useState } from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { supabase } from "./integrations/supabase/client";
-import { VoiceAssistantProvider } from "./contexts/VoiceAssistantProvider";
+import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
 import DevAssistantPage from "./pages/DevAssistant";
 
 const queryClient = new QueryClient();
