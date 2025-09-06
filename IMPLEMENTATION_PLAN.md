@@ -10,9 +10,9 @@ Este documento descreve os passos para construir e integrar a nova interface 3D/
   - [x] Criar o componente principal `src/components/FuturisticVoiceAssistant.tsx`.
   - [x] Criar a estrutura de pastas `src/components/assistant-scene/`.
 
-- [ ] **Passo 3: Implementar o Hook de Áudio**
-  - [ ] Criar e implementar o hook `src/hooks/useAssistantAudio.ts`.
-  - [ ] Testar o hook na página `/dev-assistant` com um elemento `<audio>` local para simular a voz e validar a reatividade de `audioIntensity` e `isSpeaking`.
+- [x] **Passo 3: Implementar o Hook de Áudio**
+  - [x] Criar e implementar o hook `src/hooks/useAssistantAudio.ts`.
+  - [x] Testar o hook na página `/dev-assistant` com um elemento `<audio>` local para simular a voz e validar a reatividade de `audioIntensity` e `isSpeaking`.
 
 - [ ] **Passo 4: Construir a Cena 3D**
   - [ ] Criar o componente `src/components/assistant-scene/CosmicBackground.tsx` (combinando `Starfield`, `NebulaWisps`, `EnergyLines`).
