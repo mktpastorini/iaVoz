@@ -1,3 +1,4 @@
+import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -19,7 +20,6 @@ import React, { useEffect, useState } from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { supabase } from "./integrations/supabase/client";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
-import CosmicAssistant from "./pages/CosmicAssistant"; // Import the new page
 
 const queryClient = new QueryClient();
 
@@ -95,6 +95,7 @@ const GlobalVoiceAssistantWrapper = () => {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
+      <Toaster />
       <Sonner />
       <BrowserRouter>
         <SessionContextProvider>
@@ -103,7 +104,6 @@ const App = () => (
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/login" element={<Login />} />
-                <Route path="/assistant" element={<CosmicAssistant />} />
                 <Route
                   path="/admin"
                   element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
