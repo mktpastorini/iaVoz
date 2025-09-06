@@ -127,7 +127,7 @@ const SophisticatedVoiceAssistant = () => {
     if (audioRef.current && (!sourceRef.current || sourceRef.current.mediaElement !== audioRef.current)) {
       const analyser = audioContextRef.current.createAnalyser();
       analyser.fftSize = 256;
-      const source = audioContextRef.current.createMediaElementSource(audioRef.current);
+      const source = audioContext.current.createMediaElementSource(audioRef.current);
       source.connect(analyser);
       analyser.connect(audioContextRef.current.destination);
       analyserRef.current = analyser;
@@ -216,4 +216,12 @@ const SophisticatedVoiceAssistant = () => {
   }, [stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
   // ... restante do componente permanece igual ...
+
+  return (
+    <>
+      {/* Componente JSX aqui */}
+    </>
+  );
 };
+
+export default SophisticatedVoiceAssistant;
