@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import P5AssistantScene from "./assistant-scene/P5AssistantScene";
-import AssistantUI from "./AssistantUI";
+import P5AssistantScene from "@/components/assistant-scene/P5AssistantScene"; // Caminho corrigido
+import AssistantUI from "@/components/AssistantUI";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 
 interface VoiceAssistantProps {
