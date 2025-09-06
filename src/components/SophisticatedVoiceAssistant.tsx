@@ -114,11 +114,7 @@ const SophisticatedVoiceAssistant = () => {
           logAction("AI final response:", message.content);
           speak(message.content, () => {
             setListeningMode('hotword');
-            setTimeout(() => {
-              setIsOpen(false);
-              setTranscript("");
-              setAiResponse("");
-            }, 3000);
+            // Removed auto-close timer
           });
           setIsProcessing(false);
           return;
@@ -173,15 +169,8 @@ const SophisticatedVoiceAssistant = () => {
     };
     recognition.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      logAction("Heard:", transcript);
       const activationPhrase = settingsRef.current?.activation_phrase?.toLowerCase() || 'ativar';
-      
-      logAction("Heard", {
-        transcript: transcript,
-        currentMode: listeningMode,
-        activationPhrase: activationPhrase,
-        isMatch: transcript.includes(activationPhrase),
-        settingsLoaded: !!settingsRef.current,
-      });
 
       if (listeningMode === 'hotword' && transcript.includes(activationPhrase)) {
         logAction("Activation phrase detected!");
@@ -199,6 +188,7 @@ const SophisticatedVoiceAssistant = () => {
       setMicPermission(result.state as any);
       if (result.state === 'granted') recognition.start();
       result.onchange = () => {
+        logAction("Permission state changed to:", result.state);
         setMicPermission(result.state as any);
         if (result.state === 'granted') recognition.start();
         else recognition.stop();
@@ -245,9 +235,7 @@ const SophisticatedVoiceAssistant = () => {
           {isProcessing ? <Loader2 className="h-8 w-8 animate-spin" /> : <Mic className="h-8 w-8" />}
         </Button>
       </div>
-      <div className="fixed inset-0 -z-10 pointer-events-none">
-        <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
-      </div>
+      {/* A cena 3D não será renderizada quando o assistente estiver aberto para economizar recursos */}
     </div>
   );
 };

@@ -3,8 +3,10 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { AIScene } from "@/components/AIScene";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const Index = () => {
+  const isMobile = useIsMobile();
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#20053D] to-[#0B022D] text-white flex flex-col items-center justify-center p-4 select-text">
       <header className="text-center mb-12 z-10 relative">
@@ -53,7 +55,7 @@ const Index = () => {
 
       {/* Background scene behind UI */}
       <div className="fixed inset-0 -z-10 pointer-events-none">
-        <AIScene />
+        <AIScene audioIntensity={0} isMobile={isMobile} />
       </div>
     </div>
   );

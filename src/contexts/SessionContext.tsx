@@ -63,7 +63,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   useEffect(() => {
     const fetchUserData = async () => {
-      if (session && user && user.id && !user.is_anonymous) {
+      if (session && user && !user.is_anonymous) {
         if (user.id === lastUserIdRef.current) {
           return;
         }
