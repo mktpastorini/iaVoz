@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Mic, MicOff, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSystem } from "@/contexts/SystemContext";
 
 declare global {
   interface Window {
@@ -21,7 +22,9 @@ const GlobalVoiceAssistant: React.FC = () => {
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const isMounted = useRef(true);
+  const { systemVariables } = useSystem();
 
+  // Busca a frase de ativação do Supabase
   useEffect(() => {
     const fetchActivationPhrase = async () => {
       const { data, error } = await supabase.from("settings").select("activation_phrase").limit(1).single();
@@ -32,6 +35,7 @@ const GlobalVoiceAssistant: React.FC = () => {
     fetchActivationPhrase();
   }, []);
 
+  // Para parar a fala atual
   const stopSpeaking = useCallback(() => {
     if (synthRef.current && synthRef.current.speaking) {
       synthRef.current.cancel();
@@ -44,6 +48,7 @@ const GlobalVoiceAssistant: React.FC = () => {
     }
   }, []);
 
+  // Função para falar texto, suporta múltiplos modelos (browser por enquanto)
   const speak = useCallback((text: string, onDone?: () => void) => {
     if (!synthRef.current) {
       onDone?.();
@@ -54,6 +59,10 @@ const GlobalVoiceAssistant: React.FC = () => {
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "pt-BR";
+
+    // Configura voz OpenAI TTS ou Gemini TTS aqui se implementar futuramente
+    // Por enquanto, usa voz padrão do navegador
+
     utterance.onstart = () => {
       if (isMounted.current) setIsSpeaking(true);
     };
@@ -72,21 +81,29 @@ const GlobalVoiceAssistant: React.FC = () => {
     synthRef.current.speak(utterance);
   }, [stopSpeaking]);
 
+  // Processa o comando de voz (aqui você pode integrar com IA ou APIs)
   const processCommand = useCallback(async (command: string) => {
     if (!isMounted.current) return;
 
     if (isMounted.current) setIsProcessing(true);
     console.log("Processando comando:", command);
 
-    // Aqui você pode integrar com sua API ou lógica de IA
-    // Por enquanto, só ecoa o comando
-    const aiResponse = `Você disse: "${command}". Processando sua solicitação.`;
+    // Exemplo simples: ecoa o comando e inclui variável do sistema se existir
+    let responseText = `Você disse: "${command}".`;
 
-    speak(aiResponse, () => {
+    if (systemVariables && Object.keys(systemVariables).length > 0) {
+      responseText += " Variáveis do sistema disponíveis: " + Object.keys(systemVariables).join(", ") + ".";
+    }
+
+    // Simula delay de processamento
+    await new Promise((r) => setTimeout(r, 1000));
+
+    speak(responseText, () => {
       if (isMounted.current) setIsProcessing(false);
     });
-  }, [speak]);
+  }, [speak, systemVariables]);
 
+  // Inicia o reconhecimento de voz
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening) {
       try {
@@ -98,6 +115,7 @@ const GlobalVoiceAssistant: React.FC = () => {
     }
   }, [isListening]);
 
+  // Para o reconhecimento de voz
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListening) {
       recognitionRef.current.stop();
@@ -105,6 +123,7 @@ const GlobalVoiceAssistant: React.FC = () => {
     }
   }, [isListening]);
 
+  // Configura reconhecimento de voz e eventos
   useEffect(() => {
     isMounted.current = true;
 
@@ -178,6 +197,7 @@ const GlobalVoiceAssistant: React.FC = () => {
     };
   }, [activationPhrase, processCommand, speak, stopSpeaking]);
 
+  // Alterna entre ouvir e parar de ouvir
   const toggleListening = useCallback(() => {
     if (isListening) {
       stopListening();
@@ -191,11 +211,12 @@ const GlobalVoiceAssistant: React.FC = () => {
       <button
         onClick={toggleListening}
         className={cn(
-          "p-4 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center text-white",
+          "p-4 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center text-white select-none",
           isListening ? "bg-red-600 hover:bg-red-700" : "bg-cyan-500 hover:bg-cyan-600"
         )}
         disabled={isProcessing}
         aria-label={isListening ? "Parar de ouvir" : "Começar a ouvir"}
+        title={isListening ? "Clique para parar de ouvir" : "Clique para começar a ouvir"}
       >
         {isProcessing ? (
           <Loader2 className="h-6 w-6 animate-spin" />
@@ -204,12 +225,12 @@ const GlobalVoiceAssistant: React.FC = () => {
         ) : (
           <Mic className="h-6 w-6" />
         )}
-        <span className="ml-2 hidden md:inline">
+        <span className="ml-2 hidden md:inline font-semibold select-text">
           {isProcessing ? "Processando..." : isListening ? "Parar" : "Ouvir"}
         </span>
       </button>
       {isSpeaking && (
-        <div className="absolute bottom-full right-0 mb-2 p-2 bg-purple-800 text-white text-sm rounded-md shadow-md animate-pulse">
+        <div className="absolute bottom-full right-0 mb-2 p-2 bg-purple-800 text-white text-sm rounded-md shadow-md animate-pulse select-none">
           Falando...
         </div>
       )}
