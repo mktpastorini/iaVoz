@@ -34,33 +34,17 @@ const SophisticatedVoiceAssistant = () => {
   const settingsRef = useRef(settings);
   const powersRef = useRef(powers);
   const isSpeakingRef = useRef(isSpeaking);
-  const isListeningRef = useRef(isListening);
+  const stopPermanentlyRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { powersRef.current = powers; }, [powers]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
-  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
 
   const logAction = (message: string, data?: any) => {
     console.log(`[Assistant] ${message}`, data !== undefined ? data : "");
   };
-
-  const startListening = useCallback(() => {
-    if (micPermission !== 'granted') {
-      logAction("Cannot start listening: permission not granted.");
-      setIsPermissionModalOpen(true);
-      return;
-    }
-    if (recognitionRef.current && !isListeningRef.current) {
-      try {
-        recognitionRef.current.start();
-      } catch (e) {
-        logAction("Recognition start error.", e);
-      }
-    }
-  }, [micPermission]);
 
   const speak = useCallback((text: string, onEndCallback?: () => void) => {
     logAction("Speaking:", text);
@@ -69,16 +53,13 @@ const SophisticatedVoiceAssistant = () => {
       return;
     }
     
+    recognitionRef.current?.stop();
     setIsSpeaking(true);
     setAiResponse(text);
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'pt-BR';
     
-    utterance.onstart = () => {
-      recognitionRef.current?.stop();
-    };
-
     utterance.onend = () => {
       logAction("Finished speaking.");
       setIsSpeaking(false);
@@ -137,7 +118,6 @@ const SophisticatedVoiceAssistant = () => {
               setIsOpen(false);
               setTranscript("");
               setAiResponse("");
-              startListening();
             }, 3000);
           });
           setIsProcessing(false);
@@ -146,16 +126,16 @@ const SophisticatedVoiceAssistant = () => {
       }
     } catch (err: any) {
       logAction("Error in conversation:", err);
-      speak("Desculpe, ocorreu um erro.", startListening);
+      speak("Desculpe, ocorreu um erro.");
     } finally {
       setIsProcessing(false);
     }
-  }, [messageHistory, speak, startListening]);
+  }, [messageHistory, speak]);
 
   const requestMicPermission = useCallback(() => {
     navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(() => setMicPermission("granted"))
-      .catch(() => setMicPermission("denied"));
+      .then(() => logAction("Permission granted via prompt."))
+      .catch(() => logAction("Permission denied via prompt."));
   }, []);
 
   useEffect(() => {
@@ -173,25 +153,34 @@ const SophisticatedVoiceAssistant = () => {
       showError("Reconhecimento de voz não é suportado neste navegador.");
       return;
     }
+
     recognitionRef.current = new SpeechRecognition();
-    const recognition = recognitionRef.current!;
+    const recognition = recognitionRef.current;
     recognition.continuous = true;
     recognition.lang = 'pt-BR';
     recognition.interimResults = false;
 
-    recognition.onstart = () => setIsListening(true);
+    recognition.onstart = () => {
+      logAction("Recognition started.");
+      setIsListening(true);
+    };
+
     recognition.onend = () => {
+      logAction("Recognition ended.");
       setIsListening(false);
-      if (!isSpeakingRef.current && micPermission === 'granted') {
-        setTimeout(() => startListening(), 250);
+      if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
+        setTimeout(() => recognition.start(), 250);
       }
     };
+
     recognition.onerror = (event) => {
       logAction("Recognition error", event.error);
       if (event.error === 'not-allowed') setMicPermission('denied');
     };
+
     recognition.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      logAction("Heard:", transcript);
       const activationPhrase = settingsRef.current?.activation_phrase?.toLowerCase() || 'ativar';
 
       if (listeningMode === 'hotword' && transcript.includes(activationPhrase)) {
@@ -199,7 +188,7 @@ const SophisticatedVoiceAssistant = () => {
         setIsOpen(true);
         setListeningMode('command');
         const continuationPhrase = settingsRef.current?.continuation_phrase || "Pois não?";
-        speak(continuationPhrase, startListening);
+        speak(continuationPhrase);
       } else if (listeningMode === 'command' && isOpen) {
         logAction("Processing command:", transcript);
         runConversation(transcript);
@@ -208,21 +197,24 @@ const SophisticatedVoiceAssistant = () => {
 
     navigator.permissions.query({ name: "microphone" as PermissionName }).then((result) => {
       setMicPermission(result.state as any);
-      if (result.state === 'prompt') setIsPermissionModalOpen(true);
-      else if (result.state === 'granted') startListening();
+      if (result.state === 'granted') recognition.start();
       result.onchange = () => {
+        logAction("Permission state changed to:", result.state);
         setMicPermission(result.state as any);
-        if (result.state === 'granted' && !isListeningRef.current) {
-          startListening();
-        }
+        if (result.state === 'granted') recognition.start();
+        else recognition.stop();
       };
     });
 
     return () => {
-      recognition.onend = null;
+      stopPermanentlyRef.current = true;
       recognition.stop();
     };
-  }, [listeningMode, runConversation, speak, micPermission, isOpen, startListening]);
+  }, [listeningMode, runConversation, speak, isOpen]);
+
+  useEffect(() => {
+    setIsPermissionModalOpen(micPermission === 'prompt' || micPermission === 'denied');
+  }, [micPermission]);
 
   if (!isOpen) {
     return (
@@ -246,7 +238,7 @@ const SophisticatedVoiceAssistant = () => {
         <div className="mb-8 h-12"><AudioVisualizer isSpeaking={isSpeaking} /></div>
         <p className="text-lg text-gray-400 h-12 mb-4">{transcript}</p>
         <h2 className="text-3xl md:text-4xl font-bold text-white min-h-[100px]">
-          {displayedAiResponse || (isListening ? "Ouvindo..." : "Pressione o microfone para falar")}
+          {displayedAiResponse || (isListening ? "Ouvindo..." : "Aguardando comando...")}
         </h2>
       </div>
       <div className="absolute bottom-10">
