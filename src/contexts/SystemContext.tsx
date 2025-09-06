@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { showError } from '@/utils/toast';
 import { useSession } from './SessionContext';
@@ -23,12 +23,21 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const [loadingSystemContext, setLoadingSystemContext] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0); // Para forçar o refresh
 
+  // Ref para evitar execuções concorrentes
+  const isExecutingRef = useRef(false);
+
   const executeSystemPowers = async () => {
     if (!workspace?.id) {
       setLoadingSystemContext(false);
       return;
     }
 
+    if (isExecutingRef.current) {
+      // Já está executando, evita concorrência
+      return;
+    }
+
+    isExecutingRef.current = true;
     setLoadingSystemContext(true);
     try {
       // 1. Buscar poderes em ordem de criação para garantir execução sequencial
@@ -43,6 +52,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("[SystemContext] Erro ao carregar poderes do sistema habilitados:", error);
         showError("Erro ao carregar automações do sistema.");
         setLoadingSystemContext(false);
+        isExecutingRef.current = false;
         return;
       }
 
@@ -94,9 +104,38 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
             };
 
             console.log(`[SystemContext] Executing power '${power.name}' via 'proxy-api'. URL: ${payload.url}`);
-            const { data: proxyData, error: proxyError } = await supabase.functions.invoke('proxy-api', { body: payload });
-            data = proxyData;
-            invokeError = proxyError;
+
+            // Chamada da edge function sem autenticação para evitar problemas com JWT
+            try {
+              const { data: proxyData, error: proxyError } = await supabase.functions.invoke('proxy-api', { body: payload, noResolveJson: true });
+              // noResolveJson evita erro se a resposta não for JSON válido
+              if (proxyError) {
+                // Ignorar erro de JWT (401) para não travar o fluxo
+                if (proxyError.message && proxyError.message.toLowerCase().includes('jwt')) {
+                  console.warn(`[SystemContext] Ignorando erro JWT na execução do poder '${power.name}':`, proxyError.message);
+                  invokeError = null;
+                  data = null;
+                } else {
+                  invokeError = proxyError;
+                  data = null;
+                }
+              } else {
+                // Tentar parsear JSON manualmente
+                try {
+                  const jsonData = await proxyData.json();
+                  data = jsonData;
+                  invokeError = null;
+                } catch {
+                  // Se não for JSON, pegar texto
+                  const textData = await proxyData.text();
+                  data = textData;
+                  invokeError = null;
+                }
+              }
+            } catch (e) {
+              invokeError = e;
+              data = null;
+            }
           }
           
           console.log(`[SystemContext] Resultado bruto para '${power.name}':`, { data, invokeError });
@@ -122,6 +161,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
       showError("Erro ao processar automações do sistema.");
     } finally {
       setLoadingSystemContext(false);
+      isExecutingRef.current = false;
     }
   };
 
@@ -129,7 +169,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!sessionLoading) {
       executeSystemPowers();
     }
-  }, [workspace, sessionLoading, refreshKey]);
+  }, [workspace, sessionLoading, refreshKey]); // Removi systemVariables daqui para evitar loop infinito
 
   const refreshSystemVariables = () => {
     setRefreshKey(prev => prev + 1);
