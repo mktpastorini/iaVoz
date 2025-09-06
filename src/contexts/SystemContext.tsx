@@ -29,16 +29,19 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const executeSystemPowers = async () => {
     if (!workspace?.id) {
       setLoadingSystemContext(false);
+      console.log("[SystemContext] No workspace, skipping system powers execution.");
       return;
     }
 
     if (isExecutingRef.current) {
-      // Já está executando, evita concorrência
+      console.log("[SystemContext] Already executing system powers, skipping concurrent call.");
       return;
     }
 
     isExecutingRef.current = true;
     setLoadingSystemContext(true);
+    console.log("[SystemContext] Starting execution of system powers...");
+
     try {
       // 1. Buscar poderes em ordem de criação para garantir execução sequencial
       const { data: enabledPowers, error } = await supabase
@@ -49,28 +52,31 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error("[SystemContext] Erro ao carregar poderes do sistema habilitados:", error);
+        console.error("[SystemContext] Error loading enabled system powers:", error);
         showError("Erro ao carregar automações do sistema.");
         setLoadingSystemContext(false);
         isExecutingRef.current = false;
         return;
       }
 
+      console.log(`[SystemContext] Found ${enabledPowers?.length || 0} enabled system powers.`);
+
       const newSystemVariables: Record<string, any> = {};
       // 2. Executar poderes em um loop sequencial (for...of com await)
       for (const power of enabledPowers || []) {
         if (!power.url) {
-          console.warn(`[SystemContext] Poder do sistema '${power.name}' não tem URL definida. Ignorando.`);
+          console.warn(`[SystemContext] System power '${power.name}' has no URL defined. Skipping.`);
           continue;
         }
+
+        console.log(`[SystemContext] Executing system power '${power.name}' with output variable '${power.output_variable_name}'`);
 
         try {
           let data, invokeError;
           const isGetClientIpPower = power.url === GET_CLIENT_IP_FUNCTION_URL;
 
           if (isGetClientIpPower) {
-            // Invocar get-client-ip diretamente do cliente usando fetch para obter o IP real do navegador
-            console.log(`[SystemContext] Directly fetching 'get-client-ip' for power '${power.name}'`);
+            console.log(`[SystemContext] Fetching 'get-client-ip' directly for power '${power.name}'`);
             try {
               const response = await fetch(GET_CLIENT_IP_FUNCTION_URL, {
                 method: 'GET',
@@ -84,14 +90,15 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
                 throw new Error(`HTTP error! status: ${response.status}, message: ${errorBody.error || response.statusText}`);
               }
               data = await response.json();
-              invokeError = null; // No error
+              invokeError = null;
+              console.log(`[SystemContext] 'get-client-ip' response:`, data);
             } catch (e: any) {
               invokeError = e;
               data = null;
+              console.error(`[SystemContext] Error fetching 'get-client-ip':`, e);
             }
           } else {
             // Para outros poderes, continuar usando proxy-api
-            // 3. Substituir placeholders usando as variáveis já coletadas
             const processedUrl = replacePlaceholders(power.url, newSystemVariables);
             const processedHeadersStr = replacePlaceholders(JSON.stringify(power.headers || {}), newSystemVariables);
             const processedBodyStr = replacePlaceholders(JSON.stringify(power.body || {}), newSystemVariables);
@@ -103,61 +110,59 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
               body: JSON.parse(processedBodyStr),
             };
 
-            console.log(`[SystemContext] Executing power '${power.name}' via 'proxy-api'. URL: ${payload.url}`);
+            console.log(`[SystemContext] Invoking 'proxy-api' for power '${power.name}' with URL: ${payload.url}`);
 
-            // Chamada da edge function sem autenticação para evitar problemas com JWT
             try {
               const { data: proxyData, error: proxyError } = await supabase.functions.invoke('proxy-api', { body: payload, noResolveJson: true });
-              // noResolveJson evita erro se a resposta não for JSON válido
               if (proxyError) {
-                // Ignorar erro de JWT (401) para não travar o fluxo
                 if (proxyError.message && proxyError.message.toLowerCase().includes('jwt')) {
-                  console.warn(`[SystemContext] Ignorando erro JWT na execução do poder '${power.name}':`, proxyError.message);
+                  console.warn(`[SystemContext] Ignoring JWT error for power '${power.name}':`, proxyError.message);
                   invokeError = null;
                   data = null;
                 } else {
                   invokeError = proxyError;
                   data = null;
+                  console.error(`[SystemContext] Error invoking proxy-api for power '${power.name}':`, proxyError);
                 }
               } else {
-                // Tentar parsear JSON manualmente
                 try {
                   const jsonData = await proxyData.json();
                   data = jsonData;
                   invokeError = null;
+                  console.log(`[SystemContext] proxy-api response for power '${power.name}':`, jsonData);
                 } catch {
-                  // Se não for JSON, pegar texto
                   const textData = await proxyData.text();
                   data = textData;
                   invokeError = null;
+                  console.log(`[SystemContext] proxy-api response (text) for power '${power.name}':`, textData);
                 }
               }
             } catch (e) {
               invokeError = e;
               data = null;
+              console.error(`[SystemContext] Exception invoking proxy-api for power '${power.name}':`, e);
             }
           }
-          
-          console.log(`[SystemContext] Resultado bruto para '${power.name}':`, { data, invokeError });
 
           if (invokeError) {
-            console.error(`[SystemContext] Erro ao executar poder do sistema '${power.name}':`, invokeError);
+            console.error(`[SystemContext] Error executing system power '${power.name}':`, invokeError);
             showError(`Erro na automação '${power.name}'.`);
             newSystemVariables[power.output_variable_name] = { error: invokeError.message };
           } else {
-            // 4. Adicionar o resultado ao objeto de variáveis para o próximo poder usar
             newSystemVariables[power.output_variable_name] = data?.data || data;
+            console.log(`[SystemContext] Stored result for '${power.output_variable_name}':`, newSystemVariables[power.output_variable_name]);
           }
         } catch (execError: any) {
-          console.error(`[SystemContext] Erro inesperado ao executar poder do sistema '${power.name}':`, execError);
+          console.error(`[SystemContext] Unexpected error executing system power '${power.name}':`, execError);
           showError(`Erro inesperado na automação '${power.name}'.`);
           newSystemVariables[power.output_variable_name] = { error: execError.message };
         }
       }
+
       setSystemVariables(newSystemVariables);
-      console.log("[SystemContext] Final systemVariables:", newSystemVariables);
+      console.log("[SystemContext] Finished execution of system powers. Final systemVariables:", newSystemVariables);
     } catch (globalError: any) {
-      console.error("[SystemContext] Erro global ao processar poderes do sistema:", globalError);
+      console.error("[SystemContext] Global error processing system powers:", globalError);
       showError("Erro ao processar automações do sistema.");
     } finally {
       setLoadingSystemContext(false);
@@ -169,7 +174,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!sessionLoading) {
       executeSystemPowers();
     }
-  }, [workspace, sessionLoading, refreshKey]); // Removi systemVariables daqui para evitar loop infinito
+  }, [workspace, sessionLoading, refreshKey]);
 
   const refreshSystemVariables = () => {
     setRefreshKey(prev => prev + 1);
