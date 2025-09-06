@@ -4,6 +4,7 @@ import React, { Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { CosmicBackground } from './scene/CosmicBackground';
+import { EnergyLines } from './scene/EnergyLines';
 
 export const CosmicScene: React.FC = () => {
   return (
@@ -20,6 +21,7 @@ export const CosmicScene: React.FC = () => {
     >
       <Suspense fallback={null}>
         <CosmicBackground />
+        <EnergyLines />
         
         <EffectComposer>
           <Bloom
