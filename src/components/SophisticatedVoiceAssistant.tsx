@@ -33,12 +33,11 @@ const ImageModal = ({ imageUrl, altText, onClose }) => (
 const SophisticatedVoiceAssistant = () => {
   const { session } = useSession();
   const { systemVariables } = useSystem();
-  const { activationTrigger } = useVoiceAssistant();
+  const { activationTrigger, isOpen, closeAssistant } = useVoiceAssistant();
   const isMobile = useIsMobile();
 
   const [settings, setSettings] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
