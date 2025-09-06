@@ -6,7 +6,7 @@ import { Mic, MicOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { showError } from "@/utils/toast";
 import { replacePlaceholders } from "@/lib/utils";
-import FuturisticVoiceAssistantScene from "./FuturisticVoiceAssistantScene";
+// import FuturisticVoiceAssistantScene from "./FuturisticVoiceAssistantScene"; // Comentado para teste
 import { useAssistantAudio } from "@/hooks/useAssistantAudio";
 
 interface VoiceAssistantProps {
@@ -128,16 +128,16 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
   };
 
   const speak = (text: string) => {
-    if (!window.speechSynthesis) return;
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
+    if (!synthRef.current) return;
+    if (synthRef.current.speaking) {
+      synthRef.current.cancel();
     }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "pt-BR";
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
+    synthRef.current.speak(utterance);
   };
 
   const handleUserInput = async (input: string) => {
@@ -202,12 +202,9 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
 
   if (isLoading) return null;
 
-  // Detectar qualidade para ajustar partículas (mobile ou desktop)
-  const quality = window.innerWidth >= 768 ? 'desktop' : 'mobile';
-
   return (
     <>
-      <FuturisticVoiceAssistantScene audioIntensity={audioIntensity} isSpeaking={isSpeakingAudio} quality={quality} />
+      {/* <FuturisticVoiceAssistantScene audioIntensity={audioIntensity} isSpeaking={isSpeakingAudio} quality={window.innerWidth >= 768 ? 'desktop' : 'mobile'} /> */}
       {isOpen && (
         <div className="fixed bottom-24 right-4 z-50 p-4 bg-cyan-700 text-white rounded-lg shadow-lg max-w-xs w-full">
           <p className="mb-2 font-semibold">Assistente de Voz</p>
