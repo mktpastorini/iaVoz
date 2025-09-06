@@ -13,6 +13,8 @@ declare global {
   }
 }
 
+const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+
 const GlobalVoiceAssistant: React.FC = () => {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -22,7 +24,7 @@ const GlobalVoiceAssistant: React.FC = () => {
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const isMounted = useRef(true);
-  const { systemVariables } = useSystem();
+  const { systemVariables, loadingSystemContext } = useSystem();
 
   // Busca a frase de ativação do Supabase
   useEffect(() => {
@@ -48,7 +50,7 @@ const GlobalVoiceAssistant: React.FC = () => {
     }
   }, []);
 
-  // Função para falar texto, suporta múltiplos modelos (browser por enquanto)
+  // Função para falar texto, usa voz do navegador
   const speak = useCallback((text: string, onDone?: () => void) => {
     if (!synthRef.current) {
       onDone?.();
@@ -59,9 +61,6 @@ const GlobalVoiceAssistant: React.FC = () => {
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "pt-BR";
-
-    // Configura voz OpenAI TTS ou Gemini TTS aqui se implementar futuramente
-    // Por enquanto, usa voz padrão do navegador
 
     utterance.onstart = () => {
       if (isMounted.current) setIsSpeaking(true);
@@ -81,27 +80,68 @@ const GlobalVoiceAssistant: React.FC = () => {
     synthRef.current.speak(utterance);
   }, [stopSpeaking]);
 
-  // Processa o comando de voz (aqui você pode integrar com IA ou APIs)
+  // Função para chamar OpenAI Chat Completion API
+  const callOpenAI = useCallback(async (prompt: string) => {
+    if (loadingSystemContext) {
+      throw new Error("Configurações do sistema ainda estão carregando.");
+    }
+    const openaiApiKey = systemVariables?.openai_api_key;
+    if (!openaiApiKey) {
+      throw new Error("Chave API OpenAI não configurada.");
+    }
+
+    const body = {
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: "Você é um assistente de voz útil e profissional." },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 150,
+      temperature: 0.7,
+    };
+
+    const response = await fetch(OPENAI_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openaiApiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(`OpenAI API error: ${response.status} ${response.statusText} ${errorBody.error?.message || ""}`);
+    }
+
+    const data = await response.json();
+    const message = data.choices?.[0]?.message?.content;
+    if (!message) throw new Error("Resposta inválida da OpenAI.");
+
+    return message;
+  }, [systemVariables, loadingSystemContext]);
+
+  // Processa o comando de voz com chamada à OpenAI
   const processCommand = useCallback(async (command: string) => {
     if (!isMounted.current) return;
 
-    if (isMounted.current) setIsProcessing(true);
+    setIsProcessing(true);
     console.log("Processando comando:", command);
 
-    // Exemplo simples: ecoa o comando e inclui variável do sistema se existir
-    let responseText = `Você disse: "${command}".`;
+    try {
+      const aiResponse = await callOpenAI(command);
+      console.log("Resposta da IA:", aiResponse);
 
-    if (systemVariables && Object.keys(systemVariables).length > 0) {
-      responseText += " Variáveis do sistema disponíveis: " + Object.keys(systemVariables).join(", ") + ".";
+      speak(aiResponse, () => {
+        if (isMounted.current) setIsProcessing(false);
+      });
+    } catch (error: any) {
+      console.error("Erro ao chamar OpenAI:", error);
+      speak("Desculpe, ocorreu um erro ao processar sua solicitação.", () => {
+        if (isMounted.current) setIsProcessing(false);
+      });
     }
-
-    // Simula delay de processamento
-    await new Promise((r) => setTimeout(r, 1000));
-
-    speak(responseText, () => {
-      if (isMounted.current) setIsProcessing(false);
-    });
-  }, [speak, systemVariables]);
+  }, [callOpenAI, speak]);
 
   // Inicia o reconhecimento de voz
   const startListening = useCallback(() => {
