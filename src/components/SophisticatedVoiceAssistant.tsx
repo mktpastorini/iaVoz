@@ -69,7 +69,6 @@ const SophisticatedVoiceAssistant = () => {
   const audioRef = useRef(null);
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
-  const speechTimeoutRef = useRef(null);
 
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
@@ -94,7 +93,7 @@ const SophisticatedVoiceAssistant = () => {
     try {
       recognitionRef.current.start();
     } catch (e) {
-      console.error("Error starting recognition:", e);
+      console.log("Recognition already started, ignoring.");
     }
   }, [micPermission]);
 
@@ -115,19 +114,11 @@ const SophisticatedVoiceAssistant = () => {
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     setAudioIntensity(0);
     if (isSpeakingRef.current) setIsSpeaking(false);
-    if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
   }, []);
 
   const setupAudioAnalysis = useCallback(() => {
-    if (!audioContextRef.current) {
-      try {
-        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      } catch (e) {
-        console.error("Web Audio API is not supported in this browser.", e);
-        return;
-      }
-    }
-    if (audioRef.current) {
+    if (!audioContextRef.current) return;
+    if (audioRef.current && (!sourceRef.current || sourceRef.current.mediaElement !== audioRef.current)) {
       const analyser = audioContextRef.current.createAnalyser();
       analyser.fftSize = 256;
       const source = audioContextRef.current.createMediaElementSource(audioRef.current);
@@ -176,12 +167,12 @@ const SophisticatedVoiceAssistant = () => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
-        utterance.onerror = (e) => {
-          console.error("SpeechSynthesis Error:", e);
-          onSpeechEnd();
-        };
+        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
+        if (audioContextRef.current?.state === 'suspended') {
+          await audioContextRef.current.resume();
+        }
         const response = await fetch(OPENAI_TTS_API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
@@ -195,15 +186,8 @@ const SophisticatedVoiceAssistant = () => {
         audioRef.current = new Audio(audioUrl);
         setupAudioAnalysis();
         
-        audioRef.current.onended = () => {
-          URL.revokeObjectURL(audioUrl);
-          onSpeechEnd();
-        };
-        audioRef.current.onerror = (e) => {
-          console.error("Audio playback error:", e);
-          URL.revokeObjectURL(audioUrl);
-          onSpeechEnd();
-        };
+        audioRef.current.onended = () => { URL.revokeObjectURL(audioUrl); onSpeechEnd(); };
+        audioRef.current.onerror = (e) => { console.error("Audio playback error:", e); URL.revokeObjectURL(audioUrl); onSpeechEnd(); };
         
         await audioRef.current.play();
         runAudioAnalysis();
@@ -279,7 +263,7 @@ const SophisticatedVoiceAssistant = () => {
       recognitionRef.current.onstart = () => setIsListening(true);
       recognitionRef.current.onend = () => {
         setIsListening(false);
-        if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
+        if (!stopPermanentlyRef.current && !isSpeakingRef.current && !isOpenRef.current) {
           startListening();
         }
       };
@@ -328,19 +312,16 @@ const SophisticatedVoiceAssistant = () => {
   }, [startListening, stopListening, stopSpeaking, runConversation]);
 
   useEffect(() => {
-    if (isOpen && settings) {
+    if (isOpen) {
       stopListening();
-      const message = !hasBeenActivatedRef.current 
-        ? settings.welcome_message 
-        : settings.continuation_phrase;
-      
+      const message = !hasBeenActivatedRef.current ? settingsRef.current?.welcome_message : settingsRef.current?.continuation_phrase;
       speak(message || "Olá!", () => {
         if (!hasBeenActivatedRef.current) {
           hasBeenActivatedRef.current = true;
           setHasBeenActivated(true);
         }
       });
-    } else if (!isOpen) {
+    } else {
       stopSpeaking();
       if (micPermission === 'granted') {
         startListening();
@@ -354,6 +335,16 @@ const SophisticatedVoiceAssistant = () => {
     });
   }, []);
 
+  const unlockAudio = useCallback(() => {
+    if (!audioContextRef.current) {
+      try {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (e) {
+        console.error("Web Audio API is not supported in this browser.", e);
+      }
+    }
+  }, []);
+
   if (isLoading) return null;
 
   return (
@@ -361,6 +352,7 @@ const SophisticatedVoiceAssistant = () => {
       <MicrophonePermissionModal
         isOpen={isPermissionModalOpen}
         onAllow={async () => {
+          unlockAudio();
           try {
             await navigator.mediaDevices.getUserMedia({ audio: true });
             setMicPermission("granted");
