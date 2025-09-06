@@ -10,6 +10,8 @@ interface SystemContextType {
   systemVariables: Record<string, any>;
   loadingSystemContext: boolean;
   refreshSystemVariables: () => void;
+  powers: any[]; // Adiciona poderes ao contexto para uso no assistente
+  systemPowers: any[];
 }
 
 const SystemContext = createContext<SystemContextType | undefined>(undefined);
@@ -22,19 +24,19 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const [systemVariables, setSystemVariables] = useState<Record<string, any>>({});
   const [loadingSystemContext, setLoadingSystemContext] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [powers, setPowers] = useState<any[]>([]);
+  const [systemPowers, setSystemPowers] = useState<any[]>([]);
 
   const isExecutingRef = useRef(false);
 
-  // Workspace efetivo: sessão ou padrão
   const effectiveWorkspace = sessionWorkspace || defaultWorkspace;
 
-  // Buscar workspace padrão se não houver workspace da sessão
   useEffect(() => {
+    if (sessionWorkspace || sessionLoading) {
+      console.log("[SystemContext] Session workspace present or loading, skipping default workspace fetch.");
+      return;
+    }
     const fetchDefaultWorkspace = async () => {
-      if (sessionWorkspace || sessionLoading) {
-        console.log("[SystemContext] Session workspace present or loading, skipping default workspace fetch.");
-        return;
-      }
       console.log("[SystemContext] Fetching default workspace...");
       try {
         const { data: defaultWs, error } = await supabase
@@ -61,7 +63,57 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
     fetchDefaultWorkspace();
   }, [sessionWorkspace, sessionLoading]);
 
-  // Executar poderes somente quando workspace efetivo estiver definido
+  useEffect(() => {
+    if (!effectiveWorkspace?.id) {
+      setLoadingSystemContext(false);
+      console.log("[SystemContext] No effective workspace, skipping system powers execution.");
+      return;
+    }
+
+    const fetchPowers = async () => {
+      console.log(`[SystemContext] Loading powers for workspace ${effectiveWorkspace.id}...`);
+      try {
+        const { data: powersData, error: powersError } = await supabase
+          .from('powers')
+          .select('*')
+          .eq('workspace_id', effectiveWorkspace.id)
+          .eq('enabled', true)
+          .order('created_at', { ascending: true });
+
+        if (powersError) {
+          console.error("[SystemContext] Error loading powers:", powersError);
+          showError("Erro ao carregar poderes do assistente.");
+          setPowers([]);
+        } else {
+          console.log(`[SystemContext] Loaded ${powersData?.length || 0} powers.`);
+          setPowers(powersData || []);
+        }
+
+        const { data: systemPowersData, error: systemPowersError } = await supabase
+          .from('system_powers')
+          .select('*')
+          .eq('workspace_id', effectiveWorkspace.id)
+          .eq('enabled', true)
+          .order('created_at', { ascending: true });
+
+        if (systemPowersError) {
+          console.error("[SystemContext] Error loading system powers:", systemPowersError);
+          showError("Erro ao carregar poderes do sistema.");
+          setSystemPowers([]);
+        } else {
+          console.log(`[SystemContext] Loaded ${systemPowersData?.length || 0} system powers.`);
+          setSystemPowers(systemPowersData || []);
+        }
+      } catch (e) {
+        console.error("[SystemContext] Exception loading powers:", e);
+        setPowers([]);
+        setSystemPowers([]);
+      }
+    };
+
+    fetchPowers();
+  }, [effectiveWorkspace]);
+
   useEffect(() => {
     const executeSystemPowers = async () => {
       if (!effectiveWorkspace?.id) {
@@ -80,7 +132,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
       console.log("[SystemContext] Starting execution of system powers...");
 
       try {
-        const { data: enabledPowers, error } = await supabase
+        const { data: enabledSystemPowers, error } = await supabase
           .from('system_powers')
           .select('*')
           .eq('workspace_id', effectiveWorkspace.id)
@@ -95,10 +147,10 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
           return;
         }
 
-        console.log(`[SystemContext] Found ${enabledPowers?.length || 0} enabled system powers.`);
+        console.log(`[SystemContext] Found ${enabledSystemPowers?.length || 0} enabled system powers.`);
 
         const newSystemVariables: Record<string, any> = {};
-        for (const power of enabledPowers || []) {
+        for (const power of enabledSystemPowers || []) {
           if (!power.url) {
             console.warn(`[SystemContext] System power '${power.name}' has no URL defined. Skipping.`);
             continue;
@@ -212,7 +264,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   return (
-    <SystemContext.Provider value={{ systemVariables, loadingSystemContext, refreshSystemVariables }}>
+    <SystemContext.Provider value={{ systemVariables, loadingSystemContext, refreshSystemVariables, powers, systemPowers }}>
       {children}
     </SystemContext.Provider>
   );
