@@ -90,14 +90,13 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
   const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) {
-      try {
-        recognitionRef.current.start();
-      } catch (e) {
-        console.error("Error starting recognition:", e);
-      }
+    if (micPermission !== 'granted' || !recognitionRef.current || isListeningRef.current || isSpeakingRef.current) return;
+    try {
+      recognitionRef.current.start();
+    } catch (e) {
+      console.error("Error starting recognition:", e);
     }
-  }, []);
+  }, [micPermission]);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
@@ -109,7 +108,8 @@ const SophisticatedVoiceAssistant = () => {
     if (synthRef.current?.speaking) synthRef.current.cancel();
     if (audioRef.current) {
       audioRef.current.pause();
-      audioRef.current.src = "";
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
       audioRef.current = null;
     }
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -118,36 +118,104 @@ const SophisticatedVoiceAssistant = () => {
     if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
   }, []);
 
+  const setupAudioAnalysis = useCallback(() => {
+    if (!audioContextRef.current) {
+      try {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (e) {
+        console.error("Web Audio API is not supported in this browser.", e);
+        return;
+      }
+    }
+    if (audioRef.current) {
+      const analyser = audioContextRef.current.createAnalyser();
+      analyser.fftSize = 256;
+      const source = audioContextRef.current.createMediaElementSource(audioRef.current);
+      source.connect(analyser);
+      analyser.connect(audioContextRef.current.destination);
+      analyserRef.current = analyser;
+      sourceRef.current = source;
+    }
+  }, []);
+
+  const runAudioAnalysis = useCallback(() => {
+    if (analyserRef.current) {
+      const bufferLength = analyserRef.current.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      analyserRef.current.getByteFrequencyData(dataArray);
+      const average = dataArray.reduce((sum, value) => sum + value, 0) / bufferLength;
+      const normalized = Math.min(average / 128, 1.0);
+      setAudioIntensity(normalized);
+      animationFrameRef.current = requestAnimationFrame(runAudioAnalysis);
+    }
+  }, []);
+
   const speak = useCallback(async (text, onEndCallback) => {
     const currentSettings = settingsRef.current;
     if (!text || !currentSettings) {
       onEndCallback?.();
       return;
     }
+
     stopSpeaking();
     setIsSpeaking(true);
     setAiResponse(text);
+
     const onSpeechEnd = () => {
-      setIsSpeaking(false);
-      onEndCallback?.();
-      if (isOpenRef.current) {
-        startListening();
+      if (isSpeakingRef.current) {
+        setIsSpeaking(false);
+        onEndCallback?.();
+        if (isOpenRef.current) {
+          startListening();
+        }
       }
     };
-    if (currentSettings.voice_model === "browser" && synthRef.current) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "pt-BR";
-      utterance.onend = onSpeechEnd;
-      utterance.onerror = () => {
-        showError("Erro na síntese de voz do navegador.");
-        onSpeechEnd();
-      };
-      synthRef.current.speak(utterance);
-    } else {
-      // Fallback for non-browser voice models or if synth is not available
-      setTimeout(onSpeechEnd, 1000); // Simulate speech time
+
+    try {
+      if (currentSettings.voice_model === "browser" && synthRef.current) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "pt-BR";
+        utterance.onend = onSpeechEnd;
+        utterance.onerror = (e) => {
+          console.error("SpeechSynthesis Error:", e);
+          onSpeechEnd();
+        };
+        synthRef.current.speak(utterance);
+      } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
+        const response = await fetch(OPENAI_TTS_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+          body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }),
+        });
+        if (!response.ok) throw new Error(`OpenAI TTS API failed with status ${response.status}`);
+        
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        audioRef.current = new Audio(audioUrl);
+        setupAudioAnalysis();
+        
+        audioRef.current.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          onSpeechEnd();
+        };
+        audioRef.current.onerror = (e) => {
+          console.error("Audio playback error:", e);
+          URL.revokeObjectURL(audioUrl);
+          onSpeechEnd();
+        };
+        
+        await audioRef.current.play();
+        runAudioAnalysis();
+      } else {
+        setTimeout(onSpeechEnd, 500);
+      }
+    } catch (error) {
+      console.error("Error in speak function:", error);
+      showError("Ocorreu um erro ao tentar falar.");
+      onSpeechEnd();
     }
-  }, [stopSpeaking, startListening]);
+  }, [stopSpeaking, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
   const runConversation = useCallback(async (userMessage) => {
     stopListening();
@@ -260,24 +328,17 @@ const SophisticatedVoiceAssistant = () => {
   }, [startListening, stopListening, stopSpeaking, runConversation]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && settings) {
       stopListening();
-      const message = !hasBeenActivatedRef.current 
-        ? settingsRef.current?.welcome_message 
-        : settingsRef.current?.continuation_phrase;
-      
+      const message = !hasBeenActivated ? settings.welcome_message : settings.continuation_phrase;
       speak(message || "Olá!", () => {
-        if (!hasBeenActivatedRef.current) {
-          setHasBeenActivated(true);
-        }
+        setHasBeenActivated(true);
       });
-    } else {
+    } else if (!isOpen) {
       stopSpeaking();
-      if (micPermission === 'granted') {
-        startListening();
-      }
+      startListening();
     }
-  }, [isOpen, settings, micPermission]);
+  }, [isOpen, settings, hasBeenActivated, speak, stopListening, stopSpeaking, startListening]);
 
   useEffect(() => {
     supabase.from("settings").select("*").limit(1).single().then(({ data }) => {
