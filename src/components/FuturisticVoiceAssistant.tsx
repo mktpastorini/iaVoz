@@ -3,33 +3,18 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { showError } from "@/utils/toast";
-import { replacePlaceholders } from "@/lib/utils";
-import FuturisticVoiceAssistantScene from "./FuturisticVoiceAssistantScene";
+import Test3DScene from "./Test3DScene";
 
 interface VoiceAssistantProps {
   settings: any | null;
   isLoading: boolean;
 }
 
-interface Message {
-  role: "user" | "assistant" | "system" | "tool";
-  content: string;
-  tool_calls?: any[];
-  tool_call_id?: string;
-  name?: string;
-}
-
-const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
-
 const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isLoading }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
-  const [messageHistory, setMessageHistory] = useState<Message[]>([]);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const isMounted = useRef(true);
 
@@ -49,19 +34,16 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
 
     recognition.onstart = () => {
       if (isMounted.current) setIsListening(true);
-      console.log("Reconhecimento de voz iniciado.");
     };
 
     recognition.onend = () => {
       if (isMounted.current) setIsListening(false);
-      console.log("Reconhecimento de voz finalizado.");
       if (isOpen) {
         recognition.start();
       }
     };
 
-    recognition.onerror = (event) => {
-      console.error("Erro no reconhecimento de voz:", event.error);
+    recognition.onerror = () => {
       if (isMounted.current) setIsListening(false);
     };
 
@@ -69,9 +51,8 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
       if (!isMounted.current) return;
       const last = event.results.length - 1;
       const text = event.results[last][0].transcript.trim();
-      console.log("Texto reconhecido:", text);
       setTranscript(text);
-      handleUserInput(text);
+      // Aqui você pode chamar a função para processar o texto
     };
 
     recognitionRef.current = recognition;
@@ -90,9 +71,7 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
     if (recognitionRef.current && !isListening) {
       try {
         recognitionRef.current.start();
-      } catch (e) {
-        console.error("Erro ao iniciar reconhecimento:", e);
-      }
+      } catch {}
     }
   }, [isListening]);
 
@@ -110,90 +89,23 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
     }
   };
 
-  const speak = (text: string) => {
-    if (!window.speechSynthesis) return;
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
-    }
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "pt-BR";
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const handleUserInput = async (input: string) => {
-    if (!settings?.openai_api_key) {
-      speak("Chave API OpenAI não configurada.");
-      return;
-    }
-
-    // Atualizar histórico de mensagens
-    const newHistory = [...messageHistory, { role: "user", content: input }];
-    setMessageHistory(newHistory);
-    setAiResponse("Pensando...");
-
-    try {
-      const messagesForApi = [
-        { role: "system", content: settings.system_prompt || "" },
-        ...newHistory,
-      ];
-
-      const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${settings.openai_api_key}`,
-        },
-        body: JSON.stringify({
-          model: settings.ai_model || "gpt-4o-mini",
-          messages: messagesForApi,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.json();
-        throw new Error(errorBody.error?.message || "Erro na API OpenAI");
-      }
-
-      const data = await response.json();
-      const assistantMessage = data.choices?.[0]?.message?.content || "Desculpe, não entendi.";
-
-      setMessageHistory([...newHistory, { role: "assistant", content: assistantMessage }]);
-      setAiResponse(assistantMessage);
-      speak(assistantMessage);
-    } catch (error: any) {
-      console.error("Erro na conversa:", error);
-      speak("Desculpe, ocorreu um erro ao processar sua solicitação.");
-    }
-  };
-
   const toggleAssistant = () => {
     if (isOpen) {
       setIsOpen(false);
       stopListening();
       setTranscript("");
       setAiResponse("");
-      setMessageHistory([]);
     } else {
       setIsOpen(true);
-      speak(settings?.welcome_message || "Assistente ativado.");
       startListening();
     }
   };
 
   if (isLoading) return null;
 
-  // Simular intensidade de áudio para animação (0 a 1)
-  const simulatedAudioIntensity = isSpeaking ? 0.7 : 0;
-
-  // Detectar qualidade para ajustar partículas (mobile ou desktop)
-  const quality = window.innerWidth >= 768 ? 'desktop' : 'mobile';
-
   return (
     <>
-      <FuturisticVoiceAssistantScene audioIntensity={simulatedAudioIntensity} isSpeaking={isSpeaking} quality={quality} />
+      <Test3DScene />
       {isOpen && (
         <div className="fixed bottom-24 right-4 z-50 p-4 bg-cyan-700 text-white rounded-lg shadow-lg max-w-xs w-full">
           <p className="mb-2 font-semibold">Assistente de Voz</p>
