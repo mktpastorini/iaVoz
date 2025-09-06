@@ -17,9 +17,8 @@ import ClientsPage from "./pages/admin/Clients";
 import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
-import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
-import { supabase } from "@/integrations/supabase/client";
+import GlobalVoiceAssistant from "./components/GlobalVoiceAssistant";
 
 const queryClient = new QueryClient();
 
@@ -28,64 +27,6 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   if (loading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
   if (!session) return <Navigate to="/login" replace />;
   return <>{children}</>;
-};
-
-const GlobalVoiceAssistantWrapper = () => {
-  const { session } = useSession();
-  const [settings, setSettings] = React.useState<any>(null);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        let settingsData = null;
-
-        if (session) {
-          const { data: workspaceMember } = await supabase
-            .from('workspace_members')
-            .select('workspace_id')
-            .eq('user_id', session.user.id)
-            .limit(1)
-            .single();
-
-          if (workspaceMember) {
-            const { data } = await supabase
-              .from("settings")
-              .select("*")
-              .eq('workspace_id', workspaceMember.workspace_id)
-              .limit(1)
-              .single();
-            settingsData = data;
-          }
-        }
-
-        if (!settingsData) {
-          const { data } = await supabase
-            .from("settings")
-            .select("*")
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single();
-          settingsData = data;
-        }
-
-        setSettings(settingsData);
-      } catch (error) {
-        console.error("Erro ao carregar configurações:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchSettings();
-  }, [session]);
-
-  return (
-    <SophisticatedVoiceAssistant
-      settings={settings}
-      isLoading={loading}
-    />
-  );
 };
 
 const App = () => (
@@ -115,7 +56,7 @@ const App = () => (
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>
-              <GlobalVoiceAssistantWrapper />
+              <GlobalVoiceAssistant />
             </VoiceAssistantProvider>
           </SystemContextProvider>
         </SessionContextProvider>
