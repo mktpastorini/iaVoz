@@ -16,10 +16,10 @@ import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
 import React, { useEffect, useState } from "react";
-import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { supabase } from "./integrations/supabase/client";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
 import DevAssistantPage from "./pages/DevAssistant";
+import FuturisticVoiceAssistant from "./components/FuturisticVoiceAssistant"; // Importar o novo componente
 
 const queryClient = new QueryClient();
 
@@ -80,7 +80,7 @@ const GlobalVoiceAssistantWrapper = () => {
   }, [session]);
 
   return (
-    <SophisticatedVoiceAssistant
+    <FuturisticVoiceAssistant // Usando o novo componente
       settings={settings}
       isLoading={loading}
     />
