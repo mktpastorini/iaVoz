@@ -22,16 +22,16 @@ export const CosmicScene: React.FC = () => {
       <Suspense fallback={null}>
         <CosmicBackground />
         <EnergyLines />
-        
-        <EffectComposer>
-          <Bloom
-            intensity={2.8}
-            luminanceThreshold={0.05}
-            luminanceSmoothing={0.2}
-            mipmapBlur
-          />
-        </EffectComposer>
       </Suspense>
+      
+      <EffectComposer>
+        <Bloom
+          intensity={2.8}
+          luminanceThreshold={0.05}
+          luminanceSmoothing={0.2}
+          mipmapBlur
+        />
+      </EffectComposer>
     </Canvas>
   );
 };
