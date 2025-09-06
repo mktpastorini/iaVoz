@@ -127,6 +127,30 @@ const SophisticatedVoiceAssistant = () => {
     synthRef.current.speak(utterance);
   }, []);
 
+  // Função para iniciar o reconhecimento de voz
+  const startListening = useCallback(() => {
+    if (recognitionRef.current && !isListeningRef.current) {
+      try {
+        recognitionRef.current.start();
+        isListeningRef.current = true;
+        setIsListening(true);
+        console.log("[VoiceRecognition] Reconhecimento iniciado via startListening");
+      } catch (e) {
+        console.error("[VoiceRecognition] Erro ao iniciar reconhecimento:", e);
+      }
+    }
+  }, []);
+
+  // Função para parar o reconhecimento de voz
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current && isListeningRef.current) {
+      recognitionRef.current.stop();
+      isListeningRef.current = false;
+      setIsListening(false);
+      console.log("[VoiceRecognition] Reconhecimento parado via stopListening");
+    }
+  }, []);
+
   // ... (restante do código permanece igual)
 
   const initializeAssistant = useCallback(() => {
