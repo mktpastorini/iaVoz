@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff } from "lucide-react";
-import Test3DScene from "./Test3DScene";
+import BabylonTestScene from "./assistant-scene/BabylonTestScene"; // Importando a nova cena
 
 interface VoiceAssistantProps {
   settings: any | null;
@@ -52,7 +52,7 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
       const last = event.results.length - 1;
       const text = event.results[last][0].transcript.trim();
       setTranscript(text);
-      // Aqui você pode chamar a função para processar o texto
+      // A lógica de chamada da IA pode ser reativada depois
     };
 
     recognitionRef.current = recognition;
@@ -105,7 +105,9 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
 
   return (
     <>
-      <Test3DScene />
+      {/* Renderiza a cena de teste do Babylon.js */}
+      <BabylonTestScene />
+      
       {isOpen && (
         <div className="fixed bottom-24 right-4 z-50 p-4 bg-cyan-700 text-white rounded-lg shadow-lg max-w-xs w-full">
           <p className="mb-2 font-semibold">Assistente de Voz</p>
