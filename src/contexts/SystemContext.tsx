@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client'; // Usar instância compartilhada
+import { supabase } from '@/integrations/supabase/client';
 import { showError } from '@/utils/toast';
 import { useSession } from './SessionContext';
 import { replacePlaceholders } from '@/lib/utils';
@@ -26,12 +26,21 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const isExecutingRef = useRef(false);
 
   useEffect(() => {
+    console.log("[SystemContext] Session workspace changed:", sessionWorkspace);
     setWorkspace(sessionWorkspace);
   }, [sessionWorkspace]);
 
   useEffect(() => {
     const fetchDefaultWorkspace = async () => {
-      if (workspace || sessionLoading) return;
+      if (workspace) {
+        console.log("[SystemContext] Workspace already set, skipping default fetch.");
+        return;
+      }
+      if (sessionLoading) {
+        console.log("[SystemContext] Session is loading, delaying default workspace fetch.");
+        return;
+      }
+      console.log("[SystemContext] Fetching default workspace...");
       try {
         const { data: defaultWorkspace, error } = await supabase
           .from('workspaces')
@@ -45,6 +54,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
           showError("Erro ao carregar workspace padrão.");
           setWorkspace(null);
         } else {
+          console.log("[SystemContext] Default workspace fetched:", defaultWorkspace);
           setWorkspace(defaultWorkspace);
         }
       } catch (e) {
