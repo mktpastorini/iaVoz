@@ -46,6 +46,16 @@ const SophisticatedVoiceAssistant = () => {
     console.log(`[Assistant] ${message}`, data !== undefined ? data : "");
   };
 
+  const startListening = useCallback(() => {
+    if (recognitionRef.current && micPermission === 'granted' && !isListening) {
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        logAction("Recognition start error (might be already starting).", e);
+      }
+    }
+  }, [micPermission, isListening]);
+
   const speak = useCallback((text: string, onEndCallback?: () => void) => {
     logAction("Speaking:", text);
     if (!text) {
@@ -53,13 +63,16 @@ const SophisticatedVoiceAssistant = () => {
       return;
     }
     
-    recognitionRef.current?.stop();
     setIsSpeaking(true);
     setAiResponse(text);
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'pt-BR';
     
+    utterance.onstart = () => {
+      recognitionRef.current?.stop();
+    };
+
     utterance.onend = () => {
       logAction("Finished speaking.");
       setIsSpeaking(false);
@@ -114,7 +127,7 @@ const SophisticatedVoiceAssistant = () => {
           logAction("AI final response:", message.content);
           speak(message.content, () => {
             setListeningMode('hotword');
-            // Removed auto-close timer
+            startListening();
           });
           setIsProcessing(false);
           return;
@@ -122,11 +135,11 @@ const SophisticatedVoiceAssistant = () => {
       }
     } catch (err: any) {
       logAction("Error in conversation:", err);
-      speak("Desculpe, ocorreu um erro.");
+      speak("Desculpe, ocorreu um erro.", startListening);
     } finally {
       setIsProcessing(false);
     }
-  }, [messageHistory, speak]);
+  }, [messageHistory, speak, startListening]);
 
   const requestMicPermission = useCallback(() => {
     navigator.mediaDevices.getUserMedia({ audio: true })
@@ -160,7 +173,7 @@ const SophisticatedVoiceAssistant = () => {
     recognition.onend = () => {
       setIsListening(false);
       if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
-        setTimeout(() => recognition.start(), 250);
+        setTimeout(() => startListening(), 250);
       }
     };
     recognition.onerror = (event) => {
@@ -177,7 +190,7 @@ const SophisticatedVoiceAssistant = () => {
         setIsOpen(true);
         setListeningMode('command');
         const continuationPhrase = settingsRef.current?.continuation_phrase || "Pois não?";
-        speak(continuationPhrase);
+        speak(continuationPhrase, startListening);
       } else if (listeningMode === 'command' && isOpen) {
         logAction("Processing command:", transcript);
         runConversation(transcript);
@@ -186,11 +199,11 @@ const SophisticatedVoiceAssistant = () => {
 
     navigator.permissions.query({ name: "microphone" as PermissionName }).then((result) => {
       setMicPermission(result.state as any);
-      if (result.state === 'granted') recognition.start();
+      if (result.state === 'granted') startListening();
       result.onchange = () => {
         logAction("Permission state changed to:", result.state);
         setMicPermission(result.state as any);
-        if (result.state === 'granted') recognition.start();
+        if (result.state === 'granted') startListening();
         else recognition.stop();
       };
     });
@@ -199,7 +212,7 @@ const SophisticatedVoiceAssistant = () => {
       stopPermanentlyRef.current = true;
       recognition.stop();
     };
-  }, [listeningMode, runConversation, speak, isOpen]);
+  }, [listeningMode, runConversation, speak, isOpen, startListening]);
 
   useEffect(() => {
     setIsPermissionModalOpen(micPermission === 'prompt' || micPermission === 'denied');
@@ -235,7 +248,9 @@ const SophisticatedVoiceAssistant = () => {
           {isProcessing ? <Loader2 className="h-8 w-8 animate-spin" /> : <Mic className="h-8 w-8" />}
         </Button>
       </div>
-      {/* A cena 3D não será renderizada quando o assistente estiver aberto para economizar recursos */}
+      <div className="fixed inset-0 -z-10 pointer-events-none">
+        <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
+      </div>
     </div>
   );
 };
