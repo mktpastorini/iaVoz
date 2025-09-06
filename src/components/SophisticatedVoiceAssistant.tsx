@@ -103,6 +103,30 @@ const SophisticatedVoiceAssistant = () => {
     // Aqui você pode implementar a lógica para enviar a entrada para a IA, atualizar o estado, etc.
   }, []);
 
+  // Função para falar texto usando SpeechSynthesis
+  const speak = useCallback((text, onDone) => {
+    if (!window.speechSynthesis) {
+      onDone && onDone();
+      return;
+    }
+    if (synthRef.current && synthRef.current.speaking) {
+      synthRef.current.cancel();
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "pt-BR";
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      onDone && onDone();
+    };
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      onDone && onDone();
+    };
+    synthRef.current = window.speechSynthesis;
+    synthRef.current.speak(utterance);
+  }, []);
+
   // ... (restante do código permanece igual)
 
   const initializeAssistant = useCallback(() => {
