@@ -14,12 +14,12 @@ Este documento descreve os passos para construir e integrar a nova interface 3D/
   - [x] Criar e implementar o hook `src/hooks/useAssistantAudio.ts`.
   - [x] Testar o hook na página `/dev-assistant` com um elemento `<audio>` local para simular a voz e validar a reatividade de `audioIntensity` e `isSpeaking`.
 
-- [ ] **Passo 4: Construir a Cena 3D**
-  - [ ] Criar o componente `src/components/assistant-scene/CosmicBackground.tsx` (combinando `Starfield`, `NebulaWisps`, `EnergyLines`).
-  - [ ] Criar o componente `src/components/assistant-scene/AiOrb.tsx` (combinando `OrbCore` e `ParticleOrb`).
-  - [ ] Implementar os shaders GLSL para o `ParticleOrb` com reatividade aos `uniforms` de áudio.
-  - [ ] Adicionar o `<EffectComposer>` com `<Bloom>` para o pós-processamento.
-  - [ ] Implementar a lógica de `quality` para ajustar a contagem de partículas em dispositivos móveis.
+- [x] **Passo 4: Construir a Cena 3D**
+  - [x] Criar o componente `src/components/assistant-scene/CosmicBackground.tsx` (combinando `Starfield`, `NebulaWisps`, `EnergyLines`).
+  - [x] Criar o componente `src/components/assistant-scene/AiOrb.tsx` (combinando `OrbCore` e `ParticleOrb`).
+  - [x] Implementar os shaders GLSL para o `ParticleOrb` com reatividade aos `uniforms` de áudio.
+  - [x] Adicionar o `<EffectComposer>` com `<Bloom>` para o pós-processamento.
+  - [x] Implementar a lógica de `quality` para ajustar a contagem de partículas em dispositivos móveis.
 
 - [ ] **Passo 5: Construir a Interface 2D**
   - [ ] Criar o componente `src/components/AssistantUI.tsx`.
