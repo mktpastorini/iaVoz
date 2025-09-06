@@ -7,7 +7,6 @@ import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { ParticleOrb } from "./ParticleOrb";
 import { EnergyLines } from "./EnergyLines";
 import { NebulaWisps } from "./NebulaWisps";
-import { Starfield } from "./Starfield";
 import { OrbCore } from "./OrbCore";
 
 interface AISceneProps {
@@ -19,14 +18,12 @@ export const AIScene: React.FC<AISceneProps> = ({ audioIntensity, isMobile }) =>
   const particleCount = isMobile ? 2500 : 20000;
   const energyLinesCount = isMobile ? 5 : 12;
   const nebulaWispsCount = isMobile ? 100 : 200;
-  const starfieldFactor = isMobile ? 0.3 : 1;
 
   return (
     <Canvas camera={{ position: [0, 0, 5] }}>
       <color attach="background" args={["#0B022D"]} />
 
       {/* Camadas de Fundo */}
-      <Starfield factor={starfieldFactor} />
       <NebulaWisps count={nebulaWispsCount} />
 
       {/* Elemento Central */}
