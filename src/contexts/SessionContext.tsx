@@ -47,54 +47,45 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       }
       setSession(initialSession);
       setUser(initialSession?.user || null);
+      // Mark initial load as complete once we have the session info
+      setInitialLoadComplete(true);
     };
 
     loadSessionAndUser();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
       setSession(currentSession);
-      if (currentSession?.user?.id !== lastUserIdRef.current) {
-        setUser(currentSession?.user || null);
-      }
+      setUser(currentSession?.user || null);
+      setInitialLoadComplete(true); // Also mark as complete on change
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
+    // This effect now only handles LOGGED-IN user data
     const fetchUserData = async () => {
       if (user && user.id) {
         if (user.id === lastUserIdRef.current) {
-          setInitialLoadComplete(true);
-          return;
+          return; // Data already loaded for this user
         }
         lastUserIdRef.current = user.id;
 
-        try {
-          const { data: profileData, error: profileError, status } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
+        // Fetch Profile
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
 
-          if (profileError) {
-            if (profileError.code === 'PGRST116') {
-              // Nenhum perfil encontrado, não é erro crítico
-              setProfile(null);
-            } else {
-              console.error('Error fetching profile:', profileError, 'Status:', status);
-              showError('Erro ao carregar perfil.');
-              setProfile(null);
-            }
-          } else {
-            setProfile(profileData);
-          }
-        } catch (err) {
-          console.error('Unexpected error fetching profile:', err);
-          showError('Erro inesperado ao carregar perfil.');
-          setProfile(null);
+        if (profileError && profileError.code !== 'PGRST116') {
+          console.error('Error fetching profile:', profileError);
+          showError('Erro ao carregar perfil.');
+        } else {
+          setProfile(profileData);
         }
 
+        // Fetch Workspace
         const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', {
           p_user_id: user.id,
         });
@@ -102,22 +93,22 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         if (workspaceError) {
           console.error('Error ensuring workspace:', workspaceError);
           showError('Erro ao garantir workspace.');
-          setWorkspace(null);
         } else {
           setWorkspace(workspaceData);
         }
       } else {
+        // Clear data for anonymous users
         lastUserIdRef.current = null;
         setProfile(null);
         setWorkspace(null);
       }
-      setInitialLoadComplete(true);
     };
-
-    if (user !== undefined) {
+    
+    // Only run if the initial session load is complete
+    if(initialLoadComplete) {
       fetchUserData();
     }
-  }, [user]);
+  }, [user, initialLoadComplete]);
 
   const loading = !initialLoadComplete;
 
