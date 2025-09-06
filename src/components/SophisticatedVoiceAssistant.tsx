@@ -113,7 +113,10 @@ const SophisticatedVoiceAssistant = () => {
     }
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     setAudioIntensity(0);
-    if (isSpeakingRef.current) setIsSpeaking(false);
+    if (isSpeakingRef.current) {
+      isSpeakingRef.current = false;
+      setIsSpeaking(false);
+    }
   }, []);
 
   const setupAudioAnalysis = useCallback(() => {
@@ -149,16 +152,18 @@ const SophisticatedVoiceAssistant = () => {
     }
 
     stopSpeaking();
-    stopListening(); // Pausa o microfone antes de falar
+    stopListening();
+    isSpeakingRef.current = true;
     setIsSpeaking(true);
     setAiResponse(text);
 
     const onSpeechEnd = () => {
       if (isSpeakingRef.current) {
+        isSpeakingRef.current = false;
         setIsSpeaking(false);
         onEndCallback?.();
         if (isOpenRef.current) {
-          startListening(); // Retoma o microfone após falar
+          startListening();
         }
       }
     };
