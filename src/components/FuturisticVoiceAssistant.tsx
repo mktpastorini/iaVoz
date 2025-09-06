@@ -3,8 +3,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { showError } from "@/utils/toast";
 
 interface VoiceAssistantProps {
   settings: any | null;
@@ -16,17 +14,6 @@ interface Message {
   content: string;
 }
 
-interface ClientAction {
-  id: string;
-  trigger_phrase: string;
-  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL';
-  action_payload: {
-    url?: string;
-    imageUrl?: string;
-    altText?: string;
-  };
-}
-
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 
 const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isLoading }) => {
@@ -36,7 +23,6 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
-  const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const isMounted = useRef(true);
@@ -101,19 +87,6 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
     };
   }, [isOpen]);
 
-  useEffect(() => {
-    // Carregar ações do cliente para gatilhos
-    const fetchClientActions = async () => {
-      const { data, error } = await supabase.from('client_actions').select('*');
-      if (error) {
-        showError("Erro ao carregar ações do cliente.");
-      } else {
-        setClientActions(data || []);
-      }
-    };
-    fetchClientActions();
-  }, []);
-
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening) {
       try {
@@ -157,16 +130,6 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
       return;
     }
 
-    // Verificar se input corresponde a alguma ação do cliente
-    const matchedAction = clientActions.find(action =>
-      input.toLowerCase().includes(action.trigger_phrase.toLowerCase())
-    );
-
-    if (matchedAction) {
-      executeClientAction(matchedAction);
-      return;
-    }
-
     // Atualizar histórico de mensagens
     const newHistory = [...messageHistory, { role: "user", content: input }];
     setMessageHistory(newHistory);
@@ -204,27 +167,6 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
     } catch (error: any) {
       console.error("Erro na conversa:", error);
       speak("Desculpe, ocorreu um erro ao processar sua solicitação.");
-    }
-  };
-
-  const executeClientAction = (action: ClientAction) => {
-    stopListening();
-    switch (action.action_type) {
-      case 'OPEN_URL':
-        if (action.action_payload.url) {
-          speak(`Abrindo ${action.action_payload.url}`, () => window.open(action.action_payload.url, '_blank'));
-        }
-        break;
-      case 'OPEN_IFRAME_URL':
-        // Aqui você pode implementar modal iframe se quiser
-        speak("Abrindo conteúdo em overlay, mas essa funcionalidade ainda não está implementada.");
-        break;
-      case 'SHOW_IMAGE':
-        // Aqui você pode implementar modal de imagem se quiser
-        speak("Mostrando imagem, mas essa funcionalidade ainda não está implementada.");
-        break;
-      default:
-        speak("Ação desconhecida.");
     }
   };
 
