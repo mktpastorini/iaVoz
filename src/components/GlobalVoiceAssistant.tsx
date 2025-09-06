@@ -16,26 +16,41 @@ declare global {
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 
 const GlobalVoiceAssistant: React.FC = () => {
+  const { systemVariables, loadingSystemContext, refreshSystemVariables } = useSystem();
+
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [activationPhrase, setActivationPhrase] = useState("ativar");
+  const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
+  const [continuationPhrase, setContinuationPhrase] = useState<string | null>(null);
+  const [voiceModel, setVoiceModel] = useState<"browser" | "openai-tts" | "gemini-tts">("browser");
+  const [voiceSensitivity, setVoiceSensitivity] = useState(50);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const isMounted = useRef(true);
-  const { systemVariables, loadingSystemContext } = useSystem();
 
-  // Busca a frase de ativação do Supabase
+  // Atualiza configurações do sistema quando systemVariables mudam
   useEffect(() => {
-    const fetchActivationPhrase = async () => {
-      const { data, error } = await supabase.from("settings").select("activation_phrase").limit(1).single();
-      if (!error && data?.activation_phrase) {
-        setActivationPhrase(data.activation_phrase.toLowerCase());
+    if (!loadingSystemContext && systemVariables) {
+      if (systemVariables.activation_phrase) {
+        setActivationPhrase(systemVariables.activation_phrase.toLowerCase());
       }
-    };
-    fetchActivationPhrase();
-  }, []);
+      if (systemVariables.welcome_message) {
+        setWelcomeMessage(systemVariables.welcome_message);
+      }
+      if (systemVariables.continuation_phrase) {
+        setContinuationPhrase(systemVariables.continuation_phrase);
+      }
+      if (systemVariables.voice_model) {
+        setVoiceModel(systemVariables.voice_model);
+      }
+      if (typeof systemVariables.voice_sensitivity === "number") {
+        setVoiceSensitivity(systemVariables.voice_sensitivity);
+      }
+    }
+  }, [systemVariables, loadingSystemContext]);
 
   // Para parar a fala atual
   const stopSpeaking = useCallback(() => {
@@ -50,7 +65,7 @@ const GlobalVoiceAssistant: React.FC = () => {
     }
   }, []);
 
-  // Função para falar texto, usa voz do navegador
+  // Função para falar texto, suporta múltiplos modelos (browser por enquanto)
   const speak = useCallback((text: string, onDone?: () => void) => {
     if (!synthRef.current) {
       onDone?.();
@@ -59,26 +74,37 @@ const GlobalVoiceAssistant: React.FC = () => {
 
     stopSpeaking();
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "pt-BR";
+    if (voiceModel === "browser") {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "pt-BR";
 
-    utterance.onstart = () => {
-      if (isMounted.current) setIsSpeaking(true);
-    };
-    utterance.onend = () => {
-      if (isMounted.current) setIsSpeaking(false);
-      onDone?.();
-      currentUtteranceRef.current = null;
-    };
-    utterance.onerror = (event) => {
-      console.error("SpeechSynthesisUtterance error:", event);
-      if (isMounted.current) setIsSpeaking(false);
-      onDone?.();
-      currentUtteranceRef.current = null;
-    };
-    currentUtteranceRef.current = utterance;
-    synthRef.current.speak(utterance);
-  }, [stopSpeaking]);
+      utterance.onstart = () => {
+        if (isMounted.current) setIsSpeaking(true);
+      };
+      utterance.onend = () => {
+        if (isMounted.current) setIsSpeaking(false);
+        onDone?.();
+        currentUtteranceRef.current = null;
+      };
+      utterance.onerror = (event) => {
+        console.error("SpeechSynthesisUtterance error:", event);
+        if (isMounted.current) setIsSpeaking(false);
+        onDone?.();
+        currentUtteranceRef.current = null;
+      };
+      currentUtteranceRef.current = utterance;
+      synthRef.current.speak(utterance);
+    } else if (voiceModel === "openai-tts") {
+      // Aqui você pode implementar chamada para OpenAI TTS API e tocar áudio
+      // Por enquanto, fallback para voz do navegador
+      console.warn("OpenAI TTS não implementado, usando voz do navegador.");
+      speak(text, onDone);
+    } else {
+      // Gemini TTS ou outros modelos podem ser implementados aqui
+      console.warn("Modelo de voz não suportado, usando voz do navegador.");
+      speak(text, onDone);
+    }
+  }, [stopSpeaking, voiceModel]);
 
   // Função para chamar OpenAI Chat Completion API
   const callOpenAI = useCallback(async (prompt: string) => {
@@ -236,6 +262,20 @@ const GlobalVoiceAssistant: React.FC = () => {
       stopSpeaking();
     };
   }, [activationPhrase, processCommand, speak, stopSpeaking]);
+
+  // Mensagem de boas-vindas falada ao montar o componente
+  useEffect(() => {
+    if (!loadingSystemContext && welcomeMessage) {
+      speak(welcomeMessage);
+    }
+  }, [loadingSystemContext, welcomeMessage, speak]);
+
+  // Mensagem de continuação falada após fala terminar
+  useEffect(() => {
+    if (!isSpeaking && !isProcessing && continuationPhrase) {
+      speak(continuationPhrase);
+    }
+  }, [isSpeaking, isProcessing, continuationPhrase, speak]);
 
   // Alterna entre ouvir e parar de ouvir
   const toggleListening = useCallback(() => {
