@@ -7,13 +7,14 @@ import { useSession } from "@/contexts/SessionContext";
 import { useSystem } from "@/contexts/SystemContext";
 import { replacePlaceholders } from "@/lib/utils";
 import { useTypewriter } from "@/hooks/useTypewriter";
-import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Mic, X } from "lucide-react";
 import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
+import { AssistantUI } from './assistant/AssistantUI';
+import { CosmicScene } from './assistant/CosmicScene';
 
 // Interfaces
 interface Settings {
@@ -514,14 +515,26 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       )}
       {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl!} altText={imageToShow.altText} onClose={() => { setImageToShow(null); startListening(); }} />}
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
-      <div className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center p-4 transition-all duration-500", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
-        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onClick={() => setIsOpen(false)}></div>
-        <div className="relative z-10 flex flex-col items-center justify-center w-full h-full text-center">
-          <div className="flex-grow flex items-center justify-center">
-            <p className="text-white text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">{displayedAiResponse}</p>
-          </div>
-          <AudioVisualizer isSpeaking={isSpeaking} />
-          <div className="h-16"><p className="text-gray-400 text-lg md:text-xl">{transcript}</p></div>
+      
+      {/* Nova Estrutura da UI */}
+      <div
+        className={cn(
+          "fixed inset-0 z-50 transition-opacity duration-500",
+          isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+        )}
+      >
+        {/* Overlay de fundo que fecha o modal */}
+        <div className="absolute inset-0" onClick={() => setIsOpen(false)}></div>
+        
+        {/* Container para a Cena 3D e a UI 2D */}
+        <div className="relative w-full h-full">
+          <CosmicScene />
+          <AssistantUI
+            displayedAiResponse={displayedAiResponse}
+            transcript={transcript}
+            isListening={isListening}
+            isSpeaking={isSpeaking}
+          />
         </div>
       </div>
     </>
