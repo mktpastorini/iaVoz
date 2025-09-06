@@ -5,10 +5,10 @@ Este documento descreve os passos para construir e integrar a nova interface 3D/
 - [x] **Passo 1: Preparação do Ambiente**
   - [x] Instalar as dependências necessárias: `@react-three/fiber`, `three`, `@react-three/drei`, `@react-three/postprocessing`.
 
-- [ ] **Passo 2: Criar Ambiente de Desenvolvimento Isolado**
-  - [ ] Adicionar uma rota de desenvolvimento temporária (`/dev-assistant`) em `src/App.tsx`.
-  - [ ] Criar o componente principal `src/components/FuturisticVoiceAssistant.tsx`.
-  - [ ] Criar a estrutura de pastas `src/components/assistant-scene/`.
+- [x] **Passo 2: Criar Ambiente de Desenvolvimento Isolado**
+  - [x] Adicionar uma rota de desenvolvimento temporária (`/dev-assistant`) em `src/App.tsx`.
+  - [x] Criar o componente principal `src/components/FuturisticVoiceAssistant.tsx`.
+  - [x] Criar a estrutura de pastas `src/components/assistant-scene/`.
 
 - [ ] **Passo 3: Implementar o Hook de Áudio**
   - [ ] Criar e implementar o hook `src/hooks/useAssistantAudio.ts`.

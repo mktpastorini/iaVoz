@@ -20,6 +20,7 @@ import React, { useEffect, useState } from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { supabase } from "./integrations/supabase/client";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
+import DevAssistantPage from "./pages/DevAssistant"; // Importando a nova página
 
 const queryClient = new QueryClient();
 
@@ -104,6 +105,7 @@ const App = () => (
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/login" element={<Login />} />
+                <Route path="/dev-assistant" element={<DevAssistantPage />} />
                 <Route
                   path="/admin"
                   element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
