@@ -149,6 +149,7 @@ const SophisticatedVoiceAssistant = () => {
     }
 
     stopSpeaking();
+    stopListening(); // Pausa o microfone antes de falar
     setIsSpeaking(true);
     setAiResponse(text);
 
@@ -157,7 +158,7 @@ const SophisticatedVoiceAssistant = () => {
         setIsSpeaking(false);
         onEndCallback?.();
         if (isOpenRef.current) {
-          startListening();
+          startListening(); // Retoma o microfone após falar
         }
       }
     };
@@ -199,10 +200,9 @@ const SophisticatedVoiceAssistant = () => {
       showError("Ocorreu um erro ao tentar falar.");
       onSpeechEnd();
     }
-  }, [stopSpeaking, startListening, setupAudioAnalysis, runAudioAnalysis]);
+  }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
   const runConversation = useCallback(async (userMessage) => {
-    stopListening();
     setTranscript(userMessage);
     const newHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
     setMessageHistory(newHistory);
@@ -227,7 +227,7 @@ const SophisticatedVoiceAssistant = () => {
       console.error("Error in conversation:", err);
       speak("Desculpe, ocorreu um erro ao processar sua solicitação.");
     }
-  }, [speak, stopListening]);
+  }, [speak]);
 
   const handleManualActivation = useCallback(() => {
     if (micPermission !== "granted") {
@@ -263,7 +263,7 @@ const SophisticatedVoiceAssistant = () => {
       recognitionRef.current.onstart = () => setIsListening(true);
       recognitionRef.current.onend = () => {
         setIsListening(false);
-        if (!stopPermanentlyRef.current && !isSpeakingRef.current && !isOpenRef.current) {
+        if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
           startListening();
         }
       };
@@ -313,7 +313,6 @@ const SophisticatedVoiceAssistant = () => {
 
   useEffect(() => {
     if (isOpen) {
-      stopListening();
       const message = !hasBeenActivatedRef.current ? settingsRef.current?.welcome_message : settingsRef.current?.continuation_phrase;
       speak(message || "Olá!", () => {
         if (!hasBeenActivatedRef.current) {
@@ -323,11 +322,8 @@ const SophisticatedVoiceAssistant = () => {
       });
     } else {
       stopSpeaking();
-      if (micPermission === 'granted') {
-        startListening();
-      }
     }
-  }, [isOpen, settings, micPermission]);
+  }, [isOpen, settings]);
 
   useEffect(() => {
     supabase.from("settings").select("*").limit(1).single().then(({ data }) => {
