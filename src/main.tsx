@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import TestReact from "./components/TestReact";
+import App from "./App";
 import "./globals.css";
 
-createRoot(document.getElementById("root")!).render(<TestReact />);
+createRoot(document.getElementById("root")!).render(<App />);

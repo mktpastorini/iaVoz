@@ -30,63 +30,63 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-const GlobalVoiceAssistantWrapper = () => {
-  const { session } = useSession();
-  const [settings, setSettings] = React.useState<any>(null);
-  const [loading, setLoading] = React.useState(true);
+// const GlobalVoiceAssistantWrapper = () => {
+//   const { session } = useSession();
+//   const [settings, setSettings] = React.useState<any>(null);
+//   const [loading, setLoading] = React.useState(true);
 
-  React.useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        let settingsData = null;
+//   React.useEffect(() => {
+//     const fetchSettings = async () => {
+//       try {
+//         let settingsData = null;
 
-        if (session) {
-          const { data: workspaceMember } = await supabase
-            .from('workspace_members')
-            .select('workspace_id')
-            .eq('user_id', session.user.id)
-            .limit(1)
-            .single();
+//         if (session) {
+//           const { data: workspaceMember } = await supabase
+//             .from('workspace_members')
+//             .select('workspace_id')
+//             .eq('user_id', session.user.id)
+//             .limit(1)
+//             .single();
 
-          if (workspaceMember) {
-            const { data } = await supabase
-              .from("settings")
-              .select("*")
-              .eq('workspace_id', workspaceMember.workspace_id)
-              .limit(1)
-              .single();
-            settingsData = data;
-          }
-        }
+//           if (workspaceMember) {
+//             const { data } = await supabase
+//               .from("settings")
+//               .select("*")
+//               .eq('workspace_id', workspaceMember.workspace_id)
+//               .limit(1)
+//               .single();
+//             settingsData = data;
+//           }
+//         }
 
-        if (!settingsData) {
-          const { data } = await supabase
-            .from("settings")
-            .select("*")
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single();
-          settingsData = data;
-        }
+//         if (!settingsData) {
+//           const { data } = await supabase
+//             .from("settings")
+//             .select("*")
+//             .order('created_at', { ascending: true })
+//             .limit(1)
+//             .single();
+//           settingsData = data;
+//         }
 
-        setSettings(settingsData);
-      } catch (error) {
-        console.error("Erro ao carregar configurações:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+//         setSettings(settingsData);
+//       } catch (error) {
+//         console.error("Erro ao carregar configurações:", error);
+//       } finally {
+//         setLoading(false);
+//       }
+//     };
 
-    fetchSettings();
-  }, [session]);
+//     fetchSettings();
+//   }, [session]);
 
-  return (
-    <SophisticatedVoiceAssistant
-      settings={settings}
-      isLoading={loading}
-    />
-  );
-};
+//   return (
+//     <SophisticatedVoiceAssistant
+//       settings={settings}
+//       isLoading={loading}
+//     />
+//   );
+// };
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -115,7 +115,7 @@ const App = () => (
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>
-              <GlobalVoiceAssistantWrapper />
+              {/* <GlobalVoiceAssistantWrapper /> */}
             </VoiceAssistantProvider>
           </SystemContextProvider>
         </SessionContextProvider>
