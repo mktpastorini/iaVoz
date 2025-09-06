@@ -130,7 +130,9 @@ const SophisticatedVoiceAssistant = () => {
     const onSpeechEnd = () => {
       setIsSpeaking(false);
       onEndCallback?.();
-      if (isOpenRef.current) startListening();
+      if (isOpenRef.current) {
+        startListening();
+      }
     };
     if (currentSettings.voice_model === "browser" && synthRef.current) {
       const utterance = new SpeechSynthesisUtterance(text);
@@ -142,7 +144,8 @@ const SophisticatedVoiceAssistant = () => {
       };
       synthRef.current.speak(utterance);
     } else {
-      onSpeechEnd();
+      // Fallback for non-browser voice models or if synth is not available
+      setTimeout(onSpeechEnd, 1000); // Simulate speech time
     }
   }, [stopSpeaking, startListening]);
 
@@ -166,14 +169,8 @@ const SophisticatedVoiceAssistant = () => {
       if (error) throw new Error(error.message);
 
       const responseContent = data.choices[0].message.content;
-      const toolCalls = data.choices[0].message.tool_calls;
-
-      if (toolCalls) {
-        // Handle tool calls (omitted for brevity, assuming this part is working)
-      } else {
-        speak(responseContent);
-        setMessageHistory(prev => [...prev, { role: "assistant", content: responseContent }]);
-      }
+      speak(responseContent);
+      setMessageHistory(prev => [...prev, { role: "assistant", content: responseContent }]);
     } catch (err) {
       console.error("Error in conversation:", err);
       speak("Desculpe, ocorreu um erro ao processar sua solicitação.");
@@ -214,7 +211,7 @@ const SophisticatedVoiceAssistant = () => {
       recognitionRef.current.onstart = () => setIsListening(true);
       recognitionRef.current.onend = () => {
         setIsListening(false);
-        if (!stopPermanentlyRef.current && !isSpeakingRef.current && isOpenRef.current) {
+        if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
           startListening();
         }
       };
@@ -243,7 +240,7 @@ const SophisticatedVoiceAssistant = () => {
         setMicPermission(permissionStatus.state);
         if (permissionStatus.state === "granted") {
           startListening();
-        } else {
+        } else if (permissionStatus.state === "prompt") {
           setIsPermissionModalOpen(true);
         }
         permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
@@ -263,17 +260,24 @@ const SophisticatedVoiceAssistant = () => {
   }, [startListening, stopListening, stopSpeaking, runConversation]);
 
   useEffect(() => {
-    if (isOpen && settings) {
+    if (isOpen) {
       stopListening();
-      const message = hasBeenActivated ? settings.continuation_phrase : settings.welcome_message;
+      const message = !hasBeenActivatedRef.current 
+        ? settingsRef.current?.welcome_message 
+        : settingsRef.current?.continuation_phrase;
+      
       speak(message || "Olá!", () => {
-        setHasBeenActivated(true);
+        if (!hasBeenActivatedRef.current) {
+          setHasBeenActivated(true);
+        }
       });
-    } else if (!isOpen) {
+    } else {
       stopSpeaking();
-      startListening();
+      if (micPermission === 'granted') {
+        startListening();
+      }
     }
-  }, [isOpen, settings, hasBeenActivated, speak, stopListening, stopSpeaking, startListening]);
+  }, [isOpen, settings, micPermission]);
 
   useEffect(() => {
     supabase.from("settings").select("*").limit(1).single().then(({ data }) => {
