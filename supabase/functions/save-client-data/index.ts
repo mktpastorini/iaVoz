@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    // Criar cliente Supabase sem autenticação
+    // Criar cliente Supabase sem autenticação (sem JWT)
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? ''
