@@ -47,6 +47,21 @@ const SophisticatedVoiceAssistant = () => {
     console.log(`[Assistant] ${message}`, data !== undefined ? data : "");
   };
 
+  const startListening = useCallback(() => {
+    if (micPermission !== 'granted') {
+      logAction("Cannot start listening: permission not granted.");
+      setIsPermissionModalOpen(true);
+      return;
+    }
+    if (recognitionRef.current && !isListeningRef.current) {
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        logAction("Recognition start error.", e);
+      }
+    }
+  }, [micPermission]);
+
   const speak = useCallback((text: string, onEndCallback?: () => void) => {
     logAction("Speaking:", text);
     if (!text) {
@@ -122,6 +137,7 @@ const SophisticatedVoiceAssistant = () => {
               setIsOpen(false);
               setTranscript("");
               setAiResponse("");
+              startListening();
             }, 3000);
           });
           setIsProcessing(false);
@@ -130,11 +146,11 @@ const SophisticatedVoiceAssistant = () => {
       }
     } catch (err: any) {
       logAction("Error in conversation:", err);
-      speak("Desculpe, ocorreu um erro.");
+      speak("Desculpe, ocorreu um erro.", startListening);
     } finally {
       setIsProcessing(false);
     }
-  }, [messageHistory, speak]);
+  }, [messageHistory, speak, startListening]);
 
   const requestMicPermission = useCallback(() => {
     navigator.mediaDevices.getUserMedia({ audio: true })
@@ -167,9 +183,7 @@ const SophisticatedVoiceAssistant = () => {
     recognition.onend = () => {
       setIsListening(false);
       if (!isSpeakingRef.current && micPermission === 'granted') {
-        setTimeout(() => {
-          if (!isListeningRef.current) recognition.start();
-        }, 250);
+        setTimeout(() => startListening(), 250);
       }
     };
     recognition.onerror = (event) => {
@@ -185,9 +199,7 @@ const SophisticatedVoiceAssistant = () => {
         setIsOpen(true);
         setListeningMode('command');
         const continuationPhrase = settingsRef.current?.continuation_phrase || "Pois não?";
-        speak(continuationPhrase, () => {
-          // After speaking, recognition will restart via its onend handler
-        });
+        speak(continuationPhrase, startListening);
       } else if (listeningMode === 'command' && isOpen) {
         logAction("Processing command:", transcript);
         runConversation(transcript);
@@ -197,11 +209,11 @@ const SophisticatedVoiceAssistant = () => {
     navigator.permissions.query({ name: "microphone" as PermissionName }).then((result) => {
       setMicPermission(result.state as any);
       if (result.state === 'prompt') setIsPermissionModalOpen(true);
-      else if (result.state === 'granted') recognition.start();
+      else if (result.state === 'granted') startListening();
       result.onchange = () => {
         setMicPermission(result.state as any);
         if (result.state === 'granted' && !isListeningRef.current) {
-          recognition.start();
+          startListening();
         }
       };
     });
@@ -210,7 +222,7 @@ const SophisticatedVoiceAssistant = () => {
       recognition.onend = null;
       recognition.stop();
     };
-  }, [listeningMode, runConversation, speak, micPermission, isOpen]);
+  }, [listeningMode, runConversation, speak, micPermission, isOpen, startListening]);
 
   if (!isOpen) {
     return (

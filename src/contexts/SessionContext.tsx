@@ -63,18 +63,16 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   useEffect(() => {
     const fetchUserData = async () => {
-      // More robust check: ensure we have a user and an active session.
-      if (session && session.user && session.user.id) {
-        if (session.user.id === lastUserIdRef.current) {
-          return; // Data already loaded for this user
+      if (session && user && user.id && !user.is_anonymous) {
+        if (user.id === lastUserIdRef.current) {
+          return;
         }
-        lastUserIdRef.current = session.user.id;
+        lastUserIdRef.current = user.id;
 
-        // Fetch Profile
         const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('*')
-          .eq('id', session.user.id)
+          .eq('id', user.id)
           .single();
 
         if (profileError && profileError.code !== 'PGRST116') {
@@ -84,9 +82,8 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
           setProfile(profileData);
         }
 
-        // Fetch Workspace
         const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', {
-          p_user_id: session.user.id,
+          p_user_id: user.id,
         });
 
         if (workspaceError) {
@@ -96,7 +93,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
           setWorkspace(workspaceData);
         }
       } else {
-        // Clear data for anonymous users
         lastUserIdRef.current = null;
         setProfile(null);
         setWorkspace(null);
@@ -106,7 +102,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     if(initialLoadComplete) {
       fetchUserData();
     }
-  }, [session, initialLoadComplete]);
+  }, [session, user, initialLoadComplete]);
 
   const loading = !initialLoadComplete;
 
