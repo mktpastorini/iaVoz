@@ -1,3 +1,4 @@
+import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,11 +16,9 @@ import ClientsPage from "./pages/admin/Clients";
 import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
-import React, { useEffect, useState } from "react";
-import { supabase } from "./integrations/supabase/client";
+import React from "react";
+import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
-import DevAssistantPage from "./pages/DevAssistant";
-import FuturisticVoiceAssistant from "./components/FuturisticVoiceAssistant"; // Importar o novo componente
 
 const queryClient = new QueryClient();
 
@@ -30,73 +29,16 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-const GlobalVoiceAssistantWrapper = () => {
-  const { session } = useSession();
-  const [settings, setSettings] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        let settingsData = null;
-        if (session) {
-          const { data: workspaceMember } = await supabase
-            .from('workspace_members')
-            .select('workspace_id')
-            .eq('user_id', session.user.id)
-            .limit(1)
-            .single();
-          
-          if (workspaceMember) {
-            const { data } = await supabase
-              .from("settings")
-              .select("*")
-              .eq('workspace_id', workspaceMember.workspace_id)
-              .limit(1)
-              .single();
-            settingsData = data;
-          }
-        }
-        
-        if (!settingsData) {
-          const { data } = await supabase
-            .from("settings")
-            .select("*")
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single();
-          settingsData = data;
-        }
-        
-        setSettings(settingsData);
-      } catch (error) {
-        console.error("Erro ao carregar configurações:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchSettings();
-  }, [session]);
-
-  return (
-    <FuturisticVoiceAssistant // Usando o novo componente
-      settings={settings}
-      isLoading={loading}
-    />
-  );
-};
-
+// Componente interno para ter acesso ao contexto do Router (useLocation)
 const AppContent = () => {
   const location = useLocation();
-  const isDevAssistantPage = location.pathname === '/dev-assistant';
+  const isAdminRoute = location.pathname.startsWith('/admin');
 
   return (
     <>
       <Routes>
         <Route path="/" element={<Index />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/dev-assistant" element={<DevAssistantPage />} />
         <Route
           path="/admin"
           element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
@@ -112,14 +54,15 @@ const AppContent = () => {
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
-      {!isDevAssistantPage && <GlobalVoiceAssistantWrapper />}
+      {!isAdminRoute && <SophisticatedVoiceAssistant />}
     </>
   );
-}
+};
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
+      <Toaster />
       <Sonner />
       <BrowserRouter>
         <SessionContextProvider>
