@@ -376,7 +376,7 @@ const SophisticatedVoiceAssistant = () => {
       >
         <div className="absolute inset-0 -z-10 pointer-events-none">
           <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
-          <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
+          <AIScene key={isMobile ? "mobile" : "desktop"} audioIntensity={audioIntensity} isMobile={isMobile} />
         </div>
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
