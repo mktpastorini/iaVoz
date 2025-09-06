@@ -20,7 +20,7 @@ import React, { useEffect, useState } from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { supabase } from "./integrations/supabase/client";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
-import DevAssistantPage from "./pages/DevAssistant"; // Importando a nova página
+import DevAssistantPage from "./pages/DevAssistant";
 
 const queryClient = new QueryClient();
 
@@ -31,7 +31,6 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// Componente para carregar configurações (funciona para usuários logados e anônimos)
 const GlobalVoiceAssistantWrapper = () => {
   const { session } = useSession();
   const [settings, setSettings] = useState<any>(null);
@@ -40,11 +39,8 @@ const GlobalVoiceAssistantWrapper = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        // Tentar buscar configurações do workspace do usuário (se logado) ou do workspace padrão
         let settingsData = null;
-        
         if (session) {
-          // Usuário logado: buscar configurações do seu workspace
           const { data: workspaceMember } = await supabase
             .from('workspace_members')
             .select('workspace_id')
@@ -63,7 +59,6 @@ const GlobalVoiceAssistantWrapper = () => {
           }
         }
         
-        // Se não encontrou configurações do usuário ou é usuário anônimo, usar workspace padrão
         if (!settingsData) {
           const { data } = await supabase
             .from("settings")
