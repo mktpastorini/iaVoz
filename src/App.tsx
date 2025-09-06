@@ -1,4 +1,8 @@
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import AdminLayout from "./layouts/AdminLayout";
@@ -10,22 +14,23 @@ import ClientActionsPage from "./pages/admin/ClientActions";
 import UserDataFieldsPage from "./pages/admin/UserDataFields";
 import ClientsPage from "./pages/admin/Clients";
 import Login from "./pages/login";
-import { useSession } from "./contexts/SessionContext";
+import { SessionContextProvider, useSession } from "./contexts/SessionContext";
+import { SystemContextProvider } from "./contexts/SystemContext";
 import React from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
+import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
+
+const queryClient = new QueryClient();
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { session, loading } = useSession();
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
-  }
-  if (!session) {
-    return <Navigate to="/login" replace />;
-  }
+  if (loading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+  if (!session) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
 
-const App = () => {
+// Componente interno para ter acesso ao contexto do Router (useLocation)
+const AppContent = () => {
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
 
@@ -53,5 +58,23 @@ const App = () => {
     </>
   );
 };
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      <BrowserRouter>
+        <SessionContextProvider>
+          <SystemContextProvider>
+            <VoiceAssistantProvider>
+              <AppContent />
+            </VoiceAssistantProvider>
+          </SystemContextProvider>
+        </SessionContextProvider>
+      </BrowserRouter>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
 
 export default App;
