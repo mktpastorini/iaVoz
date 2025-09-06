@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import AdminLayout from "./layouts/AdminLayout";
@@ -93,6 +93,36 @@ const GlobalVoiceAssistantWrapper = () => {
   );
 };
 
+const AppContent = () => {
+  const location = useLocation();
+  const isDevAssistantPage = location.pathname === '/dev-assistant';
+
+  return (
+    <>
+      <Routes>
+        <Route path="/" element={<Index />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/dev-assistant" element={<DevAssistantPage />} />
+        <Route
+          path="/admin"
+          element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
+        >
+          <Route index element={<Navigate to="/admin/settings" replace />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="powers" element={<PowersPage />} />
+          <Route path="conversations" element={<ConversationsPage />} />
+          <Route path="system-powers" element={<SystemPowersPage />} />
+          <Route path="client-actions" element={<ClientActionsPage />} />
+          <Route path="user-data-fields" element={<UserDataFieldsPage />} />
+          <Route path="clients" element={<ClientsPage />} />
+        </Route>
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      {!isDevAssistantPage && <GlobalVoiceAssistantWrapper />}
+    </>
+  );
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -102,26 +132,7 @@ const App = () => (
         <SessionContextProvider>
           <SystemContextProvider>
             <VoiceAssistantProvider>
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/dev-assistant" element={<DevAssistantPage />} />
-                <Route
-                  path="/admin"
-                  element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
-                >
-                  <Route index element={<Navigate to="/admin/settings" replace />} />
-                  <Route path="settings" element={<SettingsPage />} />
-                  <Route path="powers" element={<PowersPage />} />
-                  <Route path="conversations" element={<ConversationsPage />} />
-                  <Route path="system-powers" element={<SystemPowersPage />} />
-                  <Route path="client-actions" element={<ClientActionsPage />} />
-                  <Route path="user-data-fields" element={<UserDataFieldsPage />} />
-                  <Route path="clients" element={<ClientsPage />} />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-              <GlobalVoiceAssistantWrapper />
+              <AppContent />
             </VoiceAssistantProvider>
           </SystemContextProvider>
         </SessionContextProvider>
