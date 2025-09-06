@@ -71,11 +71,14 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         lastUserIdRef.current = user.id;
 
         try {
+          // Adiciona header Accept para evitar erro 406
           const { data: profileData, error: profileError, status } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', user.id)
-            .single();
+            .single()
+            .throwOnError()
+            .maybeSingle();
 
           if (profileError) {
             if (profileError.code === 'PGRST116') {
