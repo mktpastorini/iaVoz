@@ -3,8 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'content-type, authorization',
+  'Access-Control-Allow-Headers': 'content-type',
 };
 
 serve(async (req) => {
@@ -13,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    // Criar cliente Supabase sem autenticação (sem JWT)
+    // Criar cliente Supabase sem autenticação
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? ''
