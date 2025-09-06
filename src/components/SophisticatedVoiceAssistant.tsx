@@ -330,15 +330,23 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => {
     if (isOpen && settings) {
       stopListening();
-      const message = !hasBeenActivated ? settings.welcome_message : settings.continuation_phrase;
+      const message = !hasBeenActivatedRef.current 
+        ? settings.welcome_message 
+        : settings.continuation_phrase;
+      
       speak(message || "Olá!", () => {
-        setHasBeenActivated(true);
+        if (!hasBeenActivatedRef.current) {
+          hasBeenActivatedRef.current = true;
+          setHasBeenActivated(true);
+        }
       });
     } else if (!isOpen) {
       stopSpeaking();
-      startListening();
+      if (micPermission === 'granted') {
+        startListening();
+      }
     }
-  }, [isOpen, settings, hasBeenActivated, speak, stopListening, stopSpeaking, startListening]);
+  }, [isOpen, settings, micPermission]);
 
   useEffect(() => {
     supabase.from("settings").select("*").limit(1).single().then(({ data }) => {
