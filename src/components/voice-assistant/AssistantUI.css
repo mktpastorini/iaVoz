@@ -1,0 +1,98 @@
+.glass-container {
+  background: rgba(30, 35, 70, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 255, 255, 0.2);
+  box-shadow: inset 0 0 2px 0 rgba(0, 255, 255, 0.3), 0 0 20px rgba(0, 255, 255, 0.1);
+  border-radius: 15px;
+  animation: fadeIn 0.5s ease-out forwards;
+  color: white;
+  text-shadow: 0 0 5px rgba(255,255,255,0.5);
+  padding: 20px 40px;
+  text-align: center;
+}
+
+.holographic-text {
+  color: #FFFFFF;
+  font-size: 1.2rem;
+  text-shadow: 
+    0 0 5px rgba(0, 255, 255, 0.8),
+    0 0 10px rgba(0, 255, 255, 0.6),
+    0 0 15px rgba(255, 255, 255, 0.5),
+    0 0 30px rgba(170, 0, 255, 0.3);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mic-control-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 15px 30px;
+}
+
+.mic-icon-container {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  position: relative;
+  cursor: pointer;
+}
+
+.mic-glow {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff, 0 0 30px #ff00ff;
+  animation: pulseGlow 2s infinite ease-in-out;
+  transition: opacity 0.3s;
+}
+
+.equalizer {
+  display: flex;
+  align-items: flex-end;
+  height: 30px;
+}
+
+.equalizer-bar {
+  width: 4px;
+  margin: 0 2px;
+  background-color: #00ffff;
+  border-radius: 2px;
+  transition: height 0.2s ease-out;
+  height: 4px;
+}
+
+.equalizer-bar.speaking {
+  animation: equalize 0.8s infinite ease-in-out;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+
+@keyframes equalize {
+  0%, 100% { height: 4px; }
+  50% { height: 24px; }
+}
