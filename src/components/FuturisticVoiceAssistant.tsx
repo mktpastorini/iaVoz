@@ -5,9 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Mic, MicOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { showError } from "@/utils/toast";
-import { replacePlaceholders } from "@/lib/utils";
-import FuturisticVoiceAssistantScene from "./FuturisticVoiceAssistantScene";
-import { useAssistantAudio } from "@/hooks/useAssistantAudio";
 
 interface VoiceAssistantProps {
   settings: any | null;
@@ -22,29 +19,6 @@ interface Message {
   name?: string;
 }
 
-interface Power {
-  id: string;
-  name: string;
-  description: string | null;
-  method: string;
-  url: string | null;
-  headers: Record<string, string> | null;
-  body: Record<string, any> | null;
-  api_key_id: string | null;
-  parameters_schema: Record<string, any> | null;
-}
-
-interface ClientAction {
-  id: string;
-  trigger_phrase: string;
-  action_type: 'OPEN_URL' | 'SHOW_IMAGE' | 'OPEN_IFRAME_URL';
-  action_payload: {
-    url?: string;
-    imageUrl?: string;
-    altText?: string;
-  };
-}
-
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 
 const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isLoading }) => {
@@ -54,14 +28,9 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
-  const [powers, setPowers] = useState<Power[]>([]);
-  const [clientActions, setClientActions] = useState<ClientAction[]>([]);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const synthRef = useRef<HTMLAudioElement | null>(null);
+  const synthRef = useRef<SpeechSynthesis | null>(null);
   const isMounted = useRef(true);
-
-  // Usar hook para captar intensidade do áudio sintetizado
-  const { audioIntensity, isSpeaking: isSpeakingAudio } = useAssistantAudio({ audioElementRef: synthRef });
 
   useEffect(() => {
     isMounted.current = true;
@@ -107,11 +76,7 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
     recognitionRef.current = recognition;
 
     if ("speechSynthesis" in window) {
-      // Criar elemento de áudio oculto para conectar ao hook de áudio
-      const audioEl = document.createElement("audio");
-      audioEl.style.display = "none";
-      document.body.appendChild(audioEl);
-      synthRef.current = audioEl;
+      synthRef.current = window.speechSynthesis;
     }
 
     return () => {
@@ -121,34 +86,11 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
       recognition.onend = null;
       recognition.onerror = null;
       recognition.onresult = null;
-      if (synthRef.current) {
-        synthRef.current.pause();
-        synthRef.current.src = "";
-        document.body.removeChild(synthRef.current);
-        synthRef.current = null;
+      if (synthRef.current?.speaking) {
+        synthRef.current.cancel();
       }
     };
   }, [isOpen]);
-
-  useEffect(() => {
-    // Carregar poderes e ações do cliente para gatilhos
-    const fetchPowersAndActions = async () => {
-      const { data: powersData, error: powersError } = await supabase.from('powers').select('*');
-      if (powersError) {
-        showError("Erro ao carregar poderes da IA.");
-      } else {
-        setPowers(powersData || []);
-      }
-
-      const { data: actionsData, error: actionsError } = await supabase.from('client_actions').select('*');
-      if (actionsError) {
-        showError("Erro ao carregar ações do cliente.");
-      } else {
-        setClientActions(actionsData || []);
-      }
-    };
-    fetchPowersAndActions();
-  }, []);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening) {
@@ -175,16 +117,16 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
   };
 
   const speak = (text: string) => {
-    if (!window.speechSynthesis) return;
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
+    if (!synthRef.current) return;
+    if (synthRef.current.speaking) {
+      synthRef.current.cancel();
     }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "pt-BR";
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
+    synthRef.current.speak(utterance);
   };
 
   const handleUserInput = async (input: string) => {
@@ -193,37 +135,17 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
       return;
     }
 
-    // Verificar se input corresponde a alguma ação do cliente
-    const matchedAction = clientActions.find(action =>
-      input.toLowerCase().includes(action.trigger_phrase.toLowerCase())
-    );
-
-    if (matchedAction) {
-      executeClientAction(matchedAction);
-      return;
-    }
-
     // Atualizar histórico de mensagens
     const newHistory = [...messageHistory, { role: "user", content: input }];
     setMessageHistory(newHistory);
     setAiResponse("Pensando...");
 
-    const tools = powers.map(p => ({
-      type: 'function' as const,
-      function: {
-        name: p.name,
-        description: p.description,
-        parameters: p.parameters_schema || { type: "object", properties: {} }
-      }
-    }));
-
-    const messagesForApi = [
-      { role: "system" as const, content: settings.system_prompt || "" },
-      { role: "assistant" as const, content: settings.assistant_prompt || "" },
-      ...newHistory.slice(-settings.conversation_memory_length)
-    ];
-
     try {
+      const messagesForApi = [
+        { role: "system", content: settings.system_prompt || "" },
+        ...newHistory,
+      ];
+
       const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
         method: "POST",
         headers: {
@@ -233,8 +155,6 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
         body: JSON.stringify({
           model: settings.ai_model || "gpt-4o-mini",
           messages: messagesForApi,
-          tools: tools.length > 0 ? tools : undefined,
-          tool_choice: tools.length > 0 ? 'auto' : undefined,
         }),
       });
 
@@ -244,95 +164,14 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
       }
 
       const data = await response.json();
-      const responseMessage = data.choices?.[0]?.message;
+      const assistantMessage = data.choices?.[0]?.message?.content || "Desculpe, não entendi.";
 
-      if (responseMessage.tool_calls) {
-        setAiResponse("Executando ação...");
-        const historyWithToolCall = [...newHistory, responseMessage];
-        setMessageHistory(historyWithToolCall);
-
-        const toolOutputs = await Promise.all(responseMessage.tool_calls.map(async (toolCall: any) => {
-          const power = powers.find(p => p.name === toolCall.function.name);
-          if (!power) return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: 'Poder não encontrado.' };
-
-          const args = JSON.parse(toolCall.function.arguments);
-          const isInternalFunction = power.url?.includes('supabase.co/functions/v1/');
-          const functionName = isInternalFunction ? power.url.split('/functions/v1/')[1] : null;
-          let toolResult, invokeError;
-
-          if (isInternalFunction && functionName) {
-            const headers: Record<string, string> = {};
-            const { data, error } = await supabase.functions.invoke(functionName, { body: args, headers });
-            invokeError = error;
-            toolResult = data;
-          } else {
-            const processedUrl = replacePlaceholders(power.url || '', args);
-            const processedHeaders = power.headers ? JSON.parse(replacePlaceholders(JSON.stringify(power.headers), args)) : {};
-            const processedBody = (power.body && ["POST", "PUT", "PATCH"].includes(power.method)) ? JSON.parse(replacePlaceholders(JSON.stringify(power.body), args)) : undefined;
-            const payload = { url: processedUrl, method: power.method, headers: processedHeaders, body: processedBody };
-            const { data, error } = await supabase.functions.invoke('proxy-api', { body: payload });
-            toolResult = data;
-            invokeError = error;
-          }
-
-          if (invokeError) return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: JSON.stringify({ error: invokeError.message }) };
-          return { tool_call_id: toolCall.id, role: 'tool' as const, name: toolCall.function.name, content: JSON.stringify(toolResult) };
-        }));
-
-        const historyWithToolResults = [...historyWithToolCall, ...toolOutputs];
-        setMessageHistory(historyWithToolResults);
-
-        const secondResponse = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${settings.openai_api_key}`,
-          },
-          body: JSON.stringify({
-            model: settings.ai_model || "gpt-4o-mini",
-            messages: historyWithToolResults,
-          }),
-        });
-
-        if (!secondResponse.ok) {
-          const errorBody = await secondResponse.json();
-          throw new Error(errorBody.error?.message || "Erro na segunda chamada OpenAI");
-        }
-
-        const secondData = await secondResponse.json();
-        const finalMessage = secondData.choices?.[0]?.message?.content;
-        setMessageHistory(prev => [...prev, { role: 'assistant', content: finalMessage }]);
-        setAiResponse(finalMessage);
-        speak(finalMessage);
-      } else {
-        const assistantMessage = responseMessage.content;
-        setMessageHistory(prev => [...prev, { role: "assistant", content: assistantMessage }]);
-        setAiResponse(assistantMessage);
-        speak(assistantMessage);
-      }
+      setMessageHistory([...newHistory, { role: "assistant", content: assistantMessage }]);
+      setAiResponse(assistantMessage);
+      speak(assistantMessage);
     } catch (error: any) {
       console.error("Erro na conversa:", error);
-      showError(error.message || "Erro ao processar a conversa.");
       speak("Desculpe, ocorreu um erro ao processar sua solicitação.");
-    }
-  };
-
-  const executeClientAction = (action: ClientAction) => {
-    stopListening();
-    switch (action.action_type) {
-      case 'OPEN_URL':
-        if (action.action_payload.url) {
-          speak(`Abrindo ${action.action_payload.url}`, () => window.open(action.action_payload.url, '_blank'));
-        }
-        break;
-      case 'OPEN_IFRAME_URL':
-        speak("Abrindo conteúdo em overlay, funcionalidade ainda não implementada.");
-        break;
-      case 'SHOW_IMAGE':
-        speak("Mostrando imagem, funcionalidade ainda não implementada.");
-        break;
-      default:
-        speak("Ação desconhecida.");
     }
   };
 
@@ -352,12 +191,8 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
 
   if (isLoading) return null;
 
-  // Detectar qualidade para ajustar partículas (mobile ou desktop)
-  const quality = window.innerWidth >= 768 ? 'desktop' : 'mobile';
-
   return (
     <>
-      <FuturisticVoiceAssistantScene audioIntensity={audioIntensity} isSpeaking={isSpeakingAudio} quality={quality} />
       {isOpen && (
         <div className="fixed bottom-24 right-4 z-50 p-4 bg-cyan-700 text-white rounded-lg shadow-lg max-w-xs w-full">
           <p className="mb-2 font-semibold">Assistente de Voz</p>
