@@ -1,4 +1,3 @@
-import React from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -17,8 +16,10 @@ import ClientsPage from "./pages/admin/Clients";
 import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
+import React, { useEffect, useState } from "react";
+import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
+import { supabase } from "./integrations/supabase/client";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
-import GlobalVoiceAssistant from "./components/GlobalVoiceAssistant";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,68 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   if (loading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
   if (!session) return <Navigate to="/login" replace />;
   return <>{children}</>;
+};
+
+// Componente para carregar configurações (funciona para usuários logados e anônimos)
+const GlobalVoiceAssistantWrapper = () => {
+  const { session } = useSession();
+  const [settings, setSettings] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        // Tentar buscar configurações do workspace do usuário (se logado) ou do workspace padrão
+        let settingsData = null;
+        
+        if (session) {
+          // Usuário logado: buscar configurações do seu workspace
+          const { data: workspaceMember } = await supabase
+            .from('workspace_members')
+            .select('workspace_id')
+            .eq('user_id', session.user.id)
+            .limit(1)
+            .single();
+          
+          if (workspaceMember) {
+            const { data } = await supabase
+              .from("settings")
+              .select("*")
+              .eq('workspace_id', workspaceMember.workspace_id)
+              .limit(1)
+              .single();
+            settingsData = data;
+          }
+        }
+        
+        // Se não encontrou configurações do usuário ou é usuário anônimo, usar workspace padrão
+        if (!settingsData) {
+          const { data } = await supabase
+            .from("settings")
+            .select("*")
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single();
+          settingsData = data;
+        }
+        
+        setSettings(settingsData);
+      } catch (error) {
+        console.error("Erro ao carregar configurações:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchSettings();
+  }, [session]);
+
+  return (
+    <SophisticatedVoiceAssistant
+      settings={settings}
+      isLoading={loading}
+    />
+  );
 };
 
 const App = () => (
@@ -56,7 +119,7 @@ const App = () => (
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>
-              <GlobalVoiceAssistant />
+              <GlobalVoiceAssistantWrapper />
             </VoiceAssistantProvider>
           </SystemContextProvider>
         </SessionContextProvider>
