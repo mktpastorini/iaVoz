@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff } from "lucide-react";
-import BabylonTestScene from "./assistant-scene/BabylonTestScene"; // Importando a nova cena
+import P5TestScene from "./assistant-scene/P5TestScene"; // Importando a nova cena p5.js
 
 interface VoiceAssistantProps {
   settings: any | null;
@@ -105,11 +105,11 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
 
   return (
     <>
-      {/* Renderiza a cena de teste do Babylon.js */}
-      <BabylonTestScene />
+      {/* Renderiza a cena de teste do p5.js */}
+      <P5TestScene />
       
       {isOpen && (
-        <div className="fixed bottom-24 right-4 z-50 p-4 bg-cyan-700 text-white rounded-lg shadow-lg max-w-xs w-full">
+        <div className="fixed bottom-24 right-4 z-50 p-4 bg-cyan-700/50 backdrop-blur-sm text-white rounded-lg shadow-lg max-w-xs w-full">
           <p className="mb-2 font-semibold">Assistente de Voz</p>
           <p className="mb-1 italic text-cyan-200">Você disse: {transcript || "..."}</p>
           <p className="mb-2">{aiResponse || "..."}</p>
