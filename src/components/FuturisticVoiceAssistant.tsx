@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Mic, MicOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { showError } from "@/utils/toast";
+import { replacePlaceholders } from "@/lib/utils";
+import FuturisticVoiceAssistantScene from "./FuturisticVoiceAssistantScene";
+import { useAssistantAudio } from "@/hooks/useAssistantAudio";
 
 interface VoiceAssistantProps {
   settings: any | null;
@@ -29,8 +32,11 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const synthRef = useRef<SpeechSynthesis | null>(null);
+  const synthRef = useRef<HTMLAudioElement | null>(null);
   const isMounted = useRef(true);
+
+  // Usar hook para captar intensidade do áudio sintetizado
+  const { audioIntensity, isSpeaking: isSpeakingAudio } = useAssistantAudio({ audioElementRef: synthRef });
 
   useEffect(() => {
     isMounted.current = true;
@@ -75,9 +81,11 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
 
     recognitionRef.current = recognition;
 
-    if ("speechSynthesis" in window) {
-      synthRef.current = window.speechSynthesis;
-    }
+    // Criar elemento de áudio oculto para conectar ao hook
+    const audioEl = document.createElement("audio");
+    audioEl.style.display = "none";
+    document.body.appendChild(audioEl);
+    synthRef.current = audioEl;
 
     return () => {
       isMounted.current = false;
@@ -86,8 +94,11 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
       recognition.onend = null;
       recognition.onerror = null;
       recognition.onresult = null;
-      if (synthRef.current?.speaking) {
-        synthRef.current.cancel();
+      if (synthRef.current) {
+        synthRef.current.pause();
+        synthRef.current.src = "";
+        document.body.removeChild(synthRef.current);
+        synthRef.current = null;
       }
     };
   }, [isOpen]);
@@ -117,16 +128,16 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
   };
 
   const speak = (text: string) => {
-    if (!synthRef.current) return;
-    if (synthRef.current.speaking) {
-      synthRef.current.cancel();
+    if (!window.speechSynthesis) return;
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
     }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "pt-BR";
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
-    synthRef.current.speak(utterance);
+    window.speechSynthesis.speak(utterance);
   };
 
   const handleUserInput = async (input: string) => {
@@ -191,8 +202,12 @@ const FuturisticVoiceAssistant: React.FC<VoiceAssistantProps> = ({ settings, isL
 
   if (isLoading) return null;
 
+  // Detectar qualidade para ajustar partículas (mobile ou desktop)
+  const quality = window.innerWidth >= 768 ? 'desktop' : 'mobile';
+
   return (
     <>
+      <FuturisticVoiceAssistantScene audioIntensity={audioIntensity} isSpeaking={isSpeakingAudio} quality={quality} />
       {isOpen && (
         <div className="fixed bottom-24 right-4 z-50 p-4 bg-cyan-700 text-white rounded-lg shadow-lg max-w-xs w-full">
           <p className="mb-2 font-semibold">Assistente de Voz</p>
