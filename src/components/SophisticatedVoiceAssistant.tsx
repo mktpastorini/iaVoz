@@ -236,6 +236,17 @@ const SophisticatedVoiceAssistant = () => {
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
   }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData]);
 
+  // Iniciar reconhecimento de voz automaticamente quando o assistente abrir
+  useEffect(() => {
+    if (isOpen) {
+      console.log("[VoiceAssistant] Assistente aberto, iniciando microfone...");
+      startListening();
+    } else {
+      console.log("[VoiceAssistant] Assistente fechado, parando microfone...");
+      stopListening();
+    }
+  }, [isOpen, startListening, stopListening]);
+
   // Inicializa o assistente na montagem
   useEffect(() => {
     initializeAssistant();
