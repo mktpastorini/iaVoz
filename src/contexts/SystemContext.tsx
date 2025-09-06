@@ -4,133 +4,139 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { showError } from '@/utils/toast';
 import { useSession } from './SessionContext';
-import { replacePlaceholders } from '@/lib/utils';
-
-interface Workspace {
-  id: string;
-  name: string;
-}
-
-interface Power {
-  id: string;
-  name: string;
-  // Add other power fields as needed
-}
+import { replacePlaceholders } from '@/lib/utils'; // Importar a função
 
 interface SystemContextType {
   systemVariables: Record<string, any>;
   loadingSystemContext: boolean;
   refreshSystemVariables: () => void;
-  effectiveWorkspace: Workspace | null;
-  powers: Power[];
 }
 
 const SystemContext = createContext<SystemContextType | undefined>(undefined);
 
+// URL da Edge Function get-client-ip
 const GET_CLIENT_IP_FUNCTION_URL = `https://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/get-client-ip`;
 
 export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { workspace, user, loading: sessionLoading } = useSession();
+  const { workspace, loading: sessionLoading } = useSession();
   const [systemVariables, setSystemVariables] = useState<Record<string, any>>({});
   const [loadingSystemContext, setLoadingSystemContext] = useState(true);
-  const [effectiveWorkspace, setEffectiveWorkspace] = useState<Workspace | null>(null);
-  const [powers, setPowers] = useState<Power[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0); // Para forçar o refresh
 
-  useEffect(() => {
-    const determineEffectiveWorkspace = async () => {
-      if (sessionLoading) return;
+  const executeSystemPowers = async () => {
+    if (!workspace?.id) {
+      setLoadingSystemContext(false);
+      return;
+    }
 
-      if (user && workspace) {
-        setEffectiveWorkspace(workspace);
-      } else {
-        const { data: defaultWorkspace, error } = await supabase
-          .from('workspaces')
-          .select('*')
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single();
-        
-        if (error) {
-          showError("Erro ao carregar workspace padrão.");
-          console.error("[SystemContext] Error fetching default workspace:", error);
-        } else {
-          setEffectiveWorkspace(defaultWorkspace);
-        }
-      }
-    };
-    determineEffectiveWorkspace();
-  }, [workspace, user, sessionLoading]);
-
-  useEffect(() => {
-    const executeSystemAndFetchPowers = async () => {
-      if (!effectiveWorkspace?.id) {
-        setLoadingSystemContext(false);
-        return;
-      }
-
-      setLoadingSystemContext(true);
-      
-      const { data: powersData, error: powersError } = await supabase
-        .from('powers')
-        .select('*')
-        .eq('workspace_id', effectiveWorkspace.id);
-      
-      if (powersError) {
-        showError("Erro ao carregar poderes do assistente.");
-      } else {
-        setPowers(powersData || []);
-      }
-
+    setLoadingSystemContext(true);
+    try {
+      // 1. Buscar poderes em ordem de criação para garantir execução sequencial
       const { data: enabledPowers, error } = await supabase
         .from('system_powers')
         .select('*')
-        .eq('workspace_id', effectiveWorkspace.id)
+        .eq('workspace_id', workspace.id)
         .eq('enabled', true)
         .order('created_at', { ascending: true });
 
       if (error) {
+        console.error("[SystemContext] Erro ao carregar poderes do sistema habilitados:", error);
         showError("Erro ao carregar automações do sistema.");
         setLoadingSystemContext(false);
         return;
       }
 
       const newSystemVariables: Record<string, any> = {};
+      // 2. Executar poderes em um loop sequencial (for...of com await)
       for (const power of enabledPowers || []) {
-        if (!power.url) continue;
+        if (!power.url) {
+          console.warn(`[SystemContext] Poder do sistema '${power.name}' não tem URL definida. Ignorando.`);
+          continue;
+        }
+
         try {
           let data, invokeError;
-          if (power.url === GET_CLIENT_IP_FUNCTION_URL) {
-            const response = await fetch(GET_CLIENT_IP_FUNCTION_URL, { method: 'GET' });
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            data = await response.json();
+          const isGetClientIpPower = power.url === GET_CLIENT_IP_FUNCTION_URL;
+
+          if (isGetClientIpPower) {
+            // Invocar get-client-ip diretamente do cliente usando fetch para obter o IP real do navegador
+            console.log(`[SystemContext] Directly fetching 'get-client-ip' for power '${power.name}'`);
+            try {
+              const response = await fetch(GET_CLIENT_IP_FUNCTION_URL, {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+              });
+
+              if (!response.ok) {
+                const errorBody = await response.json();
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorBody.error || response.statusText}`);
+              }
+              data = await response.json();
+              invokeError = null; // No error
+            } catch (e: any) {
+              invokeError = e;
+              data = null;
+            }
           } else {
+            // Para outros poderes, continuar usando proxy-api
+            // 3. Substituir placeholders usando as variáveis já coletadas
             const processedUrl = replacePlaceholders(power.url, newSystemVariables);
-            const payload = { url: processedUrl, method: power.method, headers: power.headers, body: power.body };
+            const processedHeadersStr = replacePlaceholders(JSON.stringify(power.headers || {}), newSystemVariables);
+            const processedBodyStr = replacePlaceholders(JSON.stringify(power.body || {}), newSystemVariables);
+
+            const payload = {
+              url: processedUrl,
+              method: power.method,
+              headers: JSON.parse(processedHeadersStr),
+              body: JSON.parse(processedBodyStr),
+            };
+
+            console.log(`[SystemContext] Executing power '${power.name}' via 'proxy-api'. URL: ${payload.url}`);
             const { data: proxyData, error: proxyError } = await supabase.functions.invoke('proxy-api', { body: payload });
             data = proxyData;
             invokeError = proxyError;
           }
-          if (invokeError) throw invokeError;
-          newSystemVariables[power.output_variable_name] = data?.data || data;
+          
+          console.log(`[SystemContext] Resultado bruto para '${power.name}':`, { data, invokeError });
+
+          if (invokeError) {
+            console.error(`[SystemContext] Erro ao executar poder do sistema '${power.name}':`, invokeError);
+            showError(`Erro na automação '${power.name}'.`);
+            newSystemVariables[power.output_variable_name] = { error: invokeError.message };
+          } else {
+            // 4. Adicionar o resultado ao objeto de variáveis para o próximo poder usar
+            newSystemVariables[power.output_variable_name] = data?.data || data;
+          }
         } catch (execError: any) {
+          console.error(`[SystemContext] Erro inesperado ao executar poder do sistema '${power.name}':`, execError);
+          showError(`Erro inesperado na automação '${power.name}'.`);
           newSystemVariables[power.output_variable_name] = { error: execError.message };
         }
       }
       setSystemVariables(newSystemVariables);
       console.log("[SystemContext] Final systemVariables:", newSystemVariables);
+    } catch (globalError: any) {
+      console.error("[SystemContext] Erro global ao processar poderes do sistema:", globalError);
+      showError("Erro ao processar automações do sistema.");
+    } finally {
       setLoadingSystemContext(false);
-    };
+    }
+  };
 
-    executeSystemAndFetchPowers();
-  }, [effectiveWorkspace, refreshKey]);
+  useEffect(() => {
+    if (!sessionLoading) {
+      executeSystemPowers();
+    }
+  }, [workspace, sessionLoading, refreshKey]);
 
   const refreshSystemVariables = () => {
     setRefreshKey(prev => prev + 1);
   };
 
   return (
-    <SystemContext.Provider value={{ systemVariables, loadingSystemContext, refreshSystemVariables, effectiveWorkspace, powers }}>
+    <SystemContext.Provider value={{ systemVariables, loadingSystemContext, refreshSystemVariables }}>
       {children}
     </SystemContext.Provider>
   );

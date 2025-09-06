@@ -40,7 +40,7 @@ interface Power {
 const settingsSchema = z.object({
   system_prompt: z.string().min(10, "Prompt do sistema é obrigatório"),
   assistant_prompt: z.string().min(10, "Prompt do assistente é obrigatório"),
-  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gemini-pro", "gpt-4o-mini"]),
+  ai_model: z.enum(["openai-gpt4", "openai-gpt3.5", "gemini-pro", "gpt-4o-mini"]),
   voice_model: z.enum(["browser", "openai-tts", "gemini-tts"]),
   openai_tts_voice: z.string().optional().nullable(),
   voice_sensitivity: z.number().min(0).max(100),
@@ -375,8 +375,8 @@ const SettingsPage: React.FC = () => {
                   <SelectValue placeholder="Selecione o modelo de IA" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem>
-                  <SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem>
+                  <SelectItem value="openai-gpt4">OpenAI GPT-4</SelectItem>
+                  <SelectItem value="openai-gpt3.5">OpenAI GPT-3.5</SelectItem>
                   <SelectItem value="gemini-pro">Gemini Pro (não implementado)</SelectItem>
                   <SelectItem value="gpt-4o-mini">GPT-4o Mini</SelectItem>
                 </SelectContent>

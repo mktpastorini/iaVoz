@@ -86,8 +86,8 @@ export default {
           },
         },
         "wave": {
-          '0%, 100%': { transform: 'scaleY(0.2)' },
-          '50%': { transform: 'scaleY(1)' },
+          '0%, 100%': { transform: 'scaleY(0.25)', opacity: '0.5' },
+          '50%': { transform: 'scaleY(1)', opacity: '1' },
         },
         "blob": {
           "0%": {
