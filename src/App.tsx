@@ -20,6 +20,7 @@ import React, { useEffect, useState } from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { supabase } from "./integrations/supabase/client";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
+import CosmicAssistant from "./pages/CosmicAssistant"; // Import the new page
 
 const queryClient = new QueryClient();
 
@@ -104,6 +105,7 @@ const App = () => (
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/login" element={<Login />} />
+                <Route path="/assistant" element={<CosmicAssistant />} />
                 <Route
                   path="/admin"
                   element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}

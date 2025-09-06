@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
+import { Link } from "react-router-dom";
 
 const Index = () => {
   const { activateAssistant } = useVoiceAssistant();
@@ -23,14 +24,15 @@ const Index = () => {
               className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-all duration-300"
               onClick={activateAssistant}
             >
-              Ativar Assistente
+              Ativar Assistente Padrão
             </Button>
             <Button
               size="lg"
               variant="outline"
               className="bg-transparent border-purple-500 text-purple-400 hover:bg-purple-500 hover:text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-all duration-300"
+              asChild
             >
-              Ver Documentação
+              <Link to="/assistant">Ver Nova Interface</Link>
             </Button>
           </div>
         </div>
