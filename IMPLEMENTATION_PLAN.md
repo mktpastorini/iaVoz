@@ -21,10 +21,10 @@ Este documento descreve os passos para construir e integrar a nova interface 3D/
   - [x] Adicionar o `<EffectComposer>` com `<Bloom>` para o pós-processamento.
   - [x] Implementar a lógica de `quality` para ajustar a contagem de partículas em dispositivos móveis.
 
-- [ ] **Passo 5: Construir a Interface 2D**
-  - [ ] Criar o componente `src/components/AssistantUI.tsx`.
-  - [ ] Aplicar os estilos de `glassmorphism` e `holographic-text`.
-  - [ ] Integrar um equalizador visual que reage ao `audioIntensity`.
+- [x] **Passo 5: Construir a Interface 2D**
+  - [x] Criar o componente `src/components/AssistantUI.tsx`.
+  - [x] Aplicar os estilos de `glassmorphism` e `holographic-text`.
+  - [x] Integrar um equalizador visual que reage ao `audioIntensity`.
 
 - [ ] **Passo 6: Integrar a Lógica do Assistente**
   - [ ] Transferir cuidadosamente a lógica de estado e funções (escuta, fala, histórico, chamadas de API) de `SophisticatedVoiceAssistant.tsx` para `FuturisticVoiceAssistant.tsx`.
