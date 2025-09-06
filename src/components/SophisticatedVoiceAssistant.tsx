@@ -103,8 +103,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const isReady = !isLoading && !!settings;
 
-  // Refs for states and props
+  // Refs
   const settingsRef = useRef(settings);
+  const isReadyRef = useRef(isReady);
   const isOpenRef = useRef(isOpen);
   const isListeningRef = useRef(isListening);
   const isSpeakingRef = useRef(isSpeaking);
@@ -114,20 +115,22 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const systemVariablesRef = useRef(systemVariables);
   const sessionRef = useRef(session);
   const messageHistoryRef = useRef(messageHistory);
-  const isReadyRef = useRef(isReady);
-
+  
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  
   const stopPermanentlyRef = useRef(false);
+  const isInitializedRef = useRef(false);
   const activationTriggerRef = useRef(0);
   const activationRequestedViaButton = useRef(false);
   const isTransitioningToSpeakRef = useRef(false);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
-  // Effects to sync refs
+  // Sync refs with state
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { isReadyRef.current = isReady; }, [isReady]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
@@ -137,7 +140,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
-  useEffect(() => { isReadyRef.current = isReady; }, [isReady]);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
@@ -152,7 +154,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     try {
       recognitionRef.current.start();
     } catch (error) {
-      console.error("[VA] Error starting recognition:", error);
+      // Ignore errors from starting too soon after stopping
     }
   }, []);
 
@@ -322,7 +324,53 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     }
   }, [speak, stopListening]);
 
-  const initializeAssistant = useCallback(() => {
+  const checkAndRequestMicPermission = useCallback(async () => {
+    try {
+      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      setMicPermission(permissionStatus.state);
+      if (permissionStatus.state === 'prompt') {
+        setIsPermissionModalOpen(true);
+      }
+      permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
+    } catch (error) {
+      setMicPermission('denied');
+    }
+  }, []);
+
+  const handleAllowMic = async () => {
+    setIsPermissionModalOpen(false);
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicPermission('granted');
+      if (activationRequestedViaButton.current) {
+        activationRequestedViaButton.current = false;
+        handleManualActivation();
+      }
+    } catch (error) {
+      setMicPermission('denied');
+    }
+  };
+
+  const handleManualActivation = useCallback(() => {
+    if (!isReadyRef.current || isOpenRef.current) return;
+    if (micPermission !== 'granted') {
+      activationRequestedViaButton.current = true;
+      checkAndRequestMicPermission();
+    } else {
+      setIsOpen(true);
+      const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current?.continuation_phrase
+        ? settingsRef.current.continuation_phrase
+        : settingsRef.current?.welcome_message;
+      speak(messageToSpeak);
+      setHasBeenActivated(true);
+    }
+  }, [micPermission, checkAndRequestMicPermission, speak]);
+
+  // One-time initialization effect
+  useEffect(() => {
+    if (isInitializedRef.current) return;
+    isInitializedRef.current = true;
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       showError("Reconhecimento de voz não suportado.");
@@ -337,7 +385,9 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     recognitionRef.current.onstart = () => setIsListening(true);
     recognitionRef.current.onend = () => {
       setIsListening(false);
-      if (!stopPermanentlyRef.current && !isTransitioningToSpeakRef.current) startListening();
+      if (!stopPermanentlyRef.current && !isTransitioningToSpeakRef.current) {
+        startListening();
+      }
     };
     recognitionRef.current.onerror = (e) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
@@ -376,69 +426,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     };
 
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-  }, [speak, startListening, stopSpeaking, runConversation, executeClientAction]);
-
-  const checkAndRequestMicPermission = useCallback(async () => {
-    try {
-      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-      setMicPermission(permissionStatus.state);
-      if (permissionStatus.state === 'granted') {
-        if (!recognitionRef.current) initializeAssistant();
-        startListening();
-      } else if (permissionStatus.state === 'prompt') {
-        setIsPermissionModalOpen(true);
-      }
-      permissionStatus.onchange = () => checkAndRequestMicPermission();
-    } catch (error) {
-      setMicPermission('denied');
-    }
-  }, [initializeAssistant, startListening]);
-
-  const handleAllowMic = async () => {
-    setIsPermissionModalOpen(false);
-    try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (activationRequestedViaButton.current) {
-        activationRequestedViaButton.current = false;
-        handleManualActivation();
-      }
-    } catch (error) {
-      setMicPermission('denied');
-    }
-  };
-
-  const handleManualActivation = useCallback(() => {
-    if (!isReadyRef.current || isOpenRef.current) return;
-    if (micPermission !== 'granted') {
-      activationRequestedViaButton.current = true;
-      checkAndRequestMicPermission();
-    } else {
-      setIsOpen(true);
-      const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current?.continuation_phrase
-        ? settingsRef.current.continuation_phrase
-        : settingsRef.current?.welcome_message;
-      speak(messageToSpeak);
-      setHasBeenActivated(true);
-    }
-  }, [micPermission, checkAndRequestMicPermission, speak]);
-
-  useEffect(() => {
-    if (activationTrigger > activationTriggerRef.current) {
-      activationTriggerRef.current = activationTrigger;
-      handleManualActivation();
-    }
-  }, [activationTrigger, handleManualActivation]);
-
-  useEffect(() => {
-    if (!isReady) {
-      stopPermanentlyRef.current = true;
-      recognitionRef.current?.abort();
-      if (synthRef.current?.speaking) synthRef.current.cancel();
-      if (isOpen) setIsOpen(false);
-      return;
-    }
-
-    stopPermanentlyRef.current = false;
     checkAndRequestMicPermission();
 
     return () => {
@@ -446,8 +433,28 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
     };
-  }, [isReady, checkAndRequestMicPermission]);
+  }, [checkAndRequestMicPermission, executeClientAction, runConversation, speak, startListening, stopSpeaking]);
 
+  // Effect to control listening state
+  useEffect(() => {
+    if (isReady && micPermission === 'granted') {
+      stopPermanentlyRef.current = false;
+      startListening();
+    } else {
+      stopPermanentlyRef.current = true;
+      stopListening();
+    }
+  }, [isReady, micPermission, startListening, stopListening]);
+
+  // Effect for manual activation trigger
+  useEffect(() => {
+    if (activationTrigger > activationTriggerRef.current) {
+      activationTriggerRef.current = activationTrigger;
+      handleManualActivation();
+    }
+  }, [activationTrigger, handleManualActivation]);
+
+  // Effect to fetch powers and actions
   useEffect(() => {
     const fetchPowersAndActions = async () => {
       const { data: powersData } = await supabase.from('powers').select('*');
