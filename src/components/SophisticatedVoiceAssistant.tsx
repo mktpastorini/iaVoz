@@ -160,28 +160,28 @@ const SophisticatedVoiceAssistant = () => {
     recognition.lang = 'pt-BR';
     recognition.interimResults = false;
 
-    recognition.onstart = () => {
-      logAction("Recognition started.");
-      setIsListening(true);
-    };
-
+    recognition.onstart = () => setIsListening(true);
     recognition.onend = () => {
-      logAction("Recognition ended.");
       setIsListening(false);
       if (!stopPermanentlyRef.current && !isSpeakingRef.current) {
         setTimeout(() => recognition.start(), 250);
       }
     };
-
     recognition.onerror = (event) => {
       logAction("Recognition error", event.error);
       if (event.error === 'not-allowed') setMicPermission('denied');
     };
-
     recognition.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      logAction("Heard:", transcript);
       const activationPhrase = settingsRef.current?.activation_phrase?.toLowerCase() || 'ativar';
+      
+      logAction("Heard", {
+        transcript: transcript,
+        currentMode: listeningMode,
+        activationPhrase: activationPhrase,
+        isMatch: transcript.includes(activationPhrase),
+        settingsLoaded: !!settingsRef.current,
+      });
 
       if (listeningMode === 'hotword' && transcript.includes(activationPhrase)) {
         logAction("Activation phrase detected!");
@@ -199,7 +199,6 @@ const SophisticatedVoiceAssistant = () => {
       setMicPermission(result.state as any);
       if (result.state === 'granted') recognition.start();
       result.onchange = () => {
-        logAction("Permission state changed to:", result.state);
         setMicPermission(result.state as any);
         if (result.state === 'granted') recognition.start();
         else recognition.stop();
