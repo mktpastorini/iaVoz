@@ -19,17 +19,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 
-const ImageModal = ({ imageUrl, altText, onClose }) => (
-  <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/80" onClick={onClose}>
-    <div className="relative max-w-4xl max-h-[80vh] p-4" onClick={(e) => e.stopPropagation()}>
-      <img src={imageUrl} alt={altText} className="w-full h-full object-contain rounded-lg" />
-      <Button variant="destructive" size="icon" className="absolute top-6 right-6 rounded-full" onClick={onClose}>
-        <X className="h-4 w-4" />
-      </Button>
-    </div>
-  </div>
-);
-
 const SophisticatedVoiceAssistant = () => {
   const { session } = useSession();
   const { systemVariables } = useSystem();
@@ -187,7 +176,6 @@ const SophisticatedVoiceAssistant = () => {
       console.log("[VoiceRecognition] Encerrado");
       if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
         console.log("[VoiceRecognition] Reiniciando reconhecimento...");
-        // Não reinicia imediatamente para evitar loop no no-speech
         setTimeout(() => {
           startListening();
         }, 1000);
@@ -201,7 +189,6 @@ const SophisticatedVoiceAssistant = () => {
       }
       if (e.error === "no-speech") {
         console.log("[VoiceRecognition] Nenhuma fala detectada, aguardando para reiniciar...");
-        // Não reinicia aqui para evitar loop infinito
       }
     };
     recognitionRef.current.onresult = (event) => {
@@ -260,7 +247,39 @@ const SophisticatedVoiceAssistant = () => {
 
   return (
     <>
-      {/* Aqui você pode renderizar a UI do assistente */}
+      {isOpen && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 p-4">
+          <div className="bg-gray-900 rounded-lg p-6 max-w-lg w-full text-white shadow-lg relative">
+            <button
+              className="absolute top-4 right-4 text-gray-400 hover:text-white"
+              onClick={() => {
+                setIsOpen(false);
+                stopListening();
+                stopSpeaking();
+              }}
+              aria-label="Fechar assistente"
+            >
+              <X size={24} />
+            </button>
+            <h2 className="text-2xl font-bold mb-4">Assistente de Voz</h2>
+            <div className="mb-4 min-h-[100px] p-2 bg-gray-800 rounded">
+              <p>{displayedAiResponse || "Diga algo para começar..."}</p>
+            </div>
+            <AudioVisualizer isSpeaking={isSpeaking} />
+            <div className="mt-4 flex justify-center space-x-4">
+              <Button
+                variant={isListening ? "destructive" : "default"}
+                onClick={() => {
+                  if (isListening) stopListening();
+                  else startListening();
+                }}
+              >
+                {isListening ? "Parar Microfone" : "Ouvir"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
