@@ -63,61 +63,60 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   useEffect(() => {
     const fetchUserData = async () => {
-      if (!user) {
-        // Sem usuário, não tenta carregar perfil nem workspace
+      if (user && user.id) {
+        if (user.id === lastUserIdRef.current) {
+          setInitialLoadComplete(true);
+          return;
+        }
+        lastUserIdRef.current = user.id;
+
+        try {
+          const { data: profileData, error: profileError, status } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+
+          if (profileError) {
+            if (profileError.code === 'PGRST116') {
+              // Nenhum perfil encontrado, não é erro crítico
+              setProfile(null);
+            } else {
+              console.error('Error fetching profile:', profileError, 'Status:', status);
+              showError('Erro ao carregar perfil.');
+              setProfile(null);
+            }
+          } else {
+            setProfile(profileData);
+          }
+        } catch (err) {
+          console.error('Unexpected error fetching profile:', err);
+          showError('Erro inesperado ao carregar perfil.');
+          setProfile(null);
+        }
+
+        const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', {
+          p_user_id: user.id,
+        });
+
+        if (workspaceError) {
+          console.error('Error ensuring workspace:', workspaceError);
+          showError('Erro ao garantir workspace.');
+          setWorkspace(null);
+        } else {
+          setWorkspace(workspaceData);
+        }
+      } else {
         lastUserIdRef.current = null;
         setProfile(null);
         setWorkspace(null);
-        setInitialLoadComplete(true);
-        return;
       }
-
-      if (user.id === lastUserIdRef.current) {
-        setInitialLoadComplete(true);
-        return;
-      }
-      lastUserIdRef.current = user.id;
-
-      try {
-        const { data: profileData, error: profileError, status } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-
-        if (profileError) {
-          if (profileError.code === 'PGRST116') {
-            setProfile(null);
-          } else {
-            console.error('Error fetching profile:', profileError, 'Status:', status);
-            showError('Erro ao carregar perfil.');
-            setProfile(null);
-          }
-        } else {
-          setProfile(profileData);
-        }
-      } catch (err) {
-        console.error('Unexpected error fetching profile:', err);
-        showError('Erro inesperado ao carregar perfil.');
-        setProfile(null);
-      }
-
-      const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', {
-        p_user_id: user.id,
-      });
-
-      if (workspaceError) {
-        console.error('Error ensuring workspace:', workspaceError);
-        showError('Erro ao garantir workspace.');
-        setWorkspace(null);
-      } else {
-        setWorkspace(workspaceData);
-      }
-
       setInitialLoadComplete(true);
     };
 
-    fetchUserData();
+    if (user !== undefined) {
+      fetchUserData();
+    }
   }, [user]);
 
   const loading = !initialLoadComplete;
