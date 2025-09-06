@@ -3,6 +3,7 @@
 import React, { Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { CosmicBackground } from './scene/CosmicBackground';
 
 export const CosmicScene: React.FC = () => {
   return (
@@ -18,7 +19,7 @@ export const CosmicScene: React.FC = () => {
       }}
     >
       <Suspense fallback={null}>
-        {/* Os elementos da cena 3D (orbe, estrelas, etc.) serão adicionados aqui nos próximos passos. */}
+        <CosmicBackground />
         
         <EffectComposer>
           <Bloom
