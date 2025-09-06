@@ -101,6 +101,8 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
 
+  const isReady = !isLoading && !!settings;
+
   // Refs for states and props
   const settingsRef = useRef(settings);
   const isOpenRef = useRef(isOpen);
@@ -112,6 +114,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   const systemVariablesRef = useRef(systemVariables);
   const sessionRef = useRef(session);
   const messageHistoryRef = useRef(messageHistory);
+  const isReadyRef = useRef(isReady);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -134,6 +137,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
+  useEffect(() => { isReadyRef.current = isReady; }, [isReady]);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
@@ -404,7 +408,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   };
 
   const handleManualActivation = useCallback(() => {
-    if (isOpenRef.current) return;
+    if (!isReadyRef.current || isOpenRef.current) return;
     if (micPermission !== 'granted') {
       activationRequestedViaButton.current = true;
       checkAndRequestMicPermission();
@@ -426,14 +430,23 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   }, [activationTrigger, handleManualActivation]);
 
   useEffect(() => {
-    if (isLoading) return;
+    if (!isReady) {
+      stopPermanentlyRef.current = true;
+      recognitionRef.current?.abort();
+      if (synthRef.current?.speaking) synthRef.current.cancel();
+      if (isOpen) setIsOpen(false);
+      return;
+    }
+
+    stopPermanentlyRef.current = false;
     checkAndRequestMicPermission();
+
     return () => {
       stopPermanentlyRef.current = true;
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
     };
-  }, [isLoading, checkAndRequestMicPermission]);
+  }, [isReady, checkAndRequestMicPermission]);
 
   useEffect(() => {
     const fetchPowersAndActions = async () => {
@@ -445,8 +458,6 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
     fetchPowersAndActions();
   }, []);
 
-  if (isLoading || !settings) return null;
-
   return (
     <>
       <MicrophonePermissionModal isOpen={isPermissionModalOpen} onAllow={handleAllowMic} onClose={() => setIsPermissionModalOpen(false)} />
@@ -454,7 +465,7 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
       
       <CosmicVoiceAssistant
-        isOpen={isOpen}
+        isOpen={isOpen && isReady}
         isSpeaking={isSpeaking}
         displayedAiResponse={displayedAiResponse}
         transcript={transcript}
