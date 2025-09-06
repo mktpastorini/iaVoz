@@ -1,3 +1,4 @@
+import React from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,9 +17,9 @@ import ClientsPage from "./pages/admin/Clients";
 import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
-import React from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
+import { supabase } from "@/integrations/supabase/client";
 
 const queryClient = new QueryClient();
 
