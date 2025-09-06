@@ -16,9 +16,8 @@ import ClientsPage from "./pages/admin/Clients";
 import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
-import React, { useEffect, useState } from "react";
+import React from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
-import { supabase } from "./integrations/supabase/client";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
 
 const queryClient = new QueryClient();
@@ -30,27 +29,24 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// Componente para carregar configurações (funciona para usuários logados e anônimos)
 const GlobalVoiceAssistantWrapper = () => {
   const { session } = useSession();
-  const [settings, setSettings] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
 
-  useEffect(() => {
+  React.useEffect(() => {
     const fetchSettings = async () => {
       try {
-        // Tentar buscar configurações do workspace do usuário (se logado) ou do workspace padrão
         let settingsData = null;
-        
+
         if (session) {
-          // Usuário logado: buscar configurações do seu workspace
           const { data: workspaceMember } = await supabase
             .from('workspace_members')
             .select('workspace_id')
             .eq('user_id', session.user.id)
             .limit(1)
             .single();
-          
+
           if (workspaceMember) {
             const { data } = await supabase
               .from("settings")
@@ -61,8 +57,7 @@ const GlobalVoiceAssistantWrapper = () => {
             settingsData = data;
           }
         }
-        
-        // Se não encontrou configurações do usuário ou é usuário anônimo, usar workspace padrão
+
         if (!settingsData) {
           const { data } = await supabase
             .from("settings")
@@ -72,7 +67,7 @@ const GlobalVoiceAssistantWrapper = () => {
             .single();
           settingsData = data;
         }
-        
+
         setSettings(settingsData);
       } catch (error) {
         console.error("Erro ao carregar configurações:", error);
@@ -80,7 +75,7 @@ const GlobalVoiceAssistantWrapper = () => {
         setLoading(false);
       }
     };
-    
+
     fetchSettings();
   }, [session]);
 
