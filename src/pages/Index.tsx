@@ -2,12 +2,9 @@
 
 import React from "react";
 import { Button } from "@/components/ui/button";
-import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import { AIScene } from "@/components/AIScene";
 
 const Index = () => {
-  const { activateAssistant } = useVoiceAssistant();
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#20053D] to-[#0B022D] text-white flex flex-col items-center justify-center p-4 select-text">
       <header className="text-center mb-12 z-10 relative">
@@ -22,13 +19,6 @@ const Index = () => {
       <main className="text-center z-10 relative">
         <div className="mb-12">
           <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
-            <Button
-              size="lg"
-              className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-all duration-300"
-              onClick={activateAssistant}
-            >
-              Abrir Assistente
-            </Button>
             <Button
               size="lg"
               variant="outline"

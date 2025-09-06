@@ -10,13 +10,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Mic, X, Loader2 } from "lucide-react";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
-import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import { AIScene } from "./AIScene";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const SophisticatedVoiceAssistant = () => {
   const { powers, loadingSystemContext, effectiveWorkspace } = useSystem();
-  const { activationTrigger } = useVoiceAssistant();
   const isMobile = useIsMobile();
 
   const [settings, setSettings] = useState(null);
@@ -29,17 +27,21 @@ const SophisticatedVoiceAssistant = () => {
   const [messageHistory, setMessageHistory] = useState([]);
   const [micPermission, setMicPermission] = useState<"prompt" | "granted" | "denied" | "checking">("checking");
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
+  const [listeningMode, setListeningMode] = useState<'hotword' | 'command'>('hotword');
   const [audioIntensity, setAudioIntensity] = useState(0);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const activationTriggerRef = useRef(activationTrigger);
   const settingsRef = useRef(settings);
   const powersRef = useRef(powers);
+  const isSpeakingRef = useRef(isSpeaking);
+  const isOpenRef = useRef(isOpen);
 
   const displayedAiResponse = useTypewriter(aiResponse, 40);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { powersRef.current = powers; }, [powers]);
+  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
+  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
 
   const logAction = (message: string, data?: any) => {
     console.groupCollapsed(`[Assistant] ${message}`);
@@ -48,14 +50,30 @@ const SophisticatedVoiceAssistant = () => {
   };
 
   const speak = useCallback((text: string, onEndCallback?: () => void) => {
-    // Simplified speak function for brevity
-    console.log(`[Assistant] Speaking: ${text}`);
+    logAction("Speaking:", text);
+    if (!text) {
+      onEndCallback?.();
+      return;
+    }
+    if (recognitionRef.current) recognitionRef.current.stop();
     setIsSpeaking(true);
     setAiResponse(text);
-    setTimeout(() => {
+
+    const onSpeechEnd = () => {
+      logAction("Finished speaking.");
       setIsSpeaking(false);
       onEndCallback?.();
-    }, 1000 + text.length * 50); // Simulate speech time
+      if (recognitionRef.current) recognitionRef.current.start();
+    };
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'pt-BR';
+    utterance.onend = onSpeechEnd;
+    utterance.onerror = (e) => {
+      logAction("Speech error", e);
+      onSpeechEnd();
+    };
+    window.speechSynthesis.speak(utterance);
   }, []);
 
   const runConversation = useCallback(async (userMessage: string) => {
@@ -68,15 +86,10 @@ const SophisticatedVoiceAssistant = () => {
     setMessageHistory(currentHistory);
 
     try {
-      for (let i = 0; i < 5; i++) { // Loop to handle multiple tool calls
+      for (let i = 0; i < 5; i++) {
         const { data: openAIResponse, error: invokeError } = await supabase.functions.invoke('openai', {
-          body: {
-            history: currentHistory,
-            settings: settingsRef.current,
-            powers: powersRef.current,
-          },
+          body: { history: currentHistory, settings: settingsRef.current, powers: powersRef.current },
         });
-
         if (invokeError) throw new Error(invokeError.message);
 
         const message = openAIResponse.choices[0].message;
@@ -85,62 +98,45 @@ const SophisticatedVoiceAssistant = () => {
 
         if (message.tool_calls) {
           logAction("AI requested tool calls:", message.tool_calls);
-          speak("Um momento, estou processando sua solicitação...");
-
           const toolOutputs = await Promise.all(message.tool_calls.map(async (toolCall) => {
             const functionName = toolCall.function.name;
             const functionArgs = JSON.parse(toolCall.function.arguments);
             logAction(`Executing tool: ${functionName}`, functionArgs);
-
-            const power = powersRef.current.find(p => p.name === functionName);
-            if (!power) {
-              return { tool_call_id: toolCall.id, output: JSON.stringify({ error: `Poder "${functionName}" não encontrado.` }) };
-            }
-
-            const { data: toolResult, error: toolError } = await supabase.functions.invoke(functionName, {
-              body: functionArgs
-            });
-
-            if (toolError) {
-              return { tool_call_id: toolCall.id, output: JSON.stringify({ error: toolError.message }) };
-            }
-            return { tool_call_id: toolCall.id, output: JSON.stringify(toolResult) };
+            const { data: toolResult, error: toolError } = await supabase.functions.invoke(functionName, { body: functionArgs });
+            return { tool_call_id: toolCall.id, output: JSON.stringify(toolError ? { error: toolError.message } : toolResult) };
           }));
-
           const toolMessages = toolOutputs.map(output => ({
-            tool_call_id: output.tool_call_id,
-            role: "tool",
-            name: message.tool_calls.find(tc => tc.id === output.tool_call_id)!.function.name,
-            content: output.output,
+            tool_call_id: output.tool_call_id, role: "tool", name: message.tool_calls.find(tc => tc.id === output.tool_call_id)!.function.name, content: output.output,
           }));
-          
           currentHistory = [...currentHistory, ...toolMessages];
           setMessageHistory(currentHistory);
         } else {
           logAction("AI final response:", message.content);
-          speak(message.content);
+          speak(message.content, () => {
+            setListeningMode('hotword');
+            setTimeout(() => setIsOpen(false), 3000);
+          });
           setIsProcessing(false);
           return;
         }
       }
-      speak("Houve um problema ao processar sua solicitação com múltiplas etapas.");
     } catch (err: any) {
       logAction("Error in conversation:", err);
-      speak("Desculpe, ocorreu um erro ao processar sua solicitação.");
+      speak("Desculpe, ocorreu um erro.");
     } finally {
       setIsProcessing(false);
     }
   }, [messageHistory, speak]);
 
   const startListening = useCallback(() => {
-    if (micPermission !== "granted") {
-      setIsPermissionModalOpen(true);
-      return;
-    }
     if (recognitionRef.current && !isListening) {
-      recognitionRef.current.start();
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        logAction("Recognition start error.", e);
+      }
     }
-  }, [micPermission, isListening]);
+  }, [isListening]);
 
   const requestMicPermission = useCallback(() => {
     navigator.mediaDevices.getUserMedia({ audio: true })
@@ -151,22 +147,6 @@ const SophisticatedVoiceAssistant = () => {
       })
       .catch(() => setMicPermission("denied"));
   }, [startListening]);
-
-  const openAssistant = useCallback(() => {
-    setIsOpen(true);
-    if (micPermission === "granted") {
-      startListening();
-    } else {
-      setIsPermissionModalOpen(true);
-    }
-  }, [micPermission, startListening]);
-
-  useEffect(() => {
-    if (activationTrigger > activationTriggerRef.current) {
-      activationTriggerRef.current = activationTrigger;
-      openAssistant();
-    }
-  }, [activationTrigger, openAssistant]);
 
   useEffect(() => {
     if (loadingSystemContext || !effectiveWorkspace?.id) return;
@@ -180,29 +160,55 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => {
     navigator.permissions.query({ name: "microphone" as PermissionName }).then((result) => {
       setMicPermission(result.state as any);
+      if (result.state === 'prompt') setIsPermissionModalOpen(true);
+      else if (result.state === 'granted') startListening();
       result.onchange = () => setMicPermission(result.state as any);
     });
 
     const SpeechRecognition = (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
     recognitionRef.current = new SpeechRecognition();
     const recognition = recognitionRef.current!;
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.lang = 'pt-BR';
     recognition.interimResults = false;
 
     recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
+    recognition.onend = () => {
+      setIsListening(false);
+      if (!isSpeakingRef.current) startListening();
+    };
     recognition.onerror = (event) => {
       if (event.error === 'not-allowed') setMicPermission('denied');
     };
     recognition.onresult = (event) => {
-      const command = event.results[event.results.length - 1][0].transcript.trim();
-      runConversation(command);
+      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      const activationPhrase = settingsRef.current?.activation_phrase?.toLowerCase() || 'ativar';
+
+      if (listeningMode === 'hotword' && transcript.includes(activationPhrase)) {
+        logAction("Activation phrase detected!");
+        setIsOpen(true);
+        setListeningMode('command');
+        const continuationPhrase = settingsRef.current?.continuation_phrase || "Pois não?";
+        speak(continuationPhrase);
+      } else if (listeningMode === 'command') {
+        logAction("Processing command:", transcript);
+        runConversation(transcript);
+      }
     };
     return () => recognition.stop();
-  }, [runConversation]);
+  }, [listeningMode, runConversation, speak, startListening]);
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return (
+      <MicrophonePermissionModal
+        isOpen={isPermissionModalOpen}
+        onAllow={requestMicPermission}
+        onClose={() => setIsPermissionModalOpen(false)}
+        permissionState={micPermission}
+      />
+    );
+  }
 
   return (
     <>
@@ -220,12 +226,7 @@ const SophisticatedVoiceAssistant = () => {
           </h2>
         </div>
         <div className="absolute bottom-10">
-          <Button
-            size="lg"
-            className={cn("rounded-full h-20 w-20", isListening ? "bg-red-500" : "bg-cyan-500")}
-            onClick={() => isListening ? recognitionRef.current?.stop() : startListening()}
-            disabled={isProcessing}
-          >
+          <Button size="lg" className={cn("rounded-full h-20 w-20")} disabled>
             {isProcessing ? <Loader2 className="h-8 w-8 animate-spin" /> : <Mic className="h-8 w-8" />}
           </Button>
         </div>
@@ -233,12 +234,6 @@ const SophisticatedVoiceAssistant = () => {
           <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
         </div>
       </div>
-      <MicrophonePermissionModal
-        isOpen={isPermissionModalOpen}
-        onAllow={requestMicPermission}
-        onClose={() => setIsPermissionModalOpen(false)}
-        permissionState={micPermission}
-      />
     </>
   );
 };
