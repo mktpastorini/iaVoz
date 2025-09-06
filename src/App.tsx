@@ -1,3 +1,4 @@
+import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -29,20 +30,20 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// This new wrapper component will manage loading the settings and ensure the assistant only mounts when ready.
+// Componente para carregar configurações (funciona para usuários logados e anônimos)
 const GlobalVoiceAssistantWrapper = () => {
-  const { session, loading: sessionLoading } = useSession();
+  const { session } = useSession();
   const [settings, setSettings] = useState<any>(null);
-  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (sessionLoading) return; // Wait for the session to be resolved first
-
     const fetchSettings = async () => {
-      setSettingsLoading(true);
       try {
+        // Tentar buscar configurações do workspace do usuário (se logado) ou do workspace padrão
         let settingsData = null;
+        
         if (session) {
+          // Usuário logado: buscar configurações do seu workspace
           const { data: workspaceMember } = await supabase
             .from('workspace_members')
             .select('workspace_id')
@@ -61,6 +62,7 @@ const GlobalVoiceAssistantWrapper = () => {
           }
         }
         
+        // Se não encontrou configurações do usuário ou é usuário anônimo, usar workspace padrão
         if (!settingsData) {
           const { data } = await supabase
             .from("settings")
@@ -73,24 +75,19 @@ const GlobalVoiceAssistantWrapper = () => {
         
         setSettings(settingsData);
       } catch (error) {
-        console.error("Erro ao carregar configurações do assistente:", error);
+        console.error("Erro ao carregar configurações:", error);
       } finally {
-        setSettingsLoading(false);
+        setLoading(false);
       }
     };
     
     fetchSettings();
-  }, [session, sessionLoading]);
-
-  // The key fix: Do not render the complex assistant component until all loading is complete.
-  if (sessionLoading || settingsLoading) {
-    return null;
-  }
+  }, [session]);
 
   return (
     <SophisticatedVoiceAssistant
       settings={settings}
-      isLoading={settingsLoading}
+      isLoading={loading}
     />
   );
 };
@@ -98,6 +95,7 @@ const GlobalVoiceAssistantWrapper = () => {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
+      <Toaster />
       <Sonner />
       <BrowserRouter>
         <SessionContextProvider>
