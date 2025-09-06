@@ -10,8 +10,9 @@ interface SystemContextType {
   systemVariables: Record<string, any>;
   loadingSystemContext: boolean;
   refreshSystemVariables: () => void;
-  powers: any[]; // Adiciona poderes ao contexto para uso no assistente
+  powers: any[];
   systemPowers: any[];
+  effectiveWorkspace: { id: string } | null;
 }
 
 const SystemContext = createContext<SystemContextType | undefined>(undefined);
@@ -264,7 +265,7 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   return (
-    <SystemContext.Provider value={{ systemVariables, loadingSystemContext, refreshSystemVariables, powers, systemPowers }}>
+    <SystemContext.Provider value={{ systemVariables, loadingSystemContext, refreshSystemVariables, powers, systemPowers, effectiveWorkspace }}>
       {children}
     </SystemContext.Provider>
   );
