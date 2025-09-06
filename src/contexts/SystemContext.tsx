@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { supabase } from '@/integrations/supabase/client';
 import { showError } from '@/utils/toast';
 import { useSession } from './SessionContext';
-import { replacePlaceholders } from '@/lib/utils'; // Importar a função
+import { replacePlaceholders } from '@/lib/utils';
 
 interface SystemContextType {
   systemVariables: Record<string, any>;
@@ -14,17 +14,49 @@ interface SystemContextType {
 
 const SystemContext = createContext<SystemContextType | undefined>(undefined);
 
-// URL da Edge Function get-client-ip
 const GET_CLIENT_IP_FUNCTION_URL = `https://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/get-client-ip`;
 
 export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { workspace, loading: sessionLoading } = useSession();
+  const { workspace: sessionWorkspace, loading: sessionLoading } = useSession();
+  const [workspace, setWorkspace] = useState(sessionWorkspace);
   const [systemVariables, setSystemVariables] = useState<Record<string, any>>({});
   const [loadingSystemContext, setLoadingSystemContext] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0); // Para forçar o refresh
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Ref para evitar execuções concorrentes
   const isExecutingRef = useRef(false);
+
+  // Atualiza workspace local quando o sessionWorkspace muda
+  useEffect(() => {
+    setWorkspace(sessionWorkspace);
+  }, [sessionWorkspace]);
+
+  // Se não houver workspace, tenta buscar o primeiro workspace disponível para uso anônimo
+  useEffect(() => {
+    const fetchDefaultWorkspace = async () => {
+      if (workspace || sessionLoading) return;
+      try {
+        const { data: defaultWorkspace, error } = await supabase
+          .from('workspaces')
+          .select('id, name, plan, created_by')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .single();
+
+        if (error) {
+          console.error("[SystemContext] Error fetching default workspace:", error);
+          showError("Erro ao carregar workspace padrão.");
+          setWorkspace(null);
+        } else {
+          setWorkspace(defaultWorkspace);
+        }
+      } catch (e) {
+        console.error("[SystemContext] Exception fetching default workspace:", e);
+        setWorkspace(null);
+      }
+    };
+
+    fetchDefaultWorkspace();
+  }, [workspace, sessionLoading]);
 
   const executeSystemPowers = async () => {
     if (!workspace?.id) {
@@ -43,7 +75,6 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
     console.log("[SystemContext] Starting execution of system powers...");
 
     try {
-      // 1. Buscar poderes em ordem de criação para garantir execução sequencial
       const { data: enabledPowers, error } = await supabase
         .from('system_powers')
         .select('*')
@@ -62,7 +93,6 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
       console.log(`[SystemContext] Found ${enabledPowers?.length || 0} enabled system powers.`);
 
       const newSystemVariables: Record<string, any> = {};
-      // 2. Executar poderes em um loop sequencial (for...of com await)
       for (const power of enabledPowers || []) {
         if (!power.url) {
           console.warn(`[SystemContext] System power '${power.name}' has no URL defined. Skipping.`);
@@ -98,7 +128,6 @@ export const SystemContextProvider: React.FC<{ children: React.ReactNode }> = ({
               console.error(`[SystemContext] Error fetching 'get-client-ip':`, e);
             }
           } else {
-            // Para outros poderes, continuar usando proxy-api
             const processedUrl = replacePlaceholders(power.url, newSystemVariables);
             const processedHeadersStr = replacePlaceholders(JSON.stringify(power.headers || {}), newSystemVariables);
             const processedBodyStr = replacePlaceholders(JSON.stringify(power.body || {}), newSystemVariables);
