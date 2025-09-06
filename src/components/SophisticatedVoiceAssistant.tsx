@@ -28,11 +28,6 @@ interface Settings {
   continuation_phrase?: string;
 }
 
-interface VoiceAssistantProps {
-  settings: Settings | null;
-  isLoading: boolean;
-}
-
 interface Message {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
@@ -79,14 +74,13 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string; altText?
 );
 
 // Main Component
-const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
-  settings,
-  isLoading,
-}) => {
+const SophisticatedVoiceAssistant: React.FC = () => {
   const { session } = useSession();
   const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
 
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -140,6 +134,52 @@ const SophisticatedVoiceAssistant: React.FC<VoiceAssistantProps> = ({
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
+
+  // Fetch settings internally
+  useEffect(() => {
+    const fetchSettings = async () => {
+      setIsLoading(true);
+      try {
+        let settingsData = null;
+        if (session) {
+          const { data: workspaceMember } = await supabase
+            .from('workspace_members')
+            .select('workspace_id')
+            .eq('user_id', session.user.id)
+            .limit(1)
+            .single();
+          
+          if (workspaceMember) {
+            const { data } = await supabase
+              .from("settings")
+              .select("*")
+              .eq('workspace_id', workspaceMember.workspace_id)
+              .limit(1)
+              .single();
+            settingsData = data;
+          }
+        }
+        
+        if (!settingsData) {
+          const { data } = await supabase
+            .from("settings")
+            .select("*")
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single();
+          settingsData = data;
+        }
+        
+        setSettings(settingsData);
+      } catch (error) {
+        console.error("Erro ao carregar configurações do assistente:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchSettings();
+  }, [session]);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
