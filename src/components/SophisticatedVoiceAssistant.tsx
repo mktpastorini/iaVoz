@@ -187,7 +187,10 @@ const SophisticatedVoiceAssistant = () => {
       console.log("[VoiceRecognition] Encerrado");
       if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
         console.log("[VoiceRecognition] Reiniciando reconhecimento...");
-        startListening();
+        // Não reinicia imediatamente para evitar loop no no-speech
+        setTimeout(() => {
+          startListening();
+        }, 1000);
       }
     };
     recognitionRef.current.onerror = (e) => {
@@ -195,6 +198,10 @@ const SophisticatedVoiceAssistant = () => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         setMicPermission("denied");
         setIsPermissionModalOpen(true);
+      }
+      if (e.error === "no-speech") {
+        console.log("[VoiceRecognition] Nenhuma fala detectada, aguardando para reiniciar...");
+        // Não reinicia aqui para evitar loop infinito
       }
     };
     recognitionRef.current.onresult = (event) => {
