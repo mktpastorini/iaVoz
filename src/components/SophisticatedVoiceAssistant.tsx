@@ -271,29 +271,25 @@ const SophisticatedVoiceAssistant = () => {
       if (wsRef.current) return;
 
       let wsUrl = '';
-      if (currentSettings.ai_model === 'gpt-4o-realtime' || currentSettings.ai_model === 'gpt-4o-mini-realtime') {
-        wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-realtime-voice-proxy`;
-      } else {
-        switch (currentSettings.streaming_stt_provider) {
-          case 'deepgram':
-            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/mic-stream-proxy`;
-            break;
-          case 'openai':
-            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-stt-proxy`;
-            break;
-          case 'google':
-            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/google-stt-proxy`;
-            break;
-          default:
-            showError("Provedor de streaming STT não configurado ou inválido.");
-            return;
-        }
+      switch (currentSettings.streaming_stt_provider) {
+        case 'deepgram':
+          wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/mic-stream-proxy`;
+          break;
+        case 'openai':
+          wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-stt-proxy`;
+          break;
+        case 'google':
+          wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/google-stt-proxy`;
+          break;
+        default:
+          showError("Provedor de streaming STT não configurado ou inválido.");
+          return;
       }
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.onopen = async () => {
-        console.log(`Conectado ao proxy WebSocket para ${currentSettings.streaming_stt_provider || currentSettings.ai_model}.`);
+        console.log(`Conectado ao proxy WebSocket para ${currentSettings.streaming_stt_provider}.`);
         setIsListening(true);
         try {
           audioStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
