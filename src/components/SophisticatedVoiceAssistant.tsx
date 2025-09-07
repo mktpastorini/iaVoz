@@ -6,7 +6,6 @@ import { supabase, supabaseAnon } from "@/integrations/supabase/client";
 import { useSession } from "@/contexts/SessionContext";
 import { useSystem } from "@/contexts/SystemContext";
 import { replacePlaceholders } from "@/lib/utils";
-import { useTypewriter } from "@/hooks/useTypewriter";
 import { AudioVisualizer } from "./AudioVisualizer";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -78,8 +77,6 @@ const SophisticatedVoiceAssistant = () => {
   const analyserRef = useRef(null);
   const sourceRef = useRef(null);
   const animationFrameRef = useRef(null);
-
-  const displayedAiResponse = useTypewriter(aiResponse, 40);
 
   // Sync refs with state
   useEffect(() => { settingsRef.current = settings; }, [settings]);
@@ -252,7 +249,8 @@ const SophisticatedVoiceAssistant = () => {
 
     isSpeakingRef.current = true;
     setIsSpeaking(true);
-    setAiResponse(text);
+    // O texto já foi setado pelo streaming, então não precisamos setar aqui
+    // setAiResponse(text); 
     console.log(`[SPEECH] Speaking: "${text}"`);
 
     const estimatedSpeechTime = (text.length / 15) * 1000 + 3000;
@@ -336,9 +334,10 @@ const SophisticatedVoiceAssistant = () => {
       messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: tools.length > 0 ? "auto" : undefined,
+      stream: true, // Habilitar streaming
     };
 
-    console.log("[AI] Sending request to OpenAI:", requestBody);
+    console.log("[AI] Sending request to OpenAI with streaming:", requestBody);
 
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -346,11 +345,55 @@ const SophisticatedVoiceAssistant = () => {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
         body: JSON.stringify(requestBody),
       });
-      if (!response.ok) { const errorData = await response.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
-      const data = await response.json();
-      console.log("[AI] Received response from OpenAI:", data);
-      const aiMessage = data.choices[0].message;
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
+      let toolCalls = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const dataStr = line.substring(6);
+            if (dataStr === "[DONE]") break;
+            
+            try {
+              const data = JSON.parse(dataStr);
+              const delta = data.choices[0]?.delta;
+
+              if (delta?.content) {
+                fullResponse += delta.content;
+                setAiResponse(current => current + delta.content);
+              }
+              if (delta?.tool_calls) {
+                delta.tool_calls.forEach(toolCall => {
+                  if (!toolCalls[toolCall.index]) {
+                    toolCalls[toolCall.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
+                  }
+                  if (toolCall.id) toolCalls[toolCall.index].id = toolCall.id;
+                  if (toolCall.function.name) toolCalls[toolCall.index].function.name = toolCall.function.name;
+                  if (toolCall.function.arguments) toolCalls[toolCall.index].function.arguments += toolCall.function.arguments;
+                });
+              }
+            } catch (e) {
+              console.error("[ERROR] Failed to parse stream chunk:", dataStr, e);
+            }
+          }
+        }
+      }
+
+      const aiMessage = { role: "assistant", content: fullResponse, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
       const newHistoryWithAIMessage = [...currentHistory, aiMessage];
       setMessageHistory(newHistoryWithAIMessage);
 
@@ -364,9 +407,7 @@ const SophisticatedVoiceAssistant = () => {
                     const functionArgs = JSON.parse(toolCall.function.arguments);
                     
                     const power = powersRef.current.find(p => p.name === functionName);
-                    if (!power) {
-                      throw new Error(`Power "${functionName}" not found.`);
-                    }
+                    if (!power) throw new Error(`Power "${functionName}" not found.`);
 
                     console.log(`[TOOL] Executing power: ${functionName} via proxy-api with args:`, functionArgs);
 
@@ -376,13 +417,7 @@ const SophisticatedVoiceAssistant = () => {
                     const templateBody = power.body || {};
                     const finalBody = { ...templateBody, ...functionArgs };
 
-                    const payload = {
-                      url: processedUrl,
-                      method: power.method,
-                      headers: processedHeaders,
-                      body: finalBody,
-                    };
-
+                    const payload = { url: processedUrl, method: power.method, headers: processedHeaders, body: finalBody };
                     const { data: functionResult, error: functionError } = await supabaseAnon.functions.invoke('proxy-api', { body: payload });
 
                     if (functionError) {
@@ -390,12 +425,7 @@ const SophisticatedVoiceAssistant = () => {
                         throw new Error(`Error invoking function ${functionName}: ${functionError.message}`);
                     }
                     console.log(`[TOOL] Tool ${functionName} returned:`, functionResult);
-                    return {
-                        tool_call_id: toolCall.id,
-                        role: "tool",
-                        name: functionName,
-                        content: JSON.stringify(functionResult.data || functionResult),
-                    };
+                    return { tool_call_id: toolCall.id, role: "tool", name: functionName, content: JSON.stringify(functionResult.data || functionResult) };
                 });
                 toolResponses = await Promise.all(toolPromises);
             } catch (e: any) {
@@ -406,14 +436,16 @@ const SophisticatedVoiceAssistant = () => {
                     name: toolCall.function.name,
                     content: JSON.stringify({ error: "Failed to execute tool.", details: e.message }),
                 }));
-                const errorMsg = `Desculpe, houve um erro ao usar minhas ferramentas.`;
-                speak(errorMsg);
+                speak(`Desculpe, houve um erro ao usar minhas ferramentas.`);
             }
 
             const historyForSecondCall = [...newHistoryWithAIMessage, ...toolResponses];
             setMessageHistory(historyForSecondCall);
 
-            const secondRequestBody = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)] };
+            // Reset response for the second call
+            setAiResponse(""); 
+            
+            const secondRequestBody = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)], stream: true };
             console.log("[AI] Sending second request to OpenAI with tool results:", secondRequestBody);
 
             const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -422,15 +454,37 @@ const SophisticatedVoiceAssistant = () => {
                 body: JSON.stringify(secondRequestBody),
             });
             if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
-            const secondData = await secondResponse.json();
-            console.log("[AI] Received final response from OpenAI:", secondData);
-            const finalMessage = secondData.choices[0].message;
-            setMessageHistory(prev => [...prev, finalMessage]);
-            speak(finalMessage.content);
+            
+            const secondReader = secondResponse.body.getReader();
+            let finalResponseText = "";
+            while (true) {
+                const { done, value } = await secondReader.read();
+                if (done) break;
+                const chunk = decoder.decode(value);
+                const lines = chunk.split("\n");
+                for (const line of lines) {
+                    if (line.startsWith("data: ")) {
+                        const dataStr = line.substring(6);
+                        if (dataStr === "[DONE]") break;
+                        try {
+                            const data = JSON.parse(dataStr);
+                            const delta = data.choices[0]?.delta?.content;
+                            if (delta) {
+                                finalResponseText += delta;
+                                setAiResponse(current => current + delta);
+                            }
+                        } catch (e) {
+                            console.error("[ERROR] Failed to parse second stream chunk:", dataStr, e);
+                        }
+                    }
+                }
+            }
+            setMessageHistory(prev => [...prev, { role: "assistant", content: finalResponseText }]);
+            speak(finalResponseText);
         });
       } else {
         console.log("[AI] No tool call, speaking response directly.");
-        speak(aiMessage.content);
+        speak(fullResponse);
       }
     } catch (e: any) {
       console.error("[ERROR] Error in runConversation:", e);
@@ -616,10 +670,10 @@ const SophisticatedVoiceAssistant = () => {
         </div>
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
-          {displayedAiResponse && (
+          {aiResponse && (
             <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)]">
               <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">
-                {displayedAiResponse}
+                {aiResponse}
               </p>
             </div>
           )}
