@@ -362,10 +362,31 @@ const SophisticatedVoiceAssistant = () => {
                 const toolPromises = aiMessage.tool_calls.map(async (toolCall) => {
                     const functionName = toolCall.function.name;
                     const functionArgs = JSON.parse(toolCall.function.arguments);
-                    console.log(`[TOOL] Invoking tool: ${functionName} with args:`, functionArgs);
-                    const { data: functionResult, error: functionError } = await supabaseAnon.functions.invoke(functionName, { body: functionArgs });
+                    
+                    const power = powersRef.current.find(p => p.name === functionName);
+                    if (!power) {
+                      throw new Error(`Power "${functionName}" not found.`);
+                    }
+
+                    console.log(`[TOOL] Executing power: ${functionName} via proxy-api with args:`, functionArgs);
+
+                    const allVariables = { ...systemVariablesRef.current, ...functionArgs };
+                    const processedUrl = replacePlaceholders(power.url, allVariables);
+                    const processedHeaders = JSON.parse(replacePlaceholders(JSON.stringify(power.headers || {}), allVariables));
+                    const templateBody = power.body || {};
+                    const finalBody = { ...templateBody, ...functionArgs };
+
+                    const payload = {
+                      url: processedUrl,
+                      method: power.method,
+                      headers: processedHeaders,
+                      body: finalBody,
+                    };
+
+                    const { data: functionResult, error: functionError } = await supabaseAnon.functions.invoke('proxy-api', { body: payload });
+
                     if (functionError) {
-                        console.error(`[ERROR] Error invoking tool ${functionName}:`, functionError);
+                        console.error(`[ERROR] Error invoking tool ${functionName} via proxy:`, functionError);
                         throw new Error(`Error invoking function ${functionName}: ${functionError.message}`);
                     }
                     console.log(`[TOOL] Tool ${functionName} returned:`, functionResult);
@@ -373,7 +394,7 @@ const SophisticatedVoiceAssistant = () => {
                         tool_call_id: toolCall.id,
                         role: "tool",
                         name: functionName,
-                        content: JSON.stringify(functionResult),
+                        content: JSON.stringify(functionResult.data || functionResult),
                     };
                 });
                 toolResponses = await Promise.all(toolPromises);
