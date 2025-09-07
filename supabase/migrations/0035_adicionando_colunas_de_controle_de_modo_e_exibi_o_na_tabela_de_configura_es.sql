@@ -1,0 +1,4 @@
+ALTER TABLE public.settings
+ADD COLUMN IF NOT EXISTS show_transcript BOOLEAN DEFAULT true,
+ADD COLUMN IF NOT EXISTS input_mode TEXT DEFAULT 'local',
+ADD COLUMN IF NOT EXISTS output_mode TEXT DEFAULT 'buffered';
