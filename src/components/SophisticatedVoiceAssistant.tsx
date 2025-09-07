@@ -83,7 +83,10 @@ const SophisticatedVoiceAssistant = () => {
 
   // Sync refs with state
   useEffect(() => { settingsRef.current = settings; }, [settings]);
-  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
+  useEffect(() => { 
+    isOpenRef.current = isOpen;
+    console.log(`[ASSISTANT] State changed: isOpen = ${isOpen}`);
+  }, [isOpen]);
   useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
   useEffect(() => { powersRef.current = powers; }, [powers]);
   useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
@@ -92,6 +95,7 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
   const fetchAllAssistantData = useCallback(async () => {
+    console.log("[ASSISTANT] Fetching all assistant data...");
     setIsLoading(true);
     try {
       let settingsData = null;
@@ -127,15 +131,19 @@ const SophisticatedVoiceAssistant = () => {
       }
       
       setSettings(settingsData);
+      console.log("[ASSISTANT] Settings loaded:", settingsData);
 
       const { data: powersData } = await supabase.from("powers").select("*");
       setPowers(powersData || []);
+      console.log("[ASSISTANT] Powers loaded:", powersData);
+
       const { data: actionsData } = await supabase.from("client_actions").select("*");
       setClientActions(actionsData || []);
+      console.log("[ASSISTANT] Client Actions loaded:", actionsData);
 
       return settingsData;
     } catch (error) {
-      console.error("Erro ao carregar dados do assistente:", error);
+      console.error("[ERROR] Failed to fetch assistant data:", error);
       showError("Erro ao carregar dados do assistente.");
       return null;
     } finally {
@@ -145,6 +153,7 @@ const SophisticatedVoiceAssistant = () => {
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
+      console.log("[SPEECH] Stopping listening.");
       recognitionRef.current.stop();
     }
   }, []);
@@ -154,13 +163,17 @@ const SophisticatedVoiceAssistant = () => {
       return;
     }
     try {
+      console.log("[SPEECH] Starting listening.");
       recognitionRef.current.start();
     } catch (e) {
-      console.error("Error starting recognition:", e);
+      console.error("[ERROR] Error starting recognition:", e);
     }
   }, []);
 
   const stopSpeaking = useCallback(() => {
+    if (synthRef.current?.speaking || (audioRef.current && !audioRef.current.paused)) {
+      console.log("[SPEECH] Stopping speech.");
+    }
     if (synthRef.current?.speaking) synthRef.current.cancel();
     if (audioRef.current && !audioRef.current.paused) {
       audioRef.current.pause();
@@ -219,6 +232,7 @@ const SophisticatedVoiceAssistant = () => {
         speechTimeoutRef.current = null;
       }
       if (isSpeakingRef.current) {
+        console.log("[SPEECH] Speech finished.");
         isSpeakingRef.current = false;
         setIsSpeaking(false);
         if (animationFrameRef.current) {
@@ -239,18 +253,21 @@ const SophisticatedVoiceAssistant = () => {
     isSpeakingRef.current = true;
     setIsSpeaking(true);
     setAiResponse(text);
+    console.log(`[SPEECH] Speaking: "${text}"`);
 
     const estimatedSpeechTime = (text.length / 15) * 1000 + 3000;
     speechTimeoutRef.current = setTimeout(onSpeechEnd, estimatedSpeechTime);
 
     try {
       if (currentSettings.voice_model === "browser" && synthRef.current) {
+        console.log("[SPEECH] Using browser Web Speech API for synthesis.");
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
-        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
+        utterance.onerror = (e) => { console.error("[ERROR] SpeechSynthesis Error:", e); onSpeechEnd(); };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
+        console.log("[SPEECH] Using OpenAI TTS API for synthesis.");
         const response = await fetch(OPENAI_TTS_API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
@@ -266,28 +283,32 @@ const SophisticatedVoiceAssistant = () => {
         await audioRef.current.play();
         runAudioAnalysis();
       } else {
+        console.warn("[SPEECH] No voice model configured. Skipping speech.");
         onSpeechEnd();
       }
     } catch (e: any) {
+      console.error("[ERROR] Speech synthesis failed:", e);
       showError(`Erro na síntese de voz: ${e.message}`);
       onSpeechEnd();
     }
   }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
   const executeClientAction = useCallback((action) => {
+    console.log(`[ACTION] Executing client action: ${action.action_type}`, action.action_payload);
     stopListening();
     speak("Ok, executando.", () => {
       switch (action.action_type) {
         case 'OPEN_URL': window.open(action.action_payload.url, '_blank', 'noopener,noreferrer'); break;
         case 'SHOW_IMAGE': setImageToShow(action.action_payload); break;
         case 'OPEN_IFRAME_URL': setUrlToOpenInIframe(action.action_payload.url); break;
-        default: console.warn(`Unknown client action type: ${action.action_type}`); break;
+        default: console.warn(`[ACTION] Unknown client action type: ${action.action_type}`); break;
       }
     });
   }, [speak, stopListening]);
 
   const runConversation = useCallback(async (userMessage) => {
     if (!userMessage) return;
+    console.log(`[AI] Starting conversation with user message: "${userMessage}"`);
     setTranscript(userMessage);
     setAiResponse("");
     stopListening();
@@ -298,6 +319,7 @@ const SophisticatedVoiceAssistant = () => {
     const currentSettings = settingsRef.current;
     if (!currentSettings || !currentSettings.openai_api_key) {
       const errorMsg = "Desculpe, a chave da API OpenAI não está configurada.";
+      console.error("[ERROR] OpenAI API key is not configured.");
       speak(errorMsg);
       showError("Chave da API OpenAI não configurada.");
       return;
@@ -309,35 +331,44 @@ const SophisticatedVoiceAssistant = () => {
       function: { name: power.name, description: power.description, parameters: power.parameters_schema || { type: "object", properties: {} } },
     }));
 
+    const requestBody = {
+      model: currentSettings.ai_model,
+      messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
+      tools: tools.length > 0 ? tools : undefined,
+      tool_choice: tools.length > 0 ? "auto" : undefined,
+    };
+
+    console.log("[AI] Sending request to OpenAI:", requestBody);
+
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-        body: JSON.stringify({
-          model: currentSettings.ai_model,
-          messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
-          tools: tools.length > 0 ? tools : undefined,
-          tool_choice: tools.length > 0 ? "auto" : undefined,
-        }),
+        body: JSON.stringify(requestBody),
       });
       if (!response.ok) { const errorData = await response.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
       const data = await response.json();
+      console.log("[AI] Received response from OpenAI:", data);
       const aiMessage = data.choices[0].message;
 
       const newHistoryWithAIMessage = [...currentHistory, aiMessage];
       setMessageHistory(newHistoryWithAIMessage);
 
       if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
+        console.log("[AI] Tool call requested:", aiMessage.tool_calls);
         speak(`Ok, um momento enquanto eu acesso minhas ferramentas.`, async () => {
             let toolResponses;
             try {
                 const toolPromises = aiMessage.tool_calls.map(async (toolCall) => {
                     const functionName = toolCall.function.name;
                     const functionArgs = JSON.parse(toolCall.function.arguments);
+                    console.log(`[TOOL] Invoking tool: ${functionName} with args:`, functionArgs);
                     const { data: functionResult, error: functionError } = await supabase.functions.invoke(functionName, { body: functionArgs });
                     if (functionError) {
+                        console.error(`[ERROR] Error invoking tool ${functionName}:`, functionError);
                         throw new Error(`Error invoking function ${functionName}: ${functionError.message}`);
                     }
+                    console.log(`[TOOL] Tool ${functionName} returned:`, functionResult);
                     return {
                         tool_call_id: toolCall.id,
                         role: "tool",
@@ -347,7 +378,7 @@ const SophisticatedVoiceAssistant = () => {
                 });
                 toolResponses = await Promise.all(toolPromises);
             } catch (e: any) {
-                // Se qualquer ferramenta falhar, crie uma resposta de erro para cada chamada de ferramenta
+                console.error("[ERROR] A tool execution failed:", e);
                 toolResponses = aiMessage.tool_calls.map(toolCall => ({
                     tool_call_id: toolCall.id,
                     role: "tool",
@@ -361,22 +392,27 @@ const SophisticatedVoiceAssistant = () => {
             const historyForSecondCall = [...newHistoryWithAIMessage, ...toolResponses];
             setMessageHistory(historyForSecondCall);
 
+            const secondRequestBody = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)] };
+            console.log("[AI] Sending second request to OpenAI with tool results:", secondRequestBody);
+
             const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-                body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)] }),
+                body: JSON.stringify(secondRequestBody),
             });
             if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
             const secondData = await secondResponse.json();
+            console.log("[AI] Received final response from OpenAI:", secondData);
             const finalMessage = secondData.choices[0].message;
             setMessageHistory(prev => [...prev, finalMessage]);
             speak(finalMessage.content);
         });
       } else {
+        console.log("[AI] No tool call, speaking response directly.");
         speak(aiMessage.content);
       }
     } catch (e: any) {
-      console.error("Error in runConversation:", e);
+      console.error("[ERROR] Error in runConversation:", e);
       const errorMsg = `Desculpe, não consegui processar sua solicitação.`;
       speak(errorMsg);
       showError(`Erro na conversa: ${e.message}`);
@@ -384,8 +420,10 @@ const SophisticatedVoiceAssistant = () => {
   }, [speak, stopListening]);
 
   const initializeAssistant = useCallback(() => {
+    console.log("[ASSISTANT] Initializing...");
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
+      console.error("[ERROR] Speech Recognition not supported by this browser.");
       showError("Reconhecimento de voz não suportado.");
       setMicPermission("denied");
       return;
@@ -394,13 +432,15 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.continuous = true;
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
-    recognitionRef.current.onstart = () => { isListeningRef.current = true; setIsListening(true); };
+    recognitionRef.current.onstart = () => { isListeningRef.current = true; setIsListening(true); console.log("[SPEECH] Recognition started."); };
     recognitionRef.current.onend = () => {
       isListeningRef.current = false;
       setIsListening(false);
+      console.log("[SPEECH] Recognition ended.");
       if (!isSpeakingRef.current && !stopPermanentlyRef.current) startListening();
     };
     recognitionRef.current.onerror = (e) => {
+      console.error("[ERROR] Speech Recognition Error:", e.error, e.message);
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         setMicPermission("denied");
         setIsPermissionModalOpen(true);
@@ -408,9 +448,11 @@ const SophisticatedVoiceAssistant = () => {
     };
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      console.log(`[USER] Recognized transcript: "${transcript}"`);
       const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
       if (isOpenRef.current) {
         if (closePhrases.some((phrase) => transcript.includes(phrase))) {
+          console.log("[USER] Close phrase detected. Closing assistant.");
           setIsOpen(false);
           setAiResponse("");
           setTranscript("");
@@ -419,12 +461,14 @@ const SophisticatedVoiceAssistant = () => {
         }
         const matchedAction = clientActionsRef.current.find((a) => transcript.includes(a.trigger_phrase.toLowerCase()));
         if (matchedAction) {
+          console.log(`[USER] Client action triggered by phrase: "${matchedAction.trigger_phrase}"`);
           executeClientAction(matchedAction);
           return;
         }
         runConversation(transcript);
       } else {
         if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
+          console.log(`[USER] Activation phrase "${settingsRef.current.activation_phrase}" detected.`);
           fetchAllAssistantData().then((latestSettings) => {
             if (!latestSettings) return;
             setIsOpen(true);
@@ -435,12 +479,17 @@ const SophisticatedVoiceAssistant = () => {
         }
       }
     };
-    if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
+    if ("speechSynthesis" in window) {
+      synthRef.current = window.speechSynthesis;
+      console.log("[ASSISTANT] Speech Synthesis initialized.");
+    }
   }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
+    console.log("[ASSISTANT] Checking microphone permission...");
     try {
       const permissionStatus = await navigator.permissions.query({ name: "microphone" });
+      console.log(`[ASSISTANT] Microphone permission status: ${permissionStatus.state}`);
       setMicPermission(permissionStatus.state);
       if (permissionStatus.state === "granted") {
         if (!recognitionRef.current) initializeAssistant();
@@ -448,29 +497,37 @@ const SophisticatedVoiceAssistant = () => {
       } else {
         setIsPermissionModalOpen(true);
       }
-      permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
-    } catch {
+      permissionStatus.onchange = () => {
+        console.log(`[ASSISTANT] Microphone permission status changed to: ${permissionStatus.state}`);
+        setMicPermission(permissionStatus.state);
+      }
+    } catch(e) {
+      console.error("[ERROR] Could not query microphone permission:", e);
       setMicPermission("denied");
     }
   }, [initializeAssistant, startListening]);
 
   const handleAllowMic = useCallback(async () => {
+    console.log("[USER] Clicked 'Allow Microphone'.");
     setIsPermissionModalOpen(false);
     if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
       await audioContextRef.current.resume();
     }
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log("[ASSISTANT] Microphone access granted by user.");
       setMicPermission("granted");
       if (!recognitionRef.current) initializeAssistant();
       startListening();
-    } catch {
+    } catch(e) {
+      console.error("[ERROR] User denied microphone access or an error occurred:", e);
       setMicPermission("denied");
       setIsPermissionModalOpen(true);
     }
   }, [initializeAssistant, startListening]);
 
   const handleManualActivation = useCallback(() => {
+    console.log("[USER] Manually activating assistant.");
     if (isOpenRef.current) return;
     if (micPermission !== "granted") {
       checkAndRequestMicPermission();
@@ -493,6 +550,7 @@ const SophisticatedVoiceAssistant = () => {
   }, [activationTrigger, handleManualActivation]);
 
   useEffect(() => {
+    console.log("[ASSISTANT] Component mounted.");
     if (!audioContextRef.current) {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
     }
@@ -502,6 +560,7 @@ const SophisticatedVoiceAssistant = () => {
     });
 
     return () => {
+      console.log("[ASSISTANT] Component unmounting. Cleaning up...");
       stopPermanentlyRef.current = true;
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
