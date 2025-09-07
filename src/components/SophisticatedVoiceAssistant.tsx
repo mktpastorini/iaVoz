@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { showError } from "@/utils/toast";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, supabaseAnon } from "@/integrations/supabase/client";
 import { useSession } from "@/contexts/SessionContext";
 import { useSystem } from "@/contexts/SystemContext";
 import { replacePlaceholders } from "@/lib/utils";
@@ -363,7 +363,7 @@ const SophisticatedVoiceAssistant = () => {
                     const functionName = toolCall.function.name;
                     const functionArgs = JSON.parse(toolCall.function.arguments);
                     console.log(`[TOOL] Invoking tool: ${functionName} with args:`, functionArgs);
-                    const { data: functionResult, error: functionError } = await supabase.functions.invoke(functionName, { body: functionArgs });
+                    const { data: functionResult, error: functionError } = await supabaseAnon.functions.invoke(functionName, { body: functionArgs });
                     if (functionError) {
                         console.error(`[ERROR] Error invoking tool ${functionName}:`, functionError);
                         throw new Error(`Error invoking function ${functionName}: ${functionError.message}`);
