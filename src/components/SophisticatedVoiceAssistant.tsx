@@ -153,6 +153,108 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
+  // Definindo startListening antes das funções que a usam
+  const startListening = useCallback(() => {
+    const currentSettings = settingsRef.current;
+    if (!currentSettings || isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
+
+    if (currentSettings.input_mode === 'streaming') {
+      if (wsRef.current) return;
+
+      let wsUrl = '';
+      if (currentSettings.ai_model === 'gpt-4o-realtime' || currentSettings.ai_model === 'gpt-4o-mini-realtime') {
+        wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-realtime-voice-proxy`;
+      } else {
+        switch (currentSettings.streaming_stt_provider) {
+          case 'deepgram':
+            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/mic-stream-proxy`;
+            break;
+          case 'openai':
+            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-stt-proxy`;
+            break;
+          case 'google':
+            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/google-stt-proxy`;
+            break;
+          default:
+            showError("Provedor de streaming STT não configurado ou inválido.");
+            return;
+        }
+      }
+
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.onopen = async () => {
+        console.log(`Conectado ao proxy WebSocket para ${currentSettings.streaming_stt_provider || currentSettings.ai_model}.`);
+        setIsListening(true);
+        try {
+          audioStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const recorder = new MediaRecorder(audioStreamRef.current, { mimeType: 'audio/webm; codecs=opus' });
+          mediaRecorderRef.current = recorder;
+          recorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(event.data);
+            }
+          };
+          recorder.start(250);
+        } catch (err) {
+          showError("Não foi possível acessar o microfone.");
+          setMicPermission("denied");
+          setIsPermissionModalOpen(true);
+          ws.close();
+        }
+      };
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.error) {
+          console.error("Erro do provedor de streaming:", data.error);
+          showError(`Erro no streaming de voz: ${data.error}`);
+          stopListening();
+          return;
+        }
+
+        const transcriptChunk = data.channel?.alternatives?.[0]?.transcript || data.text;
+        if (transcriptChunk) {
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            if (finalTranscriptRef.current) {
+              console.log("Silêncio detectado. Processando comando final:", finalTranscriptRef.current);
+              const commandToProcess = finalTranscriptRef.current;
+              finalTranscriptRef.current = "";
+              stopListening();
+
+              const currentSettings = settingsRef.current;
+              if (currentSettings?.deactivation_phrases.some(p => commandToProcess.includes(p.toLowerCase()))) {
+                setIsOpen(false);
+                stopSpeaking();
+                return;
+              }
+              const matchedAction = clientActionsRef.current.find(a => commandToProcess.includes(a.trigger_phrase.toLowerCase()));
+              if (matchedAction) {
+                executeClientAction(matchedAction);
+                return;
+              }
+
+              runConversation.current(commandToProcess);
+            }
+          }, 1200);
+
+          if (data.is_final) {
+            finalTranscriptRef.current += transcriptChunk + " ";
+            setTranscript(finalTranscriptRef.current);
+          } else {
+            setTranscript(finalTranscriptRef.current + transcriptChunk);
+          }
+        }
+      };
+      ws.onclose = () => { wsRef.current = null; setIsListening(false); console.log("WebSocket de streaming fechado."); };
+      ws.onerror = (err) => { showError("Erro na conexão de streaming."); console.error("WebSocket streaming error:", err); wsRef.current = null; setIsListening(false); };
+    } else {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.start(); } catch (e) { console.error("Erro ao iniciar reconhecimento local:", e); }
+      }
+    }
+  }, [executeClientAction, runConversation, stopListening, stopSpeaking]);
+
   const speakSingleSentence = useCallback(async (text, onEndCallback) => {
     const currentSettings = settingsRef.current;
     if (!text || !currentSettings) {
@@ -196,8 +298,6 @@ const SophisticatedVoiceAssistant = () => {
       onEndCallback();
     }
   }, [setupAudioAnalysis, runAudioAnalysis]);
-
-  const runConversation = useRef(async (_userMessage) => {});
 
   const speechManager = useCallback(() => {
     if (isSpeakingRef.current || sentenceQueueRef.current.length === 0) {
@@ -361,9 +461,26 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, [speak, stopListening, speechManager]);
 
-  useEffect(() => {
-    runConversation.current = runConversationFn;
-  }, [runConversationFn]);
+  const speechManager = useCallback(() => {
+    if (isSpeakingRef.current || sentenceQueueRef.current.length === 0) {
+      if (speechManagerTimeoutRef.current) clearTimeout(speechManagerTimeoutRef.current);
+      speechManagerTimeoutRef.current = setTimeout(speechManager, 100);
+      return;
+    }
+    const sentenceToSpeak = sentenceQueueRef.current.shift();
+    if (sentenceToSpeak) {
+      speakSingleSentence(sentenceToSpeak, () => {
+        if (sentenceQueueRef.current.length === 0) {
+          setIsSpeaking(false);
+          if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+          setAudioIntensity(0);
+          if (isOpenRef.current && !stopPermanentlyRef.current) startListening();
+        } else {
+          speechManager();
+        }
+      });
+    }
+  }, [speakSingleSentence, startListening]);
 
   const handleManualActivation = useCallback(() => {
     if (isOpenRef.current) return;
@@ -443,107 +560,6 @@ const SophisticatedVoiceAssistant = () => {
       permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
     } catch (e) { setMicPermission("denied"); }
   }, [initializeWebSpeech, startListening]);
-
-  const startListening = useCallback(() => {
-    const currentSettings = settingsRef.current;
-    if (!currentSettings || isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
-
-    if (currentSettings.input_mode === 'streaming') {
-      if (wsRef.current) return;
-
-      let wsUrl = '';
-      if (currentSettings.ai_model === 'gpt-4o-realtime' || currentSettings.ai_model === 'gpt-4o-mini-realtime') {
-        wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-realtime-voice-proxy`;
-      } else {
-        switch (currentSettings.streaming_stt_provider) {
-          case 'deepgram':
-            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/mic-stream-proxy`;
-            break;
-          case 'openai':
-            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-stt-proxy`;
-            break;
-          case 'google':
-            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/google-stt-proxy`;
-            break;
-          default:
-            showError("Provedor de streaming STT não configurado ou inválido.");
-            return;
-        }
-      }
-
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-      ws.onopen = async () => {
-        console.log(`Conectado ao proxy WebSocket para ${currentSettings.streaming_stt_provider || currentSettings.ai_model}.`);
-        setIsListening(true);
-        try {
-          audioStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-          const recorder = new MediaRecorder(audioStreamRef.current, { mimeType: 'audio/webm; codecs=opus' });
-          mediaRecorderRef.current = recorder;
-          recorder.ondataavailable = (event) => {
-            if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(event.data);
-            }
-          };
-          recorder.start(250);
-        } catch (err) {
-          showError("Não foi possível acessar o microfone.");
-          setMicPermission("denied");
-          setIsPermissionModalOpen(true);
-          ws.close();
-        }
-      };
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.error) {
-          console.error("Erro do provedor de streaming:", data.error);
-          showError(`Erro no streaming de voz: ${data.error}`);
-          stopListening();
-          return;
-        }
-
-        const transcriptChunk = data.channel?.alternatives?.[0]?.transcript || data.text;
-        if (transcriptChunk) {
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = setTimeout(() => {
-            if (finalTranscriptRef.current) {
-              console.log("Silêncio detectado. Processando comando final:", finalTranscriptRef.current);
-              const commandToProcess = finalTranscriptRef.current;
-              finalTranscriptRef.current = "";
-              stopListening();
-
-              const currentSettings = settingsRef.current;
-              if (currentSettings?.deactivation_phrases.some(p => commandToProcess.includes(p.toLowerCase()))) {
-                setIsOpen(false);
-                stopSpeaking();
-                return;
-              }
-              const matchedAction = clientActionsRef.current.find(a => commandToProcess.includes(a.trigger_phrase.toLowerCase()));
-              if (matchedAction) {
-                executeClientAction(matchedAction);
-                return;
-              }
-
-              runConversation.current(commandToProcess);
-            }
-          }, 1200);
-
-          if (data.is_final) {
-            finalTranscriptRef.current += transcriptChunk + " ";
-            setTranscript(finalTranscriptRef.current);
-          } else {
-            setTranscript(finalTranscriptRef.current + transcriptChunk);
-          }
-        }
-      };
-      ws.onclose = () => { wsRef.current = null; setIsListening(false); console.log("WebSocket de streaming fechado."); };
-      ws.onerror = (err) => { showError("Erro na conexão de streaming."); console.error("WebSocket streaming error:", err); wsRef.current = null; setIsListening(false); };
-    } else {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.start(); } catch (e) { console.error("Erro ao iniciar reconhecimento local:", e); }
-      }
-    }
-  }, [executeClientAction, runConversation, stopListening, stopSpeaking]);
 
   const stopListening = useCallback(() => {
     if (settingsRef.current?.input_mode === 'streaming') {
