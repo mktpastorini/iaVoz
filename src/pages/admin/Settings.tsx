@@ -405,6 +405,7 @@ const SettingsPage: React.FC = () => {
             <Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
               <SelectItem value="gpt-4o-realtime">OpenAI GPT-4o Real-time Voice</SelectItem>
               <SelectItem value="gpt-4o-mini-realtime">OpenAI GPT-4o Mini Real-time Voice</SelectItem>
+              <SelectItem value="gpt-4o-mini">OpenAI GPT-4o Mini</SelectItem>
               <SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem>
               <SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem>
               <SelectItem value="gemini-pro" disabled>Gemini Pro</SelectItem>
