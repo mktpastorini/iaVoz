@@ -153,7 +153,36 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
-  // Definindo startListening antes das funções que a usam
+  const runConversation = useRef(async (_userMessage) => {});
+
+  const stopListening = useCallback(() => {
+    if (settingsRef.current?.input_mode === 'streaming') {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+      audioStreamRef.current?.getTracks().forEach(track => track.stop());
+      audioStreamRef.current = null;
+      wsRef.current?.close();
+      wsRef.current = null;
+      finalTranscriptRef.current = "";
+    } else {
+      recognitionRef.current?.stop();
+    }
+    setIsListening(false);
+  }, []);
+
+  const executeClientAction = useCallback((action) => {
+    stopListening();
+    speak("Ok, executando.", () => {
+      switch (action.action_type) {
+        case 'OPEN_URL': window.open(action.action_payload.url, '_blank', 'noopener,noreferrer'); break;
+        case 'SHOW_IMAGE': setImageToShow(action.action_payload); break;
+        case 'OPEN_IFRAME_URL': setUrlToOpenInIframe(action.action_payload.url); break;
+        default: console.warn(`Ação desconhecida: ${action.action_type}`); break;
+      }
+    });
+  }, [speak, stopListening]);
+
   const startListening = useCallback(() => {
     const currentSettings = settingsRef.current;
     if (!currentSettings || isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
@@ -253,7 +282,7 @@ const SophisticatedVoiceAssistant = () => {
         try { recognitionRef.current.start(); } catch (e) { console.error("Erro ao iniciar reconhecimento local:", e); }
       }
     }
-  }, [executeClientAction, runConversation, stopListening, stopSpeaking]);
+  }, [executeClientAction, stopListening, stopSpeaking]);
 
   const speakSingleSentence = useCallback(async (text, onEndCallback) => {
     const currentSettings = settingsRef.current;
@@ -286,8 +315,8 @@ const SophisticatedVoiceAssistant = () => {
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
         setupAudioAnalysis();
-        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onended = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
         runAudioAnalysis();
       } else {
@@ -335,18 +364,6 @@ const SophisticatedVoiceAssistant = () => {
       checkCompletion();
     }
   }, [stopSpeaking, stopListening, speechManager]);
-
-  const executeClientAction = useCallback((action) => {
-    stopListening();
-    speak("Ok, executando.", () => {
-      switch (action.action_type) {
-        case 'OPEN_URL': window.open(action.action_payload.url, '_blank', 'noopener,noreferrer'); break;
-        case 'SHOW_IMAGE': setImageToShow(action.action_payload); break;
-        case 'OPEN_IFRAME_URL': setUrlToOpenInIframe(action.action_payload.url); break;
-        default: console.warn(`Ação desconhecida: ${action.action_type}`); break;
-      }
-    });
-  }, [speak, stopListening]);
 
   const runConversationFn = useCallback(async (userMessage) => {
     if (!userMessage) return;
@@ -461,26 +478,9 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, [speak, stopListening, speechManager]);
 
-  const speechManager = useCallback(() => {
-    if (isSpeakingRef.current || sentenceQueueRef.current.length === 0) {
-      if (speechManagerTimeoutRef.current) clearTimeout(speechManagerTimeoutRef.current);
-      speechManagerTimeoutRef.current = setTimeout(speechManager, 100);
-      return;
-    }
-    const sentenceToSpeak = sentenceQueueRef.current.shift();
-    if (sentenceToSpeak) {
-      speakSingleSentence(sentenceToSpeak, () => {
-        if (sentenceQueueRef.current.length === 0) {
-          setIsSpeaking(false);
-          if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-          setAudioIntensity(0);
-          if (isOpenRef.current && !stopPermanentlyRef.current) startListening();
-        } else {
-          speechManager();
-        }
-      });
-    }
-  }, [speakSingleSentence, startListening]);
+  useEffect(() => {
+    runConversation.current = runConversationFn;
+  }, [runConversationFn]);
 
   const handleManualActivation = useCallback(() => {
     if (isOpenRef.current) return;
@@ -560,22 +560,6 @@ const SophisticatedVoiceAssistant = () => {
       permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
     } catch (e) { setMicPermission("denied"); }
   }, [initializeWebSpeech, startListening]);
-
-  const stopListening = useCallback(() => {
-    if (settingsRef.current?.input_mode === 'streaming') {
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
-      audioStreamRef.current?.getTracks().forEach(track => track.stop());
-      audioStreamRef.current = null;
-      wsRef.current?.close();
-      wsRef.current = null;
-      finalTranscriptRef.current = "";
-    } else {
-      recognitionRef.current?.stop();
-    }
-    setIsListening(false);
-  }, []);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
