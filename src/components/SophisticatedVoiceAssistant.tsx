@@ -197,6 +197,9 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, [setupAudioAnalysis, runAudioAnalysis]);
 
+  // We use a ref to hold the latest version of runConversation to break dependency cycles
+  const runConversation = useRef(async (_userMessage: string) => {});
+
   const startListening = useCallback(() => {
     const currentSettings = settingsRef.current;
     if (!currentSettings || isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
@@ -231,7 +234,7 @@ const SophisticatedVoiceAssistant = () => {
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = setTimeout(() => {
             if (finalTranscriptRef.current) {
-              runConversation(finalTranscriptRef.current);
+              runConversation.current(finalTranscriptRef.current);
               finalTranscriptRef.current = "";
             }
           }, 1200);
@@ -250,7 +253,7 @@ const SophisticatedVoiceAssistant = () => {
         try { recognitionRef.current.start(); } catch (e) { console.error("Erro ao iniciar reconhecimento:", e); }
       }
     }
-  }, [runConversation]);
+  }, []);
 
   const stopListening = useCallback(() => {
     if (settingsRef.current?.input_mode === 'streaming') {
@@ -316,7 +319,7 @@ const SophisticatedVoiceAssistant = () => {
     });
   }, [speak, stopListening]);
 
-  const runConversation = useCallback(async (userMessage) => {
+  const runConversationFn = useCallback(async (userMessage) => {
     if (!userMessage) return;
     setTranscript(userMessage);
     setAiResponse("");
@@ -427,7 +430,25 @@ const SophisticatedVoiceAssistant = () => {
       speak(`Desculpe, não consegui processar sua solicitação.`);
       showError(`Erro na conversa: ${e.message}`);
     }
-  }, [speak, stopListening]);
+  }, [speak, stopListening, speechManager]);
+
+  useEffect(() => {
+    runConversation.current = runConversationFn;
+  }, [runConversationFn]);
+
+  const handleManualActivation = useCallback(() => {
+    if (isOpenRef.current) return;
+    if (micPermission !== "granted") { checkAndRequestMicPermission(); return; }
+    fetchAllAssistantData().then((latestSettings) => {
+      if (!latestSettings) return;
+      setIsOpen(true);
+      setHasBeenActivated(true);
+      const message = hasBeenActivatedRef.current ? latestSettings.continuation_phrase : latestSettings.welcome_message;
+      speak(message, () => {
+        if (isOpenRef.current) startListening();
+      });
+    });
+  }, [micPermission, checkAndRequestMicPermission, fetchAllAssistantData, speak, startListening]);
 
   const initializeWebSpeech = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -450,13 +471,13 @@ const SophisticatedVoiceAssistant = () => {
         if (currentSettings.deactivation_phrases.some(p => transcript.includes(p.toLowerCase()))) { setIsOpen(false); stopSpeaking(); return; }
         const matchedAction = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
         if (matchedAction) { executeClientAction(matchedAction); return; }
-        runConversation(transcript);
+        runConversation.current(transcript);
       } else {
         if (currentSettings.activation_phrases.some(p => transcript.includes(p.toLowerCase()))) handleManualActivation();
       }
     };
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-  }, [executeClientAction, runConversation, stopSpeaking, startListening, handleManualActivation]);
+  }, [executeClientAction, stopSpeaking, startListening, handleManualActivation]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
@@ -486,20 +507,6 @@ const SophisticatedVoiceAssistant = () => {
       }
     } catch (e) { setMicPermission("denied"); setIsPermissionModalOpen(true); }
   }, [initializeWebSpeech, startListening]);
-
-  const handleManualActivation = useCallback(() => {
-    if (isOpenRef.current) return;
-    if (micPermission !== "granted") { checkAndRequestMicPermission(); return; }
-    fetchAllAssistantData().then((latestSettings) => {
-      if (!latestSettings) return;
-      setIsOpen(true);
-      setHasBeenActivated(true);
-      const message = hasBeenActivatedRef.current ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-      speak(message, () => {
-        if (isOpenRef.current) startListening();
-      });
-    });
-  }, [micPermission, checkAndRequestMicPermission, fetchAllAssistantData, speak, startListening]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
