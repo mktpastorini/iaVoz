@@ -189,11 +189,11 @@ const SophisticatedVoiceAssistant = () => {
         await audioRef.current.play();
         runAudioAnalysis();
       } else {
-        onSpeechEnd();
+        onEndCallback(); // Ensure callback is called even if no speech
       }
     } catch (e: any) {
       showError(`Erro na síntese de voz: ${e.message}`);
-      onSpeechEnd();
+      onEndCallback();
     }
   }, [setupAudioAnalysis, runAudioAnalysis]);
 
@@ -436,9 +436,13 @@ const SophisticatedVoiceAssistant = () => {
     runConversation.current = runConversationFn;
   }, [runConversationFn]);
 
+  // Define handleManualActivation first
   const handleManualActivation = useCallback(() => {
     if (isOpenRef.current) return;
-    if (micPermission !== "granted") { checkAndRequestMicPermission(); return; }
+    if (micPermission !== "granted") {
+      setIsPermissionModalOpen(true); // Just open the modal if permission isn't granted
+      return;
+    }
     fetchAllAssistantData().then((latestSettings) => {
       if (!latestSettings) return;
       setIsOpen(true);
@@ -448,7 +452,7 @@ const SophisticatedVoiceAssistant = () => {
         if (isOpenRef.current) startListening();
       });
     });
-  }, [micPermission, checkAndRequestMicPermission, fetchAllAssistantData, speak, startListening]);
+  }, [micPermission, fetchAllAssistantData, speak, startListening]);
 
   const initializeWebSpeech = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
