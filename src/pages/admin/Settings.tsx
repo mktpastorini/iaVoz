@@ -48,15 +48,15 @@ interface Power {
 const settingsSchema = z.object({
   system_prompt: z.string().min(10, "Prompt do sistema é obrigatório"),
   assistant_prompt: z.string().min(10, "Prompt do assistente é obrigatório"),
-  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gemini-pro", "gpt-4o-mini"]),
+  ai_model: z.enum(["gpt-4o-realtime", "gpt-4o-mini-realtime", "gpt-4-turbo", "gpt-3.5-turbo", "gemini-pro", "gpt-4o-mini"]),
   voice_model: z.enum(["browser", "openai-tts", "gemini-tts"]),
   openai_tts_voice: z.string().optional().nullable(),
   voice_sensitivity: z.number().min(0).max(100),
   openai_api_key: z.string().optional().nullable(),
   gemini_api_key: z.string().optional().nullable(),
   deepgram_api_key: z.string().optional().nullable(),
-  openai_stt_api_key: z.string().optional().nullable(), // Nova chave
-  google_stt_api_key: z.string().optional().nullable(), // Nova chave
+  openai_stt_api_key: z.string().optional().nullable(), // Chave para OpenAI Whisper (batch STT)
+  google_stt_api_key: z.string().optional().nullable(), // Chave para Google Streaming STT
   conversation_memory_length: z.number().min(0).max(10),
   activation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de ativação."),
   deactivation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de desativação."),
@@ -65,7 +65,7 @@ const settingsSchema = z.object({
   show_transcript: z.boolean(),
   input_mode: z.enum(['local', 'streaming']),
   output_mode: z.enum(['buffered', 'streaming']),
-  streaming_stt_provider: z.enum(['deepgram', 'openai', 'google']).optional().nullable(), // Novo seletor
+  streaming_stt_provider: z.enum(['deepgram', 'openai', 'google']).optional().nullable(), // Seletor para provedores de STT
 });
 
 type SettingsFormData = z.infer<typeof settingsSchema>;
@@ -140,11 +140,32 @@ const SettingsPage: React.FC = () => {
     defaultValues,
   });
 
+  const aiModel = watch("ai_model");
   const voiceModel = watch("voice_model");
   const inputMode = watch("input_mode");
   const streamingSttProvider = watch("streaming_stt_provider");
   const activationPhrases = watch("activation_phrases");
   const deactivationPhrases = watch("deactivation_phrases");
+
+  // Detecta se o modelo de IA selecionado é um modelo de voz em tempo real da OpenAI
+  const isRealtimeOpenAIVoiceModel = aiModel === "gpt-4o-realtime" || aiModel === "gpt-4o-mini-realtime";
+
+  // Efeito para ajustar input_mode, output_mode e streaming_stt_provider
+  // quando um modelo de voz em tempo real da OpenAI é selecionado.
+  useEffect(() => {
+    if (isRealtimeOpenAIVoiceModel) {
+      setValue("input_mode", "streaming");
+      setValue("output_mode", "streaming");
+      // Para modelos de voz em tempo real, o STT é intrínseco, então o provedor STT externo não se aplica.
+      // Podemos definir um valor específico ou null, e desabilitar o seletor.
+      setValue("streaming_stt_provider", "openai"); // Ou um valor específico para o proxy de voz em tempo real
+    } else if (inputMode === 'streaming' && !streamingSttProvider) {
+      // Se não for um modelo de voz em tempo real e o input_mode for streaming,
+      // garantir que um provedor de STT esteja selecionado (padrão Deepgram)
+      setValue("streaming_stt_provider", "deepgram");
+    }
+  }, [isRealtimeOpenAIVoiceModel, inputMode, streamingSttProvider, setValue]);
+
 
   const onSubmit = useCallback(async (formData: SettingsFormData) => {
     if (!workspace) {
@@ -255,7 +276,7 @@ const SettingsPage: React.FC = () => {
               control={control}
               name="input_mode"
               render={({ field }) => (
-                <Select onValueChange={field.onChange} value={field.value}>
+                <Select onValueChange={field.onChange} value={field.value} disabled={isRealtimeOpenAIVoiceModel}>
                   <SelectTrigger id="input_mode"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="local">Local (Recomendado)</SelectItem>
@@ -272,7 +293,7 @@ const SettingsPage: React.FC = () => {
               control={control}
               name="output_mode"
               render={({ field }) => (
-                <Select onValueChange={field.onChange} value={field.value}>
+                <Select onValueChange={field.onChange} value={field.value} disabled={isRealtimeOpenAIVoiceModel}>
                   <SelectTrigger id="output_mode"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="buffered">Padrão (Fala no final)</SelectItem>
@@ -300,12 +321,12 @@ const SettingsPage: React.FC = () => {
                 control={control}
                 name="streaming_stt_provider"
                 render={({ field }) => (
-                  <Select onValueChange={field.onChange} value={field.value || 'deepgram'}>
+                  <Select onValueChange={field.onChange} value={field.value || 'deepgram'} disabled={isRealtimeOpenAIVoiceModel}>
                     <SelectTrigger id="streaming_stt_provider"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="deepgram">Deepgram</SelectItem>
-                      <SelectItem value="openai" disabled>OpenAI (Em breve)</SelectItem>
-                      <SelectItem value="google" disabled>Google (Em breve)</SelectItem>
+                      <SelectItem value="openai">OpenAI (Whisper - Assíncrono)</SelectItem>
+                      <SelectItem value="google">Google (Streaming)</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
@@ -375,6 +396,32 @@ const SettingsPage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader><CardTitle>Configuração de Modelos</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <Label>Modelo de IA</Label>
+            <Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
+              <SelectItem value="gpt-4o-realtime">OpenAI GPT-4o Real-time Voice</SelectItem>
+              <SelectItem value="gpt-4o-mini-realtime">OpenAI GPT-4o Mini Real-time Voice</SelectItem>
+              <SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem>
+              <SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem>
+              <SelectItem value="gemini-pro" disabled>Gemini Pro</SelectItem>
+            </SelectContent></Select>)} />
+          </div>
+          <div>
+            <Label>Modelo de Voz</Label>
+            <Controller control={control} name="voice_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value} disabled={isRealtimeOpenAIVoiceModel}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="browser">Navegador (Padrão)</SelectItem><SelectItem value="openai-tts">OpenAI TTS</SelectItem><SelectItem value="gemini-tts" disabled>Gemini TTS</SelectItem></SelectContent></Select>)} />
+          </div>
+          {voiceModel === "openai-tts" && (
+            <div>
+              <Label>Voz OpenAI TTS</Label>
+              <Controller control={control} name="openai_tts_voice" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value || "alloy"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{OPENAI_TTS_VOICES.map(v => (<SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>))}</SelectContent></Select>)} />
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle>Chaves de API e Parâmetros</CardTitle></CardHeader>
