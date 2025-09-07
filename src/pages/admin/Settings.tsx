@@ -54,6 +54,7 @@ const settingsSchema = z.object({
   voice_sensitivity: z.number().min(0).max(100),
   openai_api_key: z.string().optional().nullable(),
   gemini_api_key: z.string().optional().nullable(),
+  deepgram_api_key: z.string().optional().nullable(),
   conversation_memory_length: z.number().min(0).max(10),
   activation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de ativação."),
   deactivation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de desativação."),
@@ -89,6 +90,7 @@ Ferramentas Disponíveis (Poderes):
   voice_sensitivity: 50,
   openai_api_key: "",
   gemini_api_key: "",
+  deepgram_api_key: "",
   conversation_memory_length: 5,
   activation_phrases: ["ativar"],
   deactivation_phrases: ["fechar", "encerrar"],
@@ -149,6 +151,7 @@ const SettingsPage: React.FC = () => {
         openai_tts_voice: formData.openai_tts_voice || null,
         openai_api_key: formData.openai_api_key || null,
         gemini_api_key: formData.gemini_api_key || null,
+        deepgram_api_key: formData.deepgram_api_key || null,
         welcome_message: formData.welcome_message || null,
         continuation_phrase: formData.continuation_phrase || null,
       },
@@ -245,7 +248,7 @@ const SettingsPage: React.FC = () => {
                   <SelectTrigger id="input_mode"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="local">Local (Recomendado)</SelectItem>
-                    <SelectItem value="streaming" disabled>Streaming (Em breve)</SelectItem>
+                    <SelectItem value="streaming">Streaming (Requer Deepgram)</SelectItem>
                   </SelectContent>
                 </Select>
               )}
@@ -364,7 +367,7 @@ const SettingsPage: React.FC = () => {
 
       <Card>
         <CardHeader><CardTitle>Chaves de API e Parâmetros</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <Label>Chave API OpenAI</Label>
             <Input {...register("openai_api_key")} type="password" placeholder="sk-..." autoComplete="new-password" />
@@ -374,11 +377,15 @@ const SettingsPage: React.FC = () => {
             <Input {...register("gemini_api_key")} type="password" placeholder="..." autoComplete="new-password" />
           </div>
           <div>
+            <Label>Chave API Deepgram (Streaming)</Label>
+            <Input {...register("deepgram_api_key")} type="password" placeholder="..." autoComplete="new-password" />
+          </div>
+          <div className="md:col-span-1.5">
             <Label>Memória da Conversa</Label>
             <Controller control={control} name="conversation_memory_length" render={({ field }) => (<Slider value={[field.value ?? 5]} onValueChange={(v) => field.onChange(v[0])} min={0} max={10} step={1} />)} />
             <p className="text-sm text-muted-foreground mt-1">Pares de mensagens a serem lembrados: {watch("conversation_memory_length")}</p>
           </div>
-          <div>
+          <div className="md:col-span-1.5">
             <Label>Sensibilidade do Microfone</Label>
             <Controller control={control} name="voice_sensitivity" render={({ field }) => (<Slider value={[field.value ?? 50]} onValueChange={(v) => field.onChange(v[0])} min={0} max={100} step={1} />)} />
             <p className="text-sm text-muted-foreground mt-1">Sensibilidade: {watch("voice_sensitivity")}</p>
