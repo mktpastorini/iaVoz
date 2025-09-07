@@ -30,7 +30,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-// Interface para o tipo de dado do campo do usuário
+// Interface for the type of dado do campo do usuário
 interface UserDataField {
   id: string;
   name: string;
@@ -38,7 +38,7 @@ interface UserDataField {
   type: 'string' | 'number' | 'boolean';
 }
 
-// Interface para o tipo de dado do Poder (simplificada para o popover)
+// Interface for the type of dado do Poder (simplificada para o popover)
 interface Power {
   id: string;
   name: string;
@@ -48,7 +48,7 @@ interface Power {
 const settingsSchema = z.object({
   system_prompt: z.string().min(10, "Prompt do sistema é obrigatório"),
   assistant_prompt: z.string().min(10, "Prompt do assistente é obrigatório"),
-  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gemini-pro", "gpt-4o-mini"]),
+  ai_model: z.enum(["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo", "gemini-pro", "gpt-4o-mini"]),
   voice_model: z.enum(["browser", "openai-tts", "gemini-tts"]),
   openai_tts_voice: z.string().optional().nullable(),
   voice_sensitivity: z.number().min(0).max(100),
@@ -389,6 +389,7 @@ const SettingsPage: React.FC = () => {
           <div>
             <Label>Modelo de IA</Label>
             <Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
+              <SelectItem value="gpt-4o">OpenAI GPT-4o</SelectItem>
               <SelectItem value="gpt-4o-mini">OpenAI GPT-4o Mini</SelectItem>
               <SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem>
               <SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem>
