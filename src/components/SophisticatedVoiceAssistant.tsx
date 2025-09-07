@@ -13,7 +13,7 @@ import { Mic, X } from "lucide-react";
 import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
-import { AIScene } from "@/components/AIScene";
+import { AIScene } from "./AIScene";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
@@ -263,6 +263,22 @@ const SophisticatedVoiceAssistant = () => {
     });
   }, [speak, stopListening]);
 
+  const processCommand = useCallback((command) => {
+    if (!command) return;
+    const currentSettings = settingsRef.current;
+    if (currentSettings?.deactivation_phrases.some(p => command.includes(p.toLowerCase()))) {
+      setIsOpen(false);
+      stopSpeaking();
+      return;
+    }
+    const matchedAction = clientActionsRef.current.find(a => command.includes(a.trigger_phrase.toLowerCase()));
+    if (matchedAction) {
+      executeClientAction(matchedAction);
+      return;
+    }
+    runConversation.current(command);
+  }, [stopSpeaking, executeClientAction]);
+
   const startListening = useCallback(() => {
     const currentSettings = settingsRef.current;
     if (!currentSettings || isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
@@ -317,35 +333,40 @@ const SophisticatedVoiceAssistant = () => {
           return;
         }
 
-        const transcriptChunk = data.channel?.alternatives?.[0]?.transcript || data.text;
+        const transcriptChunk = data.channel?.alternatives?.[0]?.transcript || data.text || "";
+        const isFinal = data.is_final;
+
         if (transcriptChunk) {
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = setTimeout(() => {
-            if (finalTranscriptRef.current) {
-              console.log("Silêncio detectado. Processando comando final:", finalTranscriptRef.current);
-              const commandToProcess = finalTranscriptRef.current;
-              finalTranscriptRef.current = "";
-              stopListening();
-
-              const currentSettings = settingsRef.current;
-              if (currentSettings?.deactivation_phrases.some(p => commandToProcess.includes(p.toLowerCase()))) {
-                setIsOpen(false);
-                stopSpeaking();
-                return;
+            console.log("Silence detected.");
+            const currentSettings = settingsRef.current;
+            if (currentSettings?.streaming_stt_provider === 'openai') {
+              if (wsRef.current?.readyState === WebSocket.OPEN) {
+                console.log("Requesting final transcript from OpenAI proxy.");
+                wsRef.current.send(JSON.stringify({ type: 'process_audio' }));
               }
-              const matchedAction = clientActionsRef.current.find(a => commandToProcess.includes(a.trigger_phrase.toLowerCase()));
-              if (matchedAction) {
-                executeClientAction(matchedAction);
-                return;
+            } else {
+              if (finalTranscriptRef.current) {
+                const commandToProcess = finalTranscriptRef.current.trim();
+                finalTranscriptRef.current = "";
+                stopListening();
+                processCommand(commandToProcess);
               }
-
-              runConversation.current(commandToProcess);
             }
           }, 1200);
 
-          if (data.is_final) {
+          if (isFinal) {
             finalTranscriptRef.current += transcriptChunk + " ";
             setTranscript(finalTranscriptRef.current);
+
+            const currentSettings = settingsRef.current;
+            if (currentSettings?.streaming_stt_provider === 'openai') {
+              const commandToProcess = finalTranscriptRef.current.trim();
+              finalTranscriptRef.current = "";
+              stopListening();
+              processCommand(commandToProcess);
+            }
           } else {
             setTranscript(finalTranscriptRef.current + transcriptChunk);
           }
@@ -358,7 +379,7 @@ const SophisticatedVoiceAssistant = () => {
         try { recognitionRef.current.start(); } catch (e) { console.error("Erro ao iniciar reconhecimento local:", e); }
       }
     }
-  }, [executeClientAction, stopListening, stopSpeaking]);
+  }, [processCommand, stopListening]);
 
   const runConversationFn = useCallback(async (userMessage) => {
     if (!userMessage) return;
@@ -512,16 +533,13 @@ const SophisticatedVoiceAssistant = () => {
       const currentSettings = settingsRef.current;
       if (!currentSettings) return;
       if (isOpenRef.current) {
-        if (currentSettings.deactivation_phrases.some(p => transcript.includes(p.toLowerCase()))) { setIsOpen(false); stopSpeaking(); return; }
-        const matchedAction = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
-        if (matchedAction) { executeClientAction(matchedAction); return; }
-        runConversation.current(transcript);
+        processCommand(transcript);
       } else {
         if (currentSettings.activation_phrases.some(p => transcript.includes(p.toLowerCase()))) handleManualActivation();
       }
     };
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-  }, [executeClientAction, stopSpeaking, startListening, handleManualActivation]);
+  }, [processCommand, handleManualActivation, startListening]);
 
   const handleAllowMic = useCallback(async () => {
     setIsPermissionModalOpen(false);
