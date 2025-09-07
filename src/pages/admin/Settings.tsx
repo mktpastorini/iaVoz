@@ -55,6 +55,8 @@ const settingsSchema = z.object({
   openai_api_key: z.string().optional().nullable(),
   gemini_api_key: z.string().optional().nullable(),
   deepgram_api_key: z.string().optional().nullable(),
+  openai_stt_api_key: z.string().optional().nullable(), // Nova chave
+  google_stt_api_key: z.string().optional().nullable(), // Nova chave
   conversation_memory_length: z.number().min(0).max(10),
   activation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de ativação."),
   deactivation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de desativação."),
@@ -63,6 +65,7 @@ const settingsSchema = z.object({
   show_transcript: z.boolean(),
   input_mode: z.enum(['local', 'streaming']),
   output_mode: z.enum(['buffered', 'streaming']),
+  streaming_stt_provider: z.enum(['deepgram', 'openai', 'google']).optional().nullable(), // Novo seletor
 });
 
 type SettingsFormData = z.infer<typeof settingsSchema>;
@@ -91,6 +94,8 @@ Ferramentas Disponíveis (Poderes):
   openai_api_key: "",
   gemini_api_key: "",
   deepgram_api_key: "",
+  openai_stt_api_key: "",
+  google_stt_api_key: "",
   conversation_memory_length: 5,
   activation_phrases: ["ativar"],
   deactivation_phrases: ["fechar", "encerrar"],
@@ -99,6 +104,7 @@ Ferramentas Disponíveis (Poderes):
   show_transcript: true,
   input_mode: 'local',
   output_mode: 'buffered',
+  streaming_stt_provider: 'deepgram', // Padrão para Deepgram
 };
 
 const OPENAI_TTS_VOICES = [
@@ -135,6 +141,8 @@ const SettingsPage: React.FC = () => {
   });
 
   const voiceModel = watch("voice_model");
+  const inputMode = watch("input_mode");
+  const streamingSttProvider = watch("streaming_stt_provider");
   const activationPhrases = watch("activation_phrases");
   const deactivationPhrases = watch("deactivation_phrases");
 
@@ -152,8 +160,11 @@ const SettingsPage: React.FC = () => {
         openai_api_key: formData.openai_api_key || null,
         gemini_api_key: formData.gemini_api_key || null,
         deepgram_api_key: formData.deepgram_api_key || null,
+        openai_stt_api_key: formData.openai_stt_api_key || null,
+        google_stt_api_key: formData.google_stt_api_key || null,
         welcome_message: formData.welcome_message || null,
         continuation_phrase: formData.continuation_phrase || null,
+        streaming_stt_provider: formData.streaming_stt_provider || null,
       },
       { onConflict: "workspace_id" }
     );
@@ -248,7 +259,7 @@ const SettingsPage: React.FC = () => {
                   <SelectTrigger id="input_mode"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="local">Local (Recomendado)</SelectItem>
-                    <SelectItem value="streaming">Streaming (Requer Deepgram)</SelectItem>
+                    <SelectItem value="streaming">Streaming</SelectItem>
                   </SelectContent>
                 </Select>
               )}
@@ -282,6 +293,26 @@ const SettingsPage: React.FC = () => {
             />
             <Label htmlFor="show_transcript">Exibir transcrições de texto na tela</Label>
           </div>
+          {inputMode === 'streaming' && (
+            <div>
+              <Label htmlFor="streaming_stt_provider">Provedor de Streaming STT</Label>
+              <Controller
+                control={control}
+                name="streaming_stt_provider"
+                render={({ field }) => (
+                  <Select onValueChange={field.onChange} value={field.value || 'deepgram'}>
+                    <SelectTrigger id="streaming_stt_provider"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="deepgram">Deepgram</SelectItem>
+                      <SelectItem value="openai" disabled>OpenAI (Em breve)</SelectItem>
+                      <SelectItem value="google" disabled>Google (Em breve)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-sm text-muted-foreground mt-1">Serviço usado para converter voz em texto em tempo real.</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -346,39 +377,27 @@ const SettingsPage: React.FC = () => {
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Configuração de Modelos</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <Label>Modelo de IA</Label>
-            <Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="gpt-4o-mini">GPT-4o Mini</SelectItem><SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem><SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem><SelectItem value="gemini-pro" disabled>Gemini Pro</SelectItem></SelectContent></Select>)} />
-          </div>
-          <div>
-            <Label>Modelo de Voz</Label>
-            <Controller control={control} name="voice_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="browser">Navegador (Padrão)</SelectItem><SelectItem value="openai-tts">OpenAI TTS</SelectItem><SelectItem value="gemini-tts" disabled>Gemini TTS</SelectItem></SelectContent></Select>)} />
-          </div>
-          {voiceModel === "openai-tts" && (
-            <div>
-              <Label>Voz OpenAI TTS</Label>
-              <Controller control={control} name="openai_tts_voice" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value || "alloy"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{OPENAI_TTS_VOICES.map(v => (<SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>))}</SelectContent></Select>)} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
         <CardHeader><CardTitle>Chaves de API e Parâmetros</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
-            <Label>Chave API OpenAI</Label>
+            <Label>Chave API OpenAI (IA)</Label>
             <Input {...register("openai_api_key")} type="password" placeholder="sk-..." autoComplete="new-password" />
           </div>
           <div>
-            <Label>Chave API Gemini</Label>
+            <Label>Chave API Gemini (IA)</Label>
             <Input {...register("gemini_api_key")} type="password" placeholder="..." autoComplete="new-password" />
           </div>
           <div>
-            <Label>Chave API Deepgram (Streaming)</Label>
+            <Label>Chave API Deepgram (Streaming STT)</Label>
             <Input {...register("deepgram_api_key")} type="password" placeholder="..." autoComplete="new-password" />
+          </div>
+          <div>
+            <Label>Chave API OpenAI (Streaming STT)</Label>
+            <Input {...register("openai_stt_api_key")} type="password" placeholder="..." autoComplete="new-password" />
+          </div>
+          <div>
+            <Label>Chave API Google (Streaming STT)</Label>
+            <Input {...register("google_stt_api_key")} type="password" placeholder="..." autoComplete="new-password" />
           </div>
           <div className="md:col-span-1.5">
             <Label>Memória da Conversa</Label>
