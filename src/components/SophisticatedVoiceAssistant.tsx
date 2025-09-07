@@ -64,25 +64,25 @@ const SophisticatedVoiceAssistant = () => {
   const sessionRef = useRef(session);
   const messageHistoryRef = useRef(messageHistory);
 
-  const recognitionRef = useRef(null); // For local STT
-  const synthRef = useRef(null); // For browser TTS
-  const audioRef = useRef(null); // For OpenAI TTS audio playback
+  const recognitionRef = useRef(null);
+  const synthRef = useRef(null);
+  const audioRef = useRef(null);
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
-  const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sentenceQueueRef = useRef<string[]>([]);
-  const speechManagerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechTimeoutRef = useRef(null);
+  const sentenceQueueRef = useRef([]);
+  const speechManagerTimeoutRef = useRef(null);
 
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const sourceRef = useRef(null);
   const animationFrameRef = useRef(null);
 
-  // Refs for Streaming Input
-  const wsRef = useRef<WebSocket | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioStreamRef = useRef<MediaStream | null>(null);
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Streaming refs
+  const wsRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioStreamRef = useRef(null);
+  const silenceTimerRef = useRef(null);
   const finalTranscriptRef = useRef("");
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
@@ -189,16 +189,15 @@ const SophisticatedVoiceAssistant = () => {
         await audioRef.current.play();
         runAudioAnalysis();
       } else {
-        onEndCallback(); // Ensure callback is called even if no speech
+        onEndCallback();
       }
-    } catch (e: any) {
+    } catch (e) {
       showError(`Erro na síntese de voz: ${e.message}`);
       onEndCallback();
     }
   }, [setupAudioAnalysis, runAudioAnalysis]);
 
-  // We use a ref to hold the latest version of runConversation to break dependency cycles
-  const runConversation = useRef(async (_userMessage: string) => {});
+  const runConversation = useRef(async (_userMessage) => {});
 
   const speechManager = useCallback(() => {
     if (isSpeakingRef.current || sentenceQueueRef.current.length === 0) {
@@ -356,7 +355,7 @@ const SophisticatedVoiceAssistant = () => {
       } else {
         if (currentSettings.output_mode !== 'streaming') speak(fullResponse);
       }
-    } catch (e: any) {
+    } catch (e) {
       speak(`Desculpe, não consegui processar sua solicitação.`);
       showError(`Erro na conversa: ${e.message}`);
     }
@@ -369,7 +368,7 @@ const SophisticatedVoiceAssistant = () => {
   const handleManualActivation = useCallback(() => {
     if (isOpenRef.current) return;
     if (micPermission !== "granted") {
-      setIsPermissionModalOpen(true); // Just open the modal if permission isn't granted
+      setIsPermissionModalOpen(true);
       return;
     }
     fetchAllAssistantData().then((latestSettings) => {
@@ -418,12 +417,10 @@ const SophisticatedVoiceAssistant = () => {
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       setMicPermission("granted");
-      // Only initialize WebSpeech if not in streaming mode
       if (settingsRef.current?.input_mode !== 'streaming') {
         if (!recognitionRef.current) initializeWebSpeech();
         startListening();
       } else {
-        // If in streaming mode, start streaming directly
         startListening();
       }
     } catch (e) { setMicPermission("denied"); setIsPermissionModalOpen(true); }
@@ -431,15 +428,13 @@ const SophisticatedVoiceAssistant = () => {
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
-      const permissionStatus = await navigator.permissions.query({ name: "microphone" as PermissionName });
+      const permissionStatus = await navigator.permissions.query({ name: "microphone" });
       setMicPermission(permissionStatus.state);
       if (permissionStatus.state === "granted") {
-        // Only initialize WebSpeech if not in streaming mode
         if (settingsRef.current?.input_mode !== 'streaming') {
           if (!recognitionRef.current) initializeWebSpeech();
           startListening();
         } else {
-          // If in streaming mode, start streaming directly
           startListening();
         }
       } else {
@@ -454,28 +449,32 @@ const SophisticatedVoiceAssistant = () => {
     if (!currentSettings || isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
 
     if (currentSettings.input_mode === 'streaming') {
-      if (wsRef.current) return; // Already listening via streaming
+      if (wsRef.current) return;
 
       let wsUrl = '';
-      switch (currentSettings.streaming_stt_provider) {
-        case 'deepgram':
-          wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/mic-stream-proxy`;
-          break;
-        case 'openai':
-          wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-stt-proxy`;
-          break;
-        case 'google':
-          wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/google-stt-proxy`;
-          break;
-        default:
-          showError("Provedor de streaming STT não configurado ou inválido.");
-          return;
+      if (currentSettings.ai_model === 'gpt-4o-realtime' || currentSettings.ai_model === 'gpt-4o-mini-realtime') {
+        wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-realtime-voice-proxy`;
+      } else {
+        switch (currentSettings.streaming_stt_provider) {
+          case 'deepgram':
+            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/mic-stream-proxy`;
+            break;
+          case 'openai':
+            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-stt-proxy`;
+            break;
+          case 'google':
+            wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/google-stt-proxy`;
+            break;
+          default:
+            showError("Provedor de streaming STT não configurado ou inválido.");
+            return;
+        }
       }
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.onopen = async () => {
-        console.log(`Conectado ao proxy WebSocket para ${currentSettings.streaming_stt_provider}.`);
+        console.log(`Conectado ao proxy WebSocket para ${currentSettings.streaming_stt_provider || currentSettings.ai_model}.`);
         setIsListening(true);
         try {
           audioStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -486,7 +485,7 @@ const SophisticatedVoiceAssistant = () => {
               wsRef.current.send(event.data);
             }
           };
-          recorder.start(250); // Envia chunks de áudio a cada 250ms
+          recorder.start(250);
         } catch (err) {
           showError("Não foi possível acessar o microfone.");
           setMicPermission("denied");
@@ -503,19 +502,16 @@ const SophisticatedVoiceAssistant = () => {
           return;
         }
 
-        const transcriptChunk = data.channel?.alternatives[0]?.transcript || data.text; // Deepgram vs OpenAI/Google
+        const transcriptChunk = data.channel?.alternatives?.[0]?.transcript || data.text;
         if (transcriptChunk) {
-          // Resetar o timer de silêncio a cada nova transcrição
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = setTimeout(() => {
-            // Se o timer expirar, significa que o usuário parou de falar
             if (finalTranscriptRef.current) {
               console.log("Silêncio detectado. Processando comando final:", finalTranscriptRef.current);
               const commandToProcess = finalTranscriptRef.current;
-              finalTranscriptRef.current = ""; // Limpa para o próximo comando
-              stopListening(); // Para de enviar áudio para economizar custos
-              
-              // Verifica se é uma frase de desativação ou ação do cliente
+              finalTranscriptRef.current = "";
+              stopListening();
+
               const currentSettings = settingsRef.current;
               if (currentSettings?.deactivation_phrases.some(p => commandToProcess.includes(p.toLowerCase()))) {
                 setIsOpen(false);
@@ -528,12 +524,11 @@ const SophisticatedVoiceAssistant = () => {
                 return;
               }
 
-              // Se não for desativação ou ação, envia para a IA
               runConversation.current(commandToProcess);
             }
-          }, 1200); // 1.2 segundos de silêncio para considerar o fim da fala
+          }, 1200);
 
-          if (data.is_final) { // Deepgram e Google enviam is_final
+          if (data.is_final) {
             finalTranscriptRef.current += transcriptChunk + " ";
             setTranscript(finalTranscriptRef.current);
           } else {
@@ -544,7 +539,6 @@ const SophisticatedVoiceAssistant = () => {
       ws.onclose = () => { wsRef.current = null; setIsListening(false); console.log("WebSocket de streaming fechado."); };
       ws.onerror = (err) => { showError("Erro na conexão de streaming."); console.error("WebSocket streaming error:", err); wsRef.current = null; setIsListening(false); };
     } else {
-      // Modo local (Web Speech API)
       if (recognitionRef.current) {
         try { recognitionRef.current.start(); } catch (e) { console.error("Erro ao iniciar reconhecimento local:", e); }
       }
@@ -560,7 +554,7 @@ const SophisticatedVoiceAssistant = () => {
       audioStreamRef.current = null;
       wsRef.current?.close();
       wsRef.current = null;
-      finalTranscriptRef.current = ""; // Limpa o transcript final ao parar
+      finalTranscriptRef.current = "";
     } else {
       recognitionRef.current?.stop();
     }
@@ -577,10 +571,8 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => {
     if (!isOpen) {
       stopListening();
-      // No modo streaming, não reiniciamos a escuta para a wake word automaticamente
-      // A ativação será sempre manual ou via o gatilho do contexto
       if (settingsRef.current?.input_mode !== 'streaming' && micPermission === 'granted') {
-        startListening(); // Restart wake word listening for local mode
+        startListening();
       }
     }
   }, [isOpen, stopListening, startListening, micPermission]);
@@ -600,7 +592,7 @@ const SophisticatedVoiceAssistant = () => {
 
   return (
     <>
-      <MicrophonePermissionModal isOpen={isPermissionModalOpen} onAllow={handleAllowMic} onClose={() => setIsPermissionModalOpen(false)} permissionState={micPermission as 'prompt' | 'denied' | 'checking'} />
+      <MicrophonePermissionModal isOpen={isPermissionModalOpen} onAllow={handleAllowMic} onClose={() => setIsPermissionModalOpen(false)} permissionState={micPermission} />
       {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl} altText={imageToShow.altText} onClose={() => { setImageToShow(null); startListening(); }} />}
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
       <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-between p-8 transition-opacity duration-500", isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none")}>
