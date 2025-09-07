@@ -49,13 +49,8 @@ serve(async (req) => {
   const googleApiKey = settings.google_stt_api_key;
   const googleSttUrl = `wss://speech.googleapis.com/v1/speech:recognize?key=${googleApiKey}`;
 
-  // Google Cloud Speech-to-Text API é mais complexa para streaming via WebSocket.
-  // Ela espera um formato específico de JSON para configuração inicial e depois chunks de áudio.
-  // Esta implementação é um placeholder e precisaria de uma biblioteca cliente do Google
-  // ou de uma implementação manual mais robusta para formatar as mensagens corretamente.
-  // Por enquanto, vamos simular o comportamento de proxy de áudio.
-
   let googleSocket: WebSocket | null = null;
+  let isGoogleConfigSent = false;
 
   clientSocket.onopen = () => {
     console.log("WebSocket do cliente conectado para Google STT.");
@@ -64,15 +59,20 @@ serve(async (req) => {
     googleSocket.onopen = () => {
       console.log("WebSocket do Google STT conectado.");
       // Enviar a mensagem de configuração inicial para o Google STT
-      googleSocket?.send(JSON.stringify({
-        config: {
-          encoding: "WEBM_OPUS", // Assumindo que o MediaRecorder está gerando WebM Opus
-          sampleRateHertz: 48000, // Ajuste conforme a taxa de amostragem do seu microfone
-          languageCode: "pt-BR",
-          interimResults: true,
-        },
-        singleUtterance: false,
-      }));
+      // Esta mensagem deve ser enviada apenas uma vez no início da sessão.
+      if (!isGoogleConfigSent) {
+        googleSocket?.send(JSON.stringify({
+          config: {
+            encoding: "WEBM_OPUS", // Assumindo que o MediaRecorder está gerando WebM Opus
+            sampleRateHertz: 48000, // Ajuste conforme a taxa de amostragem do seu microfone
+            languageCode: "pt-BR",
+            interimResults: true, // Para receber resultados parciais
+            enableAutomaticPunctuation: true, // Pontuação automática
+          },
+          interimResults: true, // Para receber resultados parciais
+        }));
+        isGoogleConfigSent = true;
+      }
 
       clientSocket.onmessage = (event) => {
         if (event.data instanceof Blob && googleSocket?.readyState === WebSocket.OPEN) {
@@ -81,9 +81,11 @@ serve(async (req) => {
         } else if (typeof event.data === 'string') {
           // Se receber uma mensagem de texto do cliente, pode ser um sinal de controle
           const message = JSON.parse(event.data);
-          if (message.type === 'stop_audio') {
-            // Sinal para o Google STT parar de processar
-            googleSocket?.send(JSON.stringify({ endpointer: true }));
+          if (message.type === 'stop_audio' && googleSocket?.readyState === WebSocket.OPEN) {
+            // Sinal para o Google STT parar de processar (não há um "endpointer" explícito para áudio)
+            // A API do Google geralmente finaliza a transcrição quando o stream de áudio é fechado.
+            // Para forçar uma finalização, podemos fechar o socket do Google.
+            googleSocket.close();
           }
         }
       };
@@ -93,8 +95,9 @@ serve(async (req) => {
       if (clientSocket.readyState === WebSocket.OPEN) {
         const googleResponse = JSON.parse(event.data);
         if (googleResponse.results && googleResponse.results.length > 0) {
-          const transcript = googleResponse.results[0].alternatives[0].transcript;
-          const isFinal = googleResponse.results[0].isFinal;
+          const result = googleResponse.results[0];
+          const transcript = result.alternatives[0].transcript;
+          const isFinal = result.isFinal;
           clientSocket.send(JSON.stringify({
             channel: {
               alternatives: [{ transcript: transcript }],
