@@ -171,6 +171,86 @@ const SophisticatedVoiceAssistant = () => {
     setIsListening(false);
   }, []);
 
+  const speakSingleSentence = useCallback(async (text, onEndCallback) => {
+    const currentSettings = settingsRef.current;
+    if (!text || !currentSettings) {
+      onEndCallback?.();
+      return;
+    }
+    const onSpeechEnd = () => {
+      if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
+      onEndCallback?.();
+    };
+    setIsSpeaking(true);
+    const estimatedSpeechTime = (text.length / 15) * 1000 + 3000;
+    speechTimeoutRef.current = setTimeout(onSpeechEnd, estimatedSpeechTime);
+    try {
+      if (currentSettings.voice_model === "browser" && synthRef.current) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "pt-BR";
+        utterance.onend = onSpeechEnd;
+        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
+        synthRef.current.speak(utterance);
+      } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
+        const response = await fetch(OPENAI_TTS_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+          body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }),
+        });
+        if (!response.ok) throw new Error("Falha na API OpenAI TTS");
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioRef.current = new Audio(audioUrl);
+        setupAudioAnalysis();
+        audioRef.current.onended = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
+        await audioRef.current.play();
+        runAudioAnalysis();
+      } else {
+        onEndCallback();
+      }
+    } catch (e) {
+      showError(`Erro na síntese de voz: ${e.message}`);
+      onEndCallback();
+    }
+  }, [setupAudioAnalysis, runAudioAnalysis]);
+
+  const speechManager = useCallback(() => {
+    if (isSpeakingRef.current || sentenceQueueRef.current.length === 0) {
+      if (speechManagerTimeoutRef.current) clearTimeout(speechManagerTimeoutRef.current);
+      speechManagerTimeoutRef.current = setTimeout(speechManager, 100);
+      return;
+    }
+    const sentenceToSpeak = sentenceQueueRef.current.shift();
+    if (sentenceToSpeak) {
+      speakSingleSentence(sentenceToSpeak, () => {
+        if (sentenceQueueRef.current.length === 0) {
+          setIsSpeaking(false);
+          if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+          setAudioIntensity(0);
+        } else {
+          speechManager();
+        }
+      });
+    }
+  }, [speakSingleSentence]);
+
+  const speak = useCallback((text, onEndCallback) => {
+    stopSpeaking();
+    stopListening();
+    setAiResponse(text);
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+    sentenceQueueRef.current = sentences;
+    speechManager();
+    if (onEndCallback) {
+      const checkCompletion = () => {
+        if (!isSpeakingRef.current && sentenceQueueRef.current.length === 0) onEndCallback();
+        else setTimeout(checkCompletion, 200);
+      };
+      checkCompletion();
+    }
+  }, [stopSpeaking, stopListening, speechManager]);
+
   const executeClientAction = useCallback((action) => {
     stopListening();
     speak("Ok, executando.", () => {
@@ -283,87 +363,6 @@ const SophisticatedVoiceAssistant = () => {
       }
     }
   }, [executeClientAction, stopListening, stopSpeaking]);
-
-  const speakSingleSentence = useCallback(async (text, onEndCallback) => {
-    const currentSettings = settingsRef.current;
-    if (!text || !currentSettings) {
-      onEndCallback?.();
-      return;
-    }
-    const onSpeechEnd = () => {
-      if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-      onEndCallback?.();
-    };
-    setIsSpeaking(true);
-    const estimatedSpeechTime = (text.length / 15) * 1000 + 3000;
-    speechTimeoutRef.current = setTimeout(onSpeechEnd, estimatedSpeechTime);
-    try {
-      if (currentSettings.voice_model === "browser" && synthRef.current) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "pt-BR";
-        utterance.onend = onSpeechEnd;
-        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
-        synthRef.current.speak(utterance);
-      } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
-        const response = await fetch(OPENAI_TTS_API_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-          body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }),
-        });
-        if (!response.ok) throw new Error("Falha na API OpenAI TTS");
-        const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
-        audioRef.current = new Audio(audioUrl);
-        setupAudioAnalysis();
-        audioRef.current.onended = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
-        await audioRef.current.play();
-        runAudioAnalysis();
-      } else {
-        onEndCallback();
-      }
-    } catch (e) {
-      showError(`Erro na síntese de voz: ${e.message}`);
-      onEndCallback();
-    }
-  }, [setupAudioAnalysis, runAudioAnalysis]);
-
-  const speechManager = useCallback(() => {
-    if (isSpeakingRef.current || sentenceQueueRef.current.length === 0) {
-      if (speechManagerTimeoutRef.current) clearTimeout(speechManagerTimeoutRef.current);
-      speechManagerTimeoutRef.current = setTimeout(speechManager, 100);
-      return;
-    }
-    const sentenceToSpeak = sentenceQueueRef.current.shift();
-    if (sentenceToSpeak) {
-      speakSingleSentence(sentenceToSpeak, () => {
-        if (sentenceQueueRef.current.length === 0) {
-          setIsSpeaking(false);
-          if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-          setAudioIntensity(0);
-          if (isOpenRef.current && !stopPermanentlyRef.current) startListening();
-        } else {
-          speechManager();
-        }
-      });
-    }
-  }, [speakSingleSentence, startListening]);
-
-  const speak = useCallback((text, onEndCallback) => {
-    stopSpeaking();
-    stopListening();
-    setAiResponse(text);
-    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-    sentenceQueueRef.current = sentences;
-    speechManager();
-    if (onEndCallback) {
-      const checkCompletion = () => {
-        if (!isSpeakingRef.current && sentenceQueueRef.current.length === 0) onEndCallback();
-        else setTimeout(checkCompletion, 200);
-      };
-      checkCompletion();
-    }
-  }, [stopSpeaking, stopListening, speechManager]);
 
   const runConversationFn = useCallback(async (userMessage) => {
     if (!userMessage) return;
@@ -576,6 +575,13 @@ const SophisticatedVoiceAssistant = () => {
       }
     }
   }, [isOpen, stopListening, startListening, micPermission]);
+
+  useEffect(() => {
+    // When speaking finishes, if the assistant is still open, start listening again.
+    if (!isSpeaking && isOpen && hasBeenActivated && !isListening) {
+      startListening();
+    }
+  }, [isSpeaking, isOpen, hasBeenActivated, isListening, startListening]);
 
   useEffect(() => {
     if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
