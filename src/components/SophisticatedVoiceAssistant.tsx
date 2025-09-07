@@ -200,25 +200,6 @@ const SophisticatedVoiceAssistant = () => {
   // We use a ref to hold the latest version of runConversation to break dependency cycles
   const runConversation = useRef(async (_userMessage: string) => {});
 
-  // Fix: Declare checkAndRequestMicPermission before functions that use it
-  const checkAndRequestMicPermission = useCallback(async () => {
-    try {
-      const permissionStatus = await navigator.permissions.query({ name: "microphone" });
-      setMicPermission(permissionStatus.state);
-      if (permissionStatus.state === "granted") {
-        if (settingsRef.current?.input_mode !== 'streaming') {
-          if (!recognitionRef.current) initializeWebSpeech();
-          startListening();
-        }
-      } else {
-        setIsPermissionModalOpen(true);
-      }
-      permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
-    } catch(e) {
-      setMicPermission("denied");
-    }
-  }, []);
-
   const startListening = useCallback(() => {
     const currentSettings = settingsRef.current;
     if (!currentSettings || isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
@@ -497,6 +478,35 @@ const SophisticatedVoiceAssistant = () => {
     };
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
   }, [executeClientAction, stopSpeaking, startListening, handleManualActivation]);
+
+  const handleAllowMic = useCallback(async () => {
+    setIsPermissionModalOpen(false);
+    if (audioContextRef.current?.state === 'suspended') await audioContextRef.current.resume();
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicPermission("granted");
+      if (settingsRef.current?.input_mode !== 'streaming') {
+        if (!recognitionRef.current) initializeWebSpeech();
+        startListening();
+      }
+    } catch (e) { setMicPermission("denied"); setIsPermissionModalOpen(true); }
+  }, [initializeWebSpeech, startListening]);
+
+  const checkAndRequestMicPermission = useCallback(async () => {
+    try {
+      const permissionStatus = await navigator.permissions.query({ name: "microphone" as PermissionName });
+      setMicPermission(permissionStatus.state);
+      if (permissionStatus.state === "granted") {
+        if (settingsRef.current?.input_mode !== 'streaming') {
+          if (!recognitionRef.current) initializeWebSpeech();
+          startListening();
+        }
+      } else {
+        setIsPermissionModalOpen(true);
+      }
+      permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
+    } catch (e) { setMicPermission("denied"); }
+  }, [initializeWebSpeech, startListening]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
