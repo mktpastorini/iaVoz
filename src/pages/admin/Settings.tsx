@@ -21,6 +21,8 @@ import { useSession } from "@/contexts/SessionContext";
 import { supabase } from "@/integrations/supabase/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { FieldInsertPopover } from "@/components/FieldInsertPopover";
+import { Badge } from "@/components/ui/badge";
+import { X } from "lucide-react";
 
 // Interface para o tipo de dado do campo do usuário
 interface UserDataField {
@@ -47,7 +49,8 @@ const settingsSchema = z.object({
   openai_api_key: z.string().optional().nullable(),
   gemini_api_key: z.string().optional().nullable(),
   conversation_memory_length: z.number().min(0).max(10),
-  activation_phrase: z.string().min(1, "Frase de ativação é obrigatória"),
+  activation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de ativação."),
+  deactivation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de desativação."),
   welcome_message: z.string().optional().nullable(),
   continuation_phrase: z.string().optional().nullable(),
 });
@@ -78,7 +81,8 @@ Ferramentas Disponíveis (Poderes):
   openai_api_key: "",
   gemini_api_key: "",
   conversation_memory_length: 5,
-  activation_phrase: "ativar",
+  activation_phrases: ["ativar"],
+  deactivation_phrases: ["fechar", "encerrar"],
   welcome_message: "Bem-vindo ao site! Diga 'ativar' para começar a conversar.",
   continuation_phrase: "Pode falar.",
 };
@@ -100,6 +104,8 @@ const SettingsPage: React.FC = () => {
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [userDataFields, setUserDataFields] = useState<UserDataField[]>([]);
   const [powers, setPowers] = useState<Power[]>([]);
+  const [activationInput, setActivationInput] = useState("");
+  const [deactivationInput, setDeactivationInput] = useState("");
 
   const systemPromptRef = useRef<HTMLTextAreaElement>(null);
   const assistantPromptRef = useRef<HTMLTextAreaElement>(null);
@@ -118,6 +124,8 @@ const SettingsPage: React.FC = () => {
   });
 
   const voiceModel = watch("voice_model");
+  const activationPhrases = watch("activation_phrases");
+  const deactivationPhrases = watch("deactivation_phrases");
 
   const onSubmit = useCallback(async (formData: SettingsFormData) => {
     if (!workspace) {
@@ -137,7 +145,8 @@ const SettingsPage: React.FC = () => {
         openai_api_key: formData.openai_api_key || null,
         gemini_api_key: formData.gemini_api_key || null,
         conversation_memory_length: formData.conversation_memory_length,
-        activation_phrase: formData.activation_phrase,
+        activation_phrases: formData.activation_phrases,
+        deactivation_phrases: formData.deactivation_phrases,
         welcome_message: formData.welcome_message || null,
         continuation_phrase: formData.continuation_phrase || null,
       },
@@ -178,7 +187,8 @@ const SettingsPage: React.FC = () => {
         setValue("openai_api_key", settingsData.openai_api_key ?? defaultValues.openai_api_key);
         setValue("gemini_api_key", settingsData.gemini_api_key ?? defaultValues.gemini_api_key);
         setValue("conversation_memory_length", settingsData.conversation_memory_length ?? defaultValues.conversation_memory_length);
-        setValue("activation_phrase", settingsData.activation_phrase ?? defaultValues.activation_phrase);
+        setValue("activation_phrases", settingsData.activation_phrases ?? defaultValues.activation_phrases);
+        setValue("deactivation_phrases", settingsData.deactivation_phrases ?? defaultValues.deactivation_phrases);
         setValue("welcome_message", settingsData.welcome_message ?? defaultValues.welcome_message);
         setValue("continuation_phrase", settingsData.continuation_phrase ?? defaultValues.continuation_phrase);
       }
@@ -218,6 +228,24 @@ const SettingsPage: React.FC = () => {
       fetchSettingsAndFieldsAndPowers();
     }
   }, [workspace, loading, setValue]);
+
+  const handleAddPhrase = (type: 'activation' | 'deactivation') => {
+    const input = type === 'activation' ? activationInput.trim().toLowerCase() : deactivationInput.trim().toLowerCase();
+    if (!input) return;
+
+    const currentPhrases = getValues(type === 'activation' ? 'activation_phrases' : 'deactivation_phrases');
+    if (!currentPhrases.includes(input)) {
+      setValue(type === 'activation' ? 'activation_phrases' : 'deactivation_phrases', [...currentPhrases, input]);
+    }
+
+    if (type === 'activation') setActivationInput("");
+    else setDeactivationInput("");
+  };
+
+  const handleRemovePhrase = (type: 'activation' | 'deactivation', phraseToRemove: string) => {
+    const currentPhrases = getValues(type === 'activation' ? 'activation_phrases' : 'deactivation_phrases');
+    setValue(type === 'activation' ? 'activation_phrases' : 'deactivation_phrases', currentPhrases.filter(p => p !== phraseToRemove));
+  };
 
   const insertAtCursor = useCallback((textareaRef: React.RefObject<HTMLTextAreaElement>, textToInsert: string, fieldName: keyof SettingsFormData) => {
     const textarea = textareaRef.current;
@@ -358,6 +386,62 @@ const SettingsPage: React.FC = () => {
           {errors.assistant_prompt && (
             <p className="text-destructive text-sm mt-1">{errors.assistant_prompt.message}</p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Palavras/Frases de Ativação</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2 mb-2">
+            <Input
+              value={activationInput}
+              onChange={(e) => setActivationInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPhrase('activation'); } }}
+              placeholder="Digite uma frase e tecle Enter"
+            />
+            <Button type="button" onClick={() => handleAddPhrase('activation')}>Adicionar</Button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {activationPhrases?.map(phrase => (
+              <Badge key={phrase} variant="secondary" className="flex items-center gap-1">
+                {phrase}
+                <button type="button" onClick={() => handleRemovePhrase('activation', phrase)} className="rounded-full hover:bg-muted-foreground/20 p-0.5">
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+          {errors.activation_phrases && <p className="text-destructive text-sm mt-1">{errors.activation_phrases.message}</p>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Palavras/Frases de Desativação</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2 mb-2">
+            <Input
+              value={deactivationInput}
+              onChange={(e) => setDeactivationInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPhrase('deactivation'); } }}
+              placeholder="Digite uma frase e tecle Enter"
+            />
+            <Button type="button" onClick={() => handleAddPhrase('deactivation')}>Adicionar</Button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {deactivationPhrases?.map(phrase => (
+              <Badge key={phrase} variant="secondary" className="flex items-center gap-1">
+                {phrase}
+                <button type="button" onClick={() => handleRemovePhrase('deactivation', phrase)} className="rounded-full hover:bg-muted-foreground/20 p-0.5">
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+          {errors.deactivation_phrases && <p className="text-destructive text-sm mt-1">{errors.deactivation_phrases.message}</p>}
         </CardContent>
       </Card>
 
@@ -505,23 +589,6 @@ const SettingsPage: React.FC = () => {
             max={10}
             placeholder="Número de mensagens para lembrar"
           />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Palavra/Frase de Ativação</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Label htmlFor="activation-phrase">Frase para ativar o assistente</Label>
-          <Input
-            id="activation-phrase"
-            placeholder="Ex: ativar, olá assistente"
-            {...register("activation_phrase")}
-          />
-          {errors.activation_phrase && (
-            <p className="text-destructive text-sm mt-1">{errors.activation_phrase.message}</p>
-          )}
         </CardContent>
       </Card>
 

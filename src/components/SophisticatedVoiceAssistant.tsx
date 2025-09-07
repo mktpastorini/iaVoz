@@ -249,8 +249,7 @@ const SophisticatedVoiceAssistant = () => {
 
     isSpeakingRef.current = true;
     setIsSpeaking(true);
-    // O texto já foi setado pelo streaming, então não precisamos setar aqui
-    // setAiResponse(text); 
+    setAiResponse(text);
     console.log(`[SPEECH] Speaking: "${text}"`);
 
     const estimatedSpeechTime = (text.length / 15) * 1000 + 3000;
@@ -334,7 +333,7 @@ const SophisticatedVoiceAssistant = () => {
       messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: tools.length > 0 ? "auto" : undefined,
-      stream: true, // Habilitar streaming
+      stream: true,
     };
 
     console.log("[AI] Sending request to OpenAI with streaming:", requestBody);
@@ -442,7 +441,6 @@ const SophisticatedVoiceAssistant = () => {
             const historyForSecondCall = [...newHistoryWithAIMessage, ...toolResponses];
             setMessageHistory(historyForSecondCall);
 
-            // Reset response for the second call
             setAiResponse(""); 
             
             const secondRequestBody = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)], stream: true };
@@ -524,9 +522,13 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
       console.log(`[USER] Recognized transcript: "${transcript}"`);
-      const closePhrases = ["fechar", "feche", "encerrar", "desligar", "cancelar", "dispensar"];
+      
+      const currentSettings = settingsRef.current;
+      if (!currentSettings) return;
+
       if (isOpenRef.current) {
-        if (closePhrases.some((phrase) => transcript.includes(phrase))) {
+        const closePhrases = currentSettings.deactivation_phrases || [];
+        if (closePhrases.some((phrase) => transcript.includes(phrase.toLowerCase()))) {
           console.log("[USER] Close phrase detected. Closing assistant.");
           setIsOpen(false);
           setAiResponse("");
@@ -542,8 +544,9 @@ const SophisticatedVoiceAssistant = () => {
         }
         runConversation(transcript);
       } else {
-        if (settingsRef.current && transcript.includes(settingsRef.current.activation_phrase.toLowerCase())) {
-          console.log(`[USER] Activation phrase "${settingsRef.current.activation_phrase}" detected.`);
+        const activationPhrases = currentSettings.activation_phrases || [];
+        if (activationPhrases.some(phrase => transcript.includes(phrase.toLowerCase()))) {
+          console.log(`[USER] Activation phrase detected.`);
           fetchAllAssistantData().then((latestSettings) => {
             if (!latestSettings) return;
             setIsOpen(true);
