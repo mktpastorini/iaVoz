@@ -105,6 +105,7 @@ const SophisticatedVoiceAssistant = () => {
   const synthRef = useRef(null);
   const audioRef = useRef(null);
   const stopPermanentlyRef = useRef(false);
+  const stopListeningRef = useRef(false);
   const activationTriggerRef = useRef(0);
   const speechTimeoutRef = useRef(null);
   const sentenceQueueRef = useRef([]);
@@ -202,6 +203,7 @@ const SophisticatedVoiceAssistant = () => {
   const runConversation = useRef(async (_userMessage) => {});
 
   const stopListening = useCallback(() => {
+    stopListeningRef.current = true;
     if (settingsRef.current?.input_mode === 'streaming') {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
@@ -329,6 +331,8 @@ const SophisticatedVoiceAssistant = () => {
     const currentSettings = settingsRef.current;
     if (!currentSettings || isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
 
+    stopListeningRef.current = false;
+
     if (currentSettings.input_mode === 'streaming') {
       if (wsRef.current) return;
 
@@ -422,7 +426,11 @@ const SophisticatedVoiceAssistant = () => {
       ws.onerror = (err) => { showError("Erro na conexão de streaming."); console.error("WebSocket streaming error:", err); wsRef.current = null; setIsListening(false); };
     } else {
       if (recognitionRef.current) {
-        try { recognitionRef.current.start(); } catch (e) { console.error("Erro ao iniciar reconhecimento local:", e); }
+        try { 
+          recognitionRef.current.start(); 
+        } catch (e) { 
+          console.error("Erro ao iniciar reconhecimento local:", e); 
+        }
       }
     }
   }, [processCommand, stopListening]);
@@ -569,9 +577,21 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
     recognitionRef.current.onstart = () => setIsListening(true);
+    
     recognitionRef.current.onend = () => {
       setIsListening(false);
+      if (!stopListeningRef.current && !stopPermanentlyRef.current) {
+        console.log("Recognition ended unexpectedly, restarting...");
+        setTimeout(() => {
+          try {
+            recognitionRef.current?.start();
+          } catch (e) {
+            console.error("Failed to restart recognition:", e);
+          }
+        }, 100);
+      }
     };
+
     recognitionRef.current.onerror = (e) => { if (e.error === "not-allowed") { setMicPermission("denied"); setIsPermissionModalOpen(true); } };
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
