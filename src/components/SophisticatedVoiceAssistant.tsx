@@ -18,6 +18,43 @@ import { useIsMobile } from "@/hooks/use-mobile";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 
+const defaultSettings = {
+  system_prompt:
+    `Você é Intra, a IA da Intratégica.
+
+Regras de Clientes:
+- Clientes são identificados por um 'client_code' único (ex: CL000001) ou por 'name'. Sempre dê preferência ao 'client_code' se você o conhecer, pois é mais preciso.
+- Ao criar um novo cliente, um 'client_code' será gerado automaticamente. Informe o usuário sobre o código gerado.
+- Se o usuário fornecer informações de um cliente em partes, colete todos os detalhes antes de chamar 'save_client_data'.
+- Ao chamar 'save_client_data', inclua TODAS as informações do cliente que você coletou na conversa.
+
+Ferramentas Disponíveis (Poderes):
+- get_client_data: Use para buscar um cliente pelo 'client_code' ou 'name'.
+- save_client_data: Use para criar ou ATUALIZAR um cliente. Para atualizar, use o 'client_code' se souber, ou o 'name'.
+- get_user_field: Use para obter dados do usuário atual.
+- set_user_field: Use para salvar dados do usuário atual.`,
+  assistant_prompt:
+    "Você é um assistente amigável e profissional que ajuda agências de tecnologia a automatizar processos e criar soluções de IA personalizadas.",
+  ai_model: "gpt-4o-mini",
+  voice_model: "browser",
+  openai_tts_voice: "alloy",
+  voice_sensitivity: 50,
+  openai_api_key: "",
+  gemini_api_key: "",
+  deepgram_api_key: "",
+  openai_stt_api_key: "",
+  google_stt_api_key: "",
+  conversation_memory_length: 5,
+  activation_phrases: ["ativar"],
+  deactivation_phrases: ["fechar", "encerrar"],
+  welcome_message: "Bem-vindo ao site! Diga 'ativar' para começar a conversar.",
+  continuation_phrase: "Pode falar.",
+  show_transcript: true,
+  input_mode: 'local',
+  output_mode: 'buffered',
+  streaming_stt_provider: 'deepgram',
+};
+
 const ImageModal = ({ imageUrl, altText, onClose }) => (
   <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/80" onClick={onClose}>
     <div className="relative max-w-4xl max-h-[80vh] p-4" onClick={(e) => e.stopPropagation()}>
@@ -99,15 +136,24 @@ const SophisticatedVoiceAssistant = () => {
   const fetchAllAssistantData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data: settingsData } = await supabase.from("settings").select("*").order('created_at', { ascending: true }).limit(1).single();
-      setSettings(settingsData);
+      const { data: settingsData, error } = await supabase.from("settings").select("*").order('created_at', { ascending: true }).limit(1).single();
+      
+      if (error && error.code !== 'PGRST116') {
+        console.error("Error fetching settings:", error);
+        showError("Erro ao carregar configurações do assistente.");
+      }
+
+      setSettings(settingsData || defaultSettings);
+
       const { data: powersData } = await supabase.from("powers").select("*");
       setPowers(powersData || []);
       const { data: actionsData } = await supabase.from("client_actions").select("*");
       setClientActions(actionsData || []);
-      return settingsData;
+      
+      return settingsData || defaultSettings;
     } catch (error) {
       showError("Erro ao carregar dados do assistente.");
+      setSettings(defaultSettings);
       return null;
     } finally {
       setIsLoading(false);
@@ -525,7 +571,6 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.onstart = () => setIsListening(true);
     recognitionRef.current.onend = () => {
       setIsListening(false);
-      if (!isSpeakingRef.current && !stopPermanentlyRef.current && !isOpenRef.current) startListening();
     };
     recognitionRef.current.onerror = (e) => { if (e.error === "not-allowed") { setMicPermission("denied"); setIsPermissionModalOpen(true); } };
     recognitionRef.current.onresult = (event) => {
@@ -539,7 +584,7 @@ const SophisticatedVoiceAssistant = () => {
       }
     };
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-  }, [processCommand, handleManualActivation, startListening]);
+  }, [processCommand, handleManualActivation]);
 
   const handleAllowMic = useCallback(async () => {
     setIsPermissionModalOpen(false);
@@ -563,16 +608,13 @@ const SophisticatedVoiceAssistant = () => {
       if (permissionStatus.state === "granted") {
         if (settingsRef.current?.input_mode !== 'streaming') {
           if (!recognitionRef.current) initializeWebSpeech();
-          startListening();
-        } else {
-          startListening();
         }
       } else {
         setIsPermissionModalOpen(true);
       }
       permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
     } catch (e) { setMicPermission("denied"); }
-  }, [initializeWebSpeech, startListening]);
+  }, [initializeWebSpeech]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
@@ -582,20 +624,16 @@ const SophisticatedVoiceAssistant = () => {
   }, [activationTrigger, handleManualActivation]);
 
   useEffect(() => {
-    if (!isOpen) {
-      stopListening();
-      if (settingsRef.current?.input_mode !== 'streaming' && micPermission === 'granted') {
-        startListening();
-      }
-    }
-  }, [isOpen, stopListening, startListening, micPermission]);
+    const shouldBeListening = 
+      (isOpen && hasBeenActivated && !isSpeaking) ||
+      (!isOpen && micPermission === 'granted' && settingsRef.current?.input_mode === 'local');
 
-  useEffect(() => {
-    // When speaking finishes, if the assistant is still open, start listening again.
-    if (!isSpeaking && isOpen && hasBeenActivated && !isListening) {
+    if (shouldBeListening && !isListening) {
       startListening();
+    } else if (!shouldBeListening && isListening) {
+      stopListening();
     }
-  }, [isSpeaking, isOpen, hasBeenActivated, isListening, startListening]);
+  }, [isOpen, isSpeaking, hasBeenActivated, isListening, micPermission, settings, startListening, stopListening]);
 
   useEffect(() => {
     if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
