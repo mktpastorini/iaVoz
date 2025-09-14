@@ -223,7 +223,7 @@ const SophisticatedVoiceAssistant = () => {
         onEndCallback?.();
         if (isOpenRef.current && !stopPermanentlyRef.current) {
           if (settingsRef.current?.input_mode === 'streaming') {
-            // startStreaming(); // This will be handled by the main logic
+            startStreaming();
           } else {
             startListening();
           }
@@ -233,7 +233,7 @@ const SophisticatedVoiceAssistant = () => {
 
     stopSpeaking();
     stopListening();
-    // stopStreaming(); // Will be handled by main logic
+    stopStreaming();
 
     isSpeakingRef.current = true;
     setIsSpeaking(true);
@@ -264,7 +264,7 @@ const SophisticatedVoiceAssistant = () => {
         audioRef.current = new Audio(audioUrl);
         setupAudioAnalysis();
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = (e) => { console.error("[ERROR] HTML Audio Element Error:", e); onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
         runAudioAnalysis();
       } else {
@@ -485,8 +485,12 @@ const SophisticatedVoiceAssistant = () => {
       console.log("[STREAMING] Stopping stream...");
       isStreamingRef.current = false;
       setIsListening(false);
-      mediaRecorderRef.current?.stop();
-      sttSocketRef.current?.close();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      if (sttSocketRef.current && sttSocketRef.current.readyState === WebSocket.OPEN) {
+        sttSocketRef.current.close();
+      }
       mediaRecorderRef.current = null;
       sttSocketRef.current = null;
     }
@@ -672,6 +676,12 @@ const SophisticatedVoiceAssistant = () => {
   const handleManualActivation = useCallback(() => {
     console.log("[USER] Manually activating assistant.");
     if (isOpenRef.current) return;
+    
+    // Resume AudioContext on user interaction
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+
     if (micPermission !== "granted") {
       checkAndRequestMicPermission();
     } else {

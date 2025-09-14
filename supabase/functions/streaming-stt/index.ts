@@ -42,8 +42,9 @@ serve(async (req) => {
         .single();
 
       if (error || !settings?.deepgram_api_key) {
+        const errorMessage = "A chave de API do Deepgram não está configurada no painel de administração.";
         console.error("[Edge Function] Error fetching Deepgram API key:", error?.message || "API key not found.");
-        clientSocket.send(JSON.stringify({ type: 'error', message: 'Deepgram API key not configured on the server.' }));
+        clientSocket.send(JSON.stringify({ type: 'error', message: errorMessage }));
         clientSocket.close(1011, "Server configuration error.");
         return;
       }
@@ -76,9 +77,10 @@ serve(async (req) => {
       };
 
       deepgramSocket.onerror = (error) => {
+        const errorMessage = "Ocorreu um erro com o serviço de streaming. Verifique se a chave de API do Deepgram é válida.";
         console.error("[Edge Function] Deepgram WebSocket error:", error);
         if (clientSocket.readyState === WebSocket.OPEN) {
-            clientSocket.send(JSON.stringify({ type: 'error', message: 'An error occurred with the streaming service.' }));
+            clientSocket.send(JSON.stringify({ type: 'error', message: errorMessage }));
         }
       };
 
