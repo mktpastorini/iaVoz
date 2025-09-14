@@ -612,17 +612,7 @@ const SophisticatedVoiceAssistant = () => {
         const activationPhrases = currentSettings.activation_phrases || [];
         if (activationPhrases.some(phrase => transcript.includes(phrase.toLowerCase()))) {
           console.log(`[USER] Activation phrase detected.`);
-          fetchAllAssistantData().then((latestSettings) => {
-            if (!latestSettings) return;
-            setIsOpen(true);
-            const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-            speak(messageToSpeak, () => {
-              if (latestSettings.input_mode === 'streaming') {
-                startStreaming();
-              }
-            });
-            setHasBeenActivated(true);
-          });
+          handleManualActivation();
         }
       }
     };
@@ -679,6 +669,7 @@ const SophisticatedVoiceAssistant = () => {
     
     // Resume AudioContext on user interaction
     if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      console.log("[AUDIO] Resuming AudioContext due to user gesture.");
       audioContextRef.current.resume();
     }
 
