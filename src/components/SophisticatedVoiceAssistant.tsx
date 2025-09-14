@@ -105,7 +105,7 @@ const SophisticatedVoiceAssistant = () => {
   const synthRef = useRef(null);
   const audioRef = useRef(null);
   const stopPermanentlyRef = useRef(false);
-  const stopListeningRef = useRef(false);
+  const stopListeningRef = useRef(false); // Flag to indicate explicit stop
   const activationTriggerRef = useRef(0);
   const speechTimeoutRef = useRef(null);
   const sentenceQueueRef = useRef([]);
@@ -169,7 +169,10 @@ const SophisticatedVoiceAssistant = () => {
     }
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     setAudioIntensity(0);
-    if (isSpeakingRef.current) setIsSpeaking(false);
+    if (isSpeakingRef.current) {
+      console.log("[SophisticatedVoiceAssistant] stopSpeaking: Setting isSpeaking to false.");
+      setIsSpeaking(false);
+    }
     if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
     sentenceQueueRef.current = [];
     if (speechManagerTimeoutRef.current) clearTimeout(speechManagerTimeoutRef.current);
@@ -203,7 +206,9 @@ const SophisticatedVoiceAssistant = () => {
   const runConversation = useRef(async (_userMessage) => {});
 
   const stopListening = useCallback(() => {
-    stopListeningRef.current = true;
+    if (!isListeningRef.current) return; // Only stop if currently listening
+    console.log("[SophisticatedVoiceAssistant] stopListening: Stopping microphone.");
+    stopListeningRef.current = true; // Set flag for explicit stop
     if (settingsRef.current?.input_mode === 'streaming') {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
@@ -229,6 +234,7 @@ const SophisticatedVoiceAssistant = () => {
       if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
       onEndCallback?.();
     };
+    console.log("[SophisticatedVoiceAssistant] speakSingleSentence: Setting isSpeaking to true.");
     setIsSpeaking(true);
     const estimatedSpeechTime = (text.length / 15) * 1000 + 3000;
     speechTimeoutRef.current = setTimeout(onSpeechEnd, estimatedSpeechTime);
@@ -273,6 +279,7 @@ const SophisticatedVoiceAssistant = () => {
     if (sentenceToSpeak) {
       speakSingleSentence(sentenceToSpeak, () => {
         if (sentenceQueueRef.current.length === 0) {
+          console.log("[SophisticatedVoiceAssistant] speechManager: All sentences spoken. Setting isSpeaking to false.");
           setIsSpeaking(false);
           if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
           setAudioIntensity(0);
@@ -285,7 +292,7 @@ const SophisticatedVoiceAssistant = () => {
 
   const speak = useCallback((text, onEndCallback) => {
     stopSpeaking();
-    stopListening();
+    // Removed stopListening() from here. Let the useEffect handle it reactively.
     setAiResponse(text);
     const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
     sentenceQueueRef.current = sentences;
@@ -297,7 +304,7 @@ const SophisticatedVoiceAssistant = () => {
       };
       checkCompletion();
     }
-  }, [stopSpeaking, stopListening, speechManager]);
+  }, [stopSpeaking, speechManager]);
 
   const executeClientAction = useCallback((action) => {
     stopListening();
@@ -313,25 +320,30 @@ const SophisticatedVoiceAssistant = () => {
 
   const processCommand = useCallback((command) => {
     if (!command) return;
+    console.log("[SophisticatedVoiceAssistant] processCommand: Processing command:", command);
     const currentSettings = settingsRef.current;
     if (currentSettings?.deactivation_phrases.some(p => command.includes(p.toLowerCase()))) {
+      console.log("[SophisticatedVoiceAssistant] processCommand: Deactivation phrase detected.");
       setIsOpen(false);
       stopSpeaking();
       return;
     }
     const matchedAction = clientActionsRef.current.find(a => command.includes(a.trigger_phrase.toLowerCase()));
     if (matchedAction) {
+      console.log("[SophisticatedVoiceAssistant] processCommand: Client action matched:", matchedAction.trigger_phrase);
       executeClientAction(matchedAction);
       return;
     }
+    console.log("[SophisticatedVoiceAssistant] processCommand: No client action, running conversation.");
     runConversation.current(command);
   }, [stopSpeaking, executeClientAction]);
 
   const startListening = useCallback(() => {
     const currentSettings = settingsRef.current;
-    if (!currentSettings || isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
+    if (!currentSettings || isListeningRef.current || stopPermanentlyRef.current) return; // Removed isSpeakingRef.current from here
 
-    stopListeningRef.current = false;
+    console.log("[SophisticatedVoiceAssistant] startListening: Starting microphone.");
+    stopListeningRef.current = false; // Reset explicit stop flag
 
     if (currentSettings.input_mode === 'streaming') {
       if (wsRef.current) return;
@@ -355,7 +367,7 @@ const SophisticatedVoiceAssistant = () => {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.onopen = async () => {
-        console.log(`Conectado ao proxy WebSocket para ${currentSettings.streaming_stt_provider}.`);
+        console.log(`[SophisticatedVoiceAssistant] Conectado ao proxy WebSocket para ${currentSettings.streaming_stt_provider}.`);
         setIsListening(true);
         try {
           audioStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -377,7 +389,7 @@ const SophisticatedVoiceAssistant = () => {
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.error) {
-          console.error("Erro do provedor de streaming:", data.error);
+          console.error("[SophisticatedVoiceAssistant] Erro do provedor de streaming:", data.error);
           showError(`Erro no streaming de voz: ${data.error}`);
           stopListening();
           return;
@@ -389,11 +401,11 @@ const SophisticatedVoiceAssistant = () => {
         if (transcriptChunk) {
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = setTimeout(() => {
-            console.log("Silence detected.");
+            console.log("[SophisticatedVoiceAssistant] Silence detected.");
             const currentSettings = settingsRef.current;
             if (currentSettings?.streaming_stt_provider === 'openai') {
               if (wsRef.current?.readyState === WebSocket.OPEN) {
-                console.log("Requesting final transcript from OpenAI proxy.");
+                console.log("[SophisticatedVoiceAssistant] Requesting final transcript from OpenAI proxy.");
                 wsRef.current.send(JSON.stringify({ type: 'process_audio' }));
               }
             } else {
@@ -422,14 +434,16 @@ const SophisticatedVoiceAssistant = () => {
           }
         }
       };
-      ws.onclose = () => { wsRef.current = null; setIsListening(false); console.log("WebSocket de streaming fechado."); };
-      ws.onerror = (err) => { showError("Erro na conexão de streaming."); console.error("WebSocket streaming error:", err); wsRef.current = null; setIsListening(false); };
-    } else {
+      ws.onclose = () => { wsRef.current = null; setIsListening(false); console.log("[SophisticatedVoiceAssistant] WebSocket de streaming fechado."); };
+      ws.onerror = (err) => { showError("Erro na conexão de streaming."); console.error("[SophisticatedVoiceAssistant] WebSocket streaming error:", err); wsRef.current = null; setIsListening(false); };
+    } else { // input_mode === 'local'
       if (recognitionRef.current) {
         try { 
           recognitionRef.current.start(); 
+          setIsListening(true); // Set listening state immediately for local mode
         } catch (e) { 
-          console.error("Erro ao iniciar reconhecimento local:", e); 
+          console.error("[SophisticatedVoiceAssistant] Erro ao iniciar reconhecimento local:", e); 
+          setIsListening(false);
         }
       }
     }
@@ -439,7 +453,7 @@ const SophisticatedVoiceAssistant = () => {
     if (!userMessage) return;
     setTranscript(userMessage);
     setAiResponse("");
-    stopListening();
+    stopListening(); // Stop listening while AI processes
     const currentHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
     setMessageHistory(currentHistory);
     const currentSettings = settingsRef.current;
@@ -545,6 +559,11 @@ const SophisticatedVoiceAssistant = () => {
     } catch (e) {
       speak(`Desculpe, não consegui processar sua solicitação.`);
       showError(`Erro na conversa: ${e.message}`);
+    } finally {
+      // Restart listening after AI response is fully spoken
+      if (isOpenRef.current && !isSpeakingRef.current) { // Check if assistant is still open and not speaking
+        startListening();
+      }
     }
   }, [speak, stopListening, speechManager]);
 
@@ -566,20 +585,26 @@ const SophisticatedVoiceAssistant = () => {
     
     const message = hasBeenActivatedRef.current ? latestSettings.continuation_phrase : latestSettings.welcome_message;
     
+    console.log("[SophisticatedVoiceAssistant] handleManualActivation: Activating assistant. Message:", message);
     setIsOpen(true);
     setHasBeenActivated(true);
     
+    // Stop current listening (wake word) before speaking
+    stopListening(); 
+
     speak(message, () => {
-      if (isOpenRef.current) {
+      console.log("[SophisticatedVoiceAssistant] handleManualActivation: Welcome message spoken. Attempting to start listening.");
+      // Start listening only if the assistant is still open and not speaking
+      if (isOpenRef.current && !isSpeakingRef.current) {
         startListening();
       }
     });
-  }, [micPermission, speak, startListening]);
+  }, [micPermission, speak, startListening, stopListening]);
 
   const initializeWebSpeech = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      console.warn("Web Speech API not supported in this browser");
+      console.warn("[SophisticatedVoiceAssistant] Web Speech API not supported in this browser");
       return;
     }
     recognitionRef.current = new SpeechRecognition();
@@ -587,48 +612,54 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
     recognitionRef.current.onstart = () => {
-      console.log("Speech recognition started");
+      console.log("[SophisticatedVoiceAssistant] Speech recognition started (local mode).");
       setIsListening(true);
     };
     
     recognitionRef.current.onend = () => {
-      console.log("Speech recognition ended");
+      console.log("[SophisticatedVoiceAssistant] Speech recognition ended (local mode).");
       setIsListening(false);
-      if (!stopListeningRef.current && !stopPermanentlyRef.current) {
-        console.log("Restarting speech recognition...");
+      // Auto-restart only if not explicitly stopped and assistant is NOT open (i.e., listening for wake word)
+      if (!stopListeningRef.current && !stopPermanentlyRef.current && !isOpenRef.current) {
+        console.log("[SophisticatedVoiceAssistant] Auto-restarting wake word listening...");
         setTimeout(() => {
           try {
-            if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) {
+            if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current && !isOpenRef.current) {
               recognitionRef.current.start();
             }
           } catch (e) {
-            console.error("Failed to restart recognition:", e);
+            console.error("[SophisticatedVoiceAssistant] Failed to restart recognition:", e);
           }
         }, 100);
       }
     };
 
     recognitionRef.current.onerror = (e) => {
-      console.error("Speech recognition error:", e.error);
+      console.error("[SophisticatedVoiceAssistant] Speech recognition error (local mode):", e.error);
       if (e.error === "not-allowed" || e.error === "permission-denied") {
         setMicPermission("denied");
         setIsPermissionModalOpen(true);
       }
+      setIsListening(false); // Ensure listening state is false on error
     };
     
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      console.log("Recognized speech:", transcript);
+      console.log("[SophisticatedVoiceAssistant] Recognized speech (local mode):", transcript);
       const currentSettings = settingsRef.current;
-      if (!currentSettings) return;
+      if (!currentSettings) {
+        console.warn("[SophisticatedVoiceAssistant] Settings not loaded when speech recognized.");
+        return;
+      }
       
-      // Always process commands when assistant is open
       if (isOpenRef.current) {
+        console.log("[SophisticatedVoiceAssistant] Assistant is OPEN, processing command.");
         processCommand(transcript);
       } else {
-        // Check for activation phrases when assistant is closed
+        console.log("[SophisticatedVoiceAssistant] Assistant is CLOSED, checking for activation phrase.");
         const activationPhrases = currentSettings.activation_phrases || ["ativar"];
         if (activationPhrases.some(p => transcript.includes(p.toLowerCase()))) {
+          console.log("[SophisticatedVoiceAssistant] Activation phrase detected!");
           handleManualActivation();
         }
       }
@@ -654,17 +685,20 @@ const SophisticatedVoiceAssistant = () => {
         if (!recognitionRef.current) {
           initializeWebSpeech();
         }
-        // Start listening if assistant is open or for continuous activation phrase detection
-        if (isOpenRef.current || !isOpenRef.current) {
+        // Start listening for wake word or if assistant is already open
+        if (!isOpenRef.current) { // Only start if not already open (for wake word)
+          startListening();
+        } else { // If already open (e.g., from manual button click), ensure it starts
           startListening();
         }
       } else if (currentSettings?.input_mode === 'streaming') {
+        // For streaming, only start if assistant is open
         if (isOpenRef.current) {
           startListening();
         }
       }
     } catch (e) {
-      console.error("Microphone access denied:", e);
+      console.error("[SophisticatedVoiceAssistant] Microphone access denied:", e);
       setMicPermission("denied");
       setIsPermissionModalOpen(true);
     }
@@ -672,7 +706,6 @@ const SophisticatedVoiceAssistant = () => {
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
-      // Try to get permission status
       if (navigator.permissions && navigator.permissions.query) {
         const permissionStatus = await navigator.permissions.query({ name: "microphone" });
         setMicPermission(permissionStatus.state);
@@ -683,14 +716,12 @@ const SophisticatedVoiceAssistant = () => {
             if (!recognitionRef.current) {
               initializeWebSpeech();
             }
-            // For local mode, we want to start listening when the page loads
-            // but only if we have permission
+            // Start listening for wake word if not already open
             if (!isOpenRef.current) {
               startListening();
             }
           }
         } else if (permissionStatus.state === "prompt") {
-          // Permission not yet granted, show modal
           setIsPermissionModalOpen(true);
         } else if (permissionStatus.state === "denied") {
           setMicPermission("denied");
@@ -712,11 +743,11 @@ const SophisticatedVoiceAssistant = () => {
           }
         };
       } else {
-        // Fallback for browsers that don't support permissions API
+        console.warn("[SophisticatedVoiceAssistant] Permissions API not supported, showing modal as fallback.");
         setIsPermissionModalOpen(true);
       }
     } catch (e) {
-      console.warn("Permissions API not supported, showing modal:", e);
+      console.warn("[SophisticatedVoiceAssistant] Error checking permissions, showing modal:", e);
       setMicPermission("denied");
       setIsPermissionModalOpen(true);
     }
@@ -725,14 +756,20 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
       activationTriggerRef.current = activationTrigger;
+      console.log("[SophisticatedVoiceAssistant] Activation triggered by context.");
       handleManualActivation();
     }
   }, [activationTrigger, handleManualActivation]);
 
   useEffect(() => {
+    const currentSettings = settingsRef.current;
+    if (!currentSettings) return;
+
     const shouldBeListening = 
-      (isOpen && hasBeenActivated && !isSpeaking) ||
-      (!isOpen && micPermission === 'granted' && settingsRef.current?.input_mode === 'local' && !stopPermanentlyRef.current);
+      (isOpen && hasBeenActivated && !isSpeaking) || // Assistant is open, activated, and not speaking
+      (!isOpen && micPermission === 'granted' && currentSettings.input_mode === 'local' && !stopPermanentlyRef.current); // Assistant is closed, mic granted, local mode, and not permanently stopped
+
+    console.log(`[SophisticatedVoiceAssistant] useEffect[shouldBeListening]: isOpen=${isOpen}, hasBeenActivated=${hasBeenActivated}, isSpeaking=${isSpeaking}, micPermission=${micPermission}, input_mode=${currentSettings.input_mode}, isListening=${isListening}, shouldBeListening=${shouldBeListening}`);
 
     if (shouldBeListening && !isListening) {
       startListening();
@@ -748,7 +785,6 @@ const SophisticatedVoiceAssistant = () => {
     
     fetchAllAssistantData().then((fetchedSettings) => {
       if (fetchedSettings) {
-        // Initialize speech recognition after settings are loaded
         if (fetchedSettings.input_mode === 'local') {
           initializeWebSpeech();
         }
@@ -757,6 +793,7 @@ const SophisticatedVoiceAssistant = () => {
     });
     
     return () => {
+      console.log("[SophisticatedVoiceAssistant] Component unmounting. Stopping all audio.");
       stopPermanentlyRef.current = true;
       stopListening();
       if (synthRef.current?.speaking) synthRef.current.cancel();
