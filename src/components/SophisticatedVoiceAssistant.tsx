@@ -612,10 +612,11 @@ const SophisticatedVoiceAssistant = () => {
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       setMicPermission("granted");
-      if (settingsRef.current?.input_mode !== 'streaming') {
+      const currentSettings = settingsRef.current;
+      if (currentSettings?.input_mode === 'local') {
         if (!recognitionRef.current) initializeWebSpeech();
         startListening();
-      } else {
+      } else if (currentSettings?.input_mode === 'streaming') {
         startListening();
       }
     } catch (e) { setMicPermission("denied"); setIsPermissionModalOpen(true); }
@@ -626,7 +627,8 @@ const SophisticatedVoiceAssistant = () => {
       const permissionStatus = await navigator.permissions.query({ name: "microphone" });
       setMicPermission(permissionStatus.state);
       if (permissionStatus.state === "granted") {
-        if (settingsRef.current?.input_mode !== 'streaming') {
+        const currentSettings = settingsRef.current;
+        if (currentSettings?.input_mode === 'local') {
           if (!recognitionRef.current) initializeWebSpeech();
         }
       } else {
