@@ -243,7 +243,7 @@ const SophisticatedVoiceAssistant = () => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
-        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
+        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onEndCallback(); };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         const response = await fetch(OPENAI_TTS_API_URL, {
@@ -292,7 +292,7 @@ const SophisticatedVoiceAssistant = () => {
 
   const speak = useCallback((text, onEndCallback) => {
     stopSpeaking();
-    // Removed stopListening() from here. Let the useEffect handle it reactively.
+    // REMOVIDO: stopListening(); // Esta linha foi removida
     setAiResponse(text);
     const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
     sentenceQueueRef.current = sentences;
@@ -304,7 +304,7 @@ const SophisticatedVoiceAssistant = () => {
       };
       checkCompletion();
     }
-  }, [stopSpeaking, speechManager]);
+  }, [stopSpeaking, speechManager]); // stopListening removido das dependências
 
   const executeClientAction = useCallback((action) => {
     stopListening();
@@ -343,7 +343,7 @@ const SophisticatedVoiceAssistant = () => {
     if (!currentSettings || isListeningRef.current || stopPermanentlyRef.current) return; // Removed isSpeakingRef.current from here
 
     console.log("[SophisticatedVoiceAssistant] startListening: Starting microphone.");
-    stopListeningRef.current = false; // Reset explicit stop flag
+    stopListeningRef.current = false; // Reset flag for explicit stop
 
     if (currentSettings.input_mode === 'streaming') {
       if (wsRef.current) return;
@@ -624,6 +624,7 @@ const SophisticatedVoiceAssistant = () => {
         console.log("[SophisticatedVoiceAssistant] Auto-restarting wake word listening...");
         setTimeout(() => {
           try {
+            // Double-check conditions before starting
             if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current && !isOpenRef.current) {
               recognitionRef.current.start();
             }
