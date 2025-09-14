@@ -587,7 +587,7 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.onend = () => {
       console.log("Speech recognition ended");
       setIsListening(false);
-      if (!stopListeningRef.current && !stopPermanentlyRef.current && isOpenRef.current) {
+      if (!stopListeningRef.current && !stopPermanentlyRef.current) {
         console.log("Restarting speech recognition...");
         setTimeout(() => {
           try {
@@ -614,10 +614,14 @@ const SophisticatedVoiceAssistant = () => {
       console.log("Recognized speech:", transcript);
       const currentSettings = settingsRef.current;
       if (!currentSettings) return;
+      
+      // Always process commands when assistant is open
       if (isOpenRef.current) {
         processCommand(transcript);
       } else {
-        if (currentSettings.activation_phrases.some(p => transcript.includes(p.toLowerCase()))) {
+        // Check for activation phrases when assistant is closed
+        const activationPhrases = currentSettings.activation_phrases || ["ativar"];
+        if (activationPhrases.some(p => transcript.includes(p.toLowerCase()))) {
           handleManualActivation();
         }
       }
@@ -643,8 +647,8 @@ const SophisticatedVoiceAssistant = () => {
         if (!recognitionRef.current) {
           initializeWebSpeech();
         }
-        // Start listening if assistant is open
-        if (isOpenRef.current) {
+        // Start listening if assistant is open or for continuous activation phrase detection
+        if (isOpenRef.current || !isOpenRef.current) {
           startListening();
         }
       } else if (currentSettings?.input_mode === 'streaming') {
