@@ -571,20 +571,29 @@ const SophisticatedVoiceAssistant = () => {
 
   const initializeWebSpeech = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+      console.warn("Web Speech API not supported in this browser");
+      return;
+    }
     recognitionRef.current = new SpeechRecognition();
     recognitionRef.current.continuous = true;
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
-    recognitionRef.current.onstart = () => setIsListening(true);
+    recognitionRef.current.onstart = () => {
+      console.log("Speech recognition started");
+      setIsListening(true);
+    };
     
     recognitionRef.current.onend = () => {
+      console.log("Speech recognition ended");
       setIsListening(false);
-      if (!stopListeningRef.current && !stopPermanentlyRef.current) {
-        console.log("Recognition ended unexpectedly, restarting...");
+      if (!stopListeningRef.current && !stopPermanentlyRef.current && isOpenRef.current) {
+        console.log("Restarting speech recognition...");
         setTimeout(() => {
           try {
-            recognitionRef.current?.start();
+            if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) {
+              recognitionRef.current.start();
+            }
           } catch (e) {
             console.error("Failed to restart recognition:", e);
           }
@@ -592,51 +601,115 @@ const SophisticatedVoiceAssistant = () => {
       }
     };
 
-    recognitionRef.current.onerror = (e) => { if (e.error === "not-allowed") { setMicPermission("denied"); setIsPermissionModalOpen(true); } };
+    recognitionRef.current.onerror = (e) => {
+      console.error("Speech recognition error:", e.error);
+      if (e.error === "not-allowed" || e.error === "permission-denied") {
+        setMicPermission("denied");
+        setIsPermissionModalOpen(true);
+      }
+    };
+    
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      console.log("Recognized speech:", transcript);
       const currentSettings = settingsRef.current;
       if (!currentSettings) return;
       if (isOpenRef.current) {
         processCommand(transcript);
       } else {
-        if (currentSettings.activation_phrases.some(p => transcript.includes(p.toLowerCase()))) handleManualActivation();
+        if (currentSettings.activation_phrases.some(p => transcript.includes(p.toLowerCase()))) {
+          handleManualActivation();
+        }
       }
     };
-    if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
+    
+    if ("speechSynthesis" in window) {
+      synthRef.current = window.speechSynthesis;
+    }
   }, [processCommand, handleManualActivation]);
 
   const handleAllowMic = useCallback(async () => {
     setIsPermissionModalOpen(false);
-    if (audioContextRef.current?.state === 'suspended') await audioContextRef.current.resume();
+    if (audioContextRef.current?.state === 'suspended') {
+      await audioContextRef.current.resume();
+    }
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setMicPermission("granted");
+      stream.getTracks().forEach(track => track.stop()); // Stop the stream immediately
+      
       const currentSettings = settingsRef.current;
       if (currentSettings?.input_mode === 'local') {
-        if (!recognitionRef.current) initializeWebSpeech();
-        startListening();
+        if (!recognitionRef.current) {
+          initializeWebSpeech();
+        }
+        // Start listening if assistant is open
+        if (isOpenRef.current) {
+          startListening();
+        }
       } else if (currentSettings?.input_mode === 'streaming') {
-        startListening();
+        if (isOpenRef.current) {
+          startListening();
+        }
       }
-    } catch (e) { setMicPermission("denied"); setIsPermissionModalOpen(true); }
+    } catch (e) {
+      console.error("Microphone access denied:", e);
+      setMicPermission("denied");
+      setIsPermissionModalOpen(true);
+    }
   }, [initializeWebSpeech, startListening]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
-      const permissionStatus = await navigator.permissions.query({ name: "microphone" });
-      setMicPermission(permissionStatus.state);
-      if (permissionStatus.state === "granted") {
-        const currentSettings = settingsRef.current;
-        if (currentSettings?.input_mode === 'local') {
-          if (!recognitionRef.current) initializeWebSpeech();
+      // Try to get permission status
+      if (navigator.permissions && navigator.permissions.query) {
+        const permissionStatus = await navigator.permissions.query({ name: "microphone" });
+        setMicPermission(permissionStatus.state);
+        
+        if (permissionStatus.state === "granted") {
+          const currentSettings = settingsRef.current;
+          if (currentSettings?.input_mode === 'local') {
+            if (!recognitionRef.current) {
+              initializeWebSpeech();
+            }
+            // For local mode, we want to start listening when the page loads
+            // but only if we have permission
+            if (!isOpenRef.current) {
+              startListening();
+            }
+          }
+        } else if (permissionStatus.state === "prompt") {
+          // Permission not yet granted, show modal
+          setIsPermissionModalOpen(true);
+        } else if (permissionStatus.state === "denied") {
+          setMicPermission("denied");
+          setIsPermissionModalOpen(true);
         }
+        
+        permissionStatus.onchange = () => {
+          setMicPermission(permissionStatus.state);
+          if (permissionStatus.state === "granted") {
+            const currentSettings = settingsRef.current;
+            if (currentSettings?.input_mode === 'local') {
+              if (!recognitionRef.current) {
+                initializeWebSpeech();
+              }
+              if (!isOpenRef.current) {
+                startListening();
+              }
+            }
+          }
+        };
       } else {
+        // Fallback for browsers that don't support permissions API
         setIsPermissionModalOpen(true);
       }
-      permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
-    } catch (e) { setMicPermission("denied"); }
-  }, [initializeWebSpeech]);
+    } catch (e) {
+      console.warn("Permissions API not supported, showing modal:", e);
+      setMicPermission("denied");
+      setIsPermissionModalOpen(true);
+    }
+  }, [initializeWebSpeech, startListening]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
@@ -648,7 +721,7 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => {
     const shouldBeListening = 
       (isOpen && hasBeenActivated && !isSpeaking) ||
-      (!isOpen && micPermission === 'granted' && settingsRef.current?.input_mode === 'local');
+      (!isOpen && micPermission === 'granted' && settingsRef.current?.input_mode === 'local' && !stopPermanentlyRef.current);
 
     if (shouldBeListening && !isListening) {
       startListening();
@@ -658,24 +731,68 @@ const SophisticatedVoiceAssistant = () => {
   }, [isOpen, isSpeaking, hasBeenActivated, isListening, micPermission, settings, startListening, stopListening]);
 
   useEffect(() => {
-    if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-    fetchAllAssistantData().then(() => checkAndRequestMicPermission());
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    
+    fetchAllAssistantData().then((fetchedSettings) => {
+      if (fetchedSettings) {
+        // Initialize speech recognition after settings are loaded
+        if (fetchedSettings.input_mode === 'local') {
+          initializeWebSpeech();
+        }
+        checkAndRequestMicPermission();
+      }
+    });
+    
     return () => {
       stopPermanentlyRef.current = true;
       stopListening();
       if (synthRef.current?.speaking) synthRef.current.cancel();
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current.onstart = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onresult = null;
+      }
     };
-  }, [fetchAllAssistantData, checkAndRequestMicPermission, stopListening]);
+  }, [fetchAllAssistantData, checkAndRequestMicPermission, initializeWebSpeech, stopListening]);
 
   if (isLoading || !settings) return null;
   const showTranscriptUI = settings.show_transcript;
 
   return (
     <>
-      <MicrophonePermissionModal isOpen={isPermissionModalOpen} onAllow={handleAllowMic} onClose={() => setIsPermissionModalOpen(false)} permissionState={micPermission} />
-      {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl} altText={imageToShow.altText} onClose={() => { setImageToShow(null); startListening(); }} />}
-      {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
-      <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-between p-8 transition-opacity duration-500", isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none")}>
+      <MicrophonePermissionModal 
+        isOpen={isPermissionModalOpen} 
+        onAllow={handleAllowMic} 
+        onClose={() => setIsPermissionModalOpen(false)} 
+        permissionState={micPermission} 
+      />
+      {imageToShow && (
+        <ImageModal 
+          imageUrl={imageToShow.imageUrl} 
+          altText={imageToShow.altText} 
+          onClose={() => { 
+            setImageToShow(null); 
+            if (isOpen) startListening(); 
+          }} 
+        />
+      )}
+      {urlToOpenInIframe && (
+        <UrlIframeModal 
+          url={urlToOpenInIframe} 
+          onClose={() => { 
+            setUrlToOpenInIframe(null); 
+            if (isOpen) startListening(); 
+          }} 
+        />
+      )}
+      <div className={cn(
+        "fixed inset-0 z-[9999] flex flex-col items-center justify-between p-8 transition-opacity duration-500",
+        isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+      )}>
         <div className="absolute inset-0 -z-10 pointer-events-none">
           <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
           <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
@@ -694,7 +811,10 @@ const SophisticatedVoiceAssistant = () => {
         <div className="flex items-center justify-center gap-4 p-4 bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-2xl shadow-[0_0_20px_rgba(0,255,255,0.1)] pointer-events-auto">
           <AudioVisualizer isSpeaking={isSpeaking} />
           <div className="p-4 bg-cyan-900/20 rounded-full border border-cyan-400/30">
-            <Mic className={cn("h-8 w-8 text-cyan-300 transition-all", isListening && "text-cyan-200 animate-pulse drop-shadow-[0_0_8px_rgba(0,255,255,0.8)]")} />
+            <Mic className={cn(
+              "h-8 w-8 text-cyan-300 transition-all",
+              isListening && "text-cyan-200 animate-pulse drop-shadow-[0_0_8px_rgba(0,255,255,0.8)]"
+            )} />
           </div>
           <AudioVisualizer isSpeaking={isSpeaking} />
         </div>
