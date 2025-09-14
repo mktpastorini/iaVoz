@@ -560,8 +560,8 @@ const SophisticatedVoiceAssistant = () => {
     }
     const latestSettings = settingsRef.current;
     if (!latestSettings) {
-        showError("Configurações do assistente ainda não carregaram.");
-        return;
+      showError("Configurações do assistente ainda não carregaram.");
+      return;
     }
     
     const message = hasBeenActivatedRef.current ? latestSettings.continuation_phrase : latestSettings.welcome_message;
@@ -594,13 +594,11 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.onend = () => {
       console.log("Speech recognition ended");
       setIsListening(false);
-      // Only auto-restart if we are NOT supposed to be stopped and the assistant is CLOSED (i.e., we are listening for wake word)
-      if (!stopListeningRef.current && !stopPermanentlyRef.current && !isOpenRef.current) {
-        console.log("Restarting wake word listening...");
+      if (!stopListeningRef.current && !stopPermanentlyRef.current) {
+        console.log("Restarting speech recognition...");
         setTimeout(() => {
           try {
-            // Double-check conditions before starting
-            if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current && !isOpenRef.current) {
+            if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) {
               recognitionRef.current.start();
             }
           } catch (e) {
@@ -624,9 +622,11 @@ const SophisticatedVoiceAssistant = () => {
       const currentSettings = settingsRef.current;
       if (!currentSettings) return;
       
+      // Always process commands when assistant is open
       if (isOpenRef.current) {
         processCommand(transcript);
       } else {
+        // Check for activation phrases when assistant is closed
         const activationPhrases = currentSettings.activation_phrases || ["ativar"];
         if (activationPhrases.some(p => transcript.includes(p.toLowerCase()))) {
           handleManualActivation();
