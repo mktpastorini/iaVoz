@@ -18,43 +18,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 
-const defaultSettings = {
-  system_prompt:
-    `Você é Intra, a IA da Intratégica.
-
-Regras de Clientes:
-- Clientes são identificados por um 'client_code' único (ex: CL000001) ou por 'name'. Sempre dê preferência ao 'client_code' se você o conhecer, pois é mais preciso.
-- Ao criar um novo cliente, um 'client_code' será gerado automaticamente. Informe o usuário sobre o código gerado.
-- Se o usuário fornecer informações de um cliente em partes, colete todos os detalhes antes de chamar 'save_client_data'.
-- Ao chamar 'save_client_data', inclua TODAS as informações do cliente que você coletou na conversa.
-
-Ferramentas Disponíveis (Poderes):
-- get_client_data: Use para buscar um cliente pelo 'client_code' ou 'name'.
-- save_client_data: Use para criar ou ATUALIZAR um cliente. Para atualizar, use o 'client_code' se souber, ou o 'name'.
-- get_user_field: Use para obter dados do usuário atual.
-- set_user_field: Use para salvar dados do usuário atual.`,
-  assistant_prompt:
-    "Você é um assistente amigável e profissional que ajuda agências de tecnologia a automatizar processos e criar soluções de IA personalizadas.",
-  ai_model: "gpt-4o-mini",
-  voice_model: "browser",
-  openai_tts_voice: "alloy",
-  voice_sensitivity: 50,
-  openai_api_key: "",
-  gemini_api_key: "",
-  deepgram_api_key: "",
-  openai_stt_api_key: "",
-  google_stt_api_key: "",
-  conversation_memory_length: 5,
-  activation_phrases: ["ativar"],
-  deactivation_phrases: ["fechar", "encerrar"],
-  welcome_message: "Bem-vindo ao site! Diga 'ativar' para começar a conversar.",
-  continuation_phrase: "Pode falar.",
-  show_transcript: true,
-  input_mode: 'local',
-  output_mode: 'buffered',
-  streaming_stt_provider: 'deepgram',
-};
-
 const ImageModal = ({ imageUrl, altText, onClose }) => (
   <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/80" onClick={onClose}>
     <div className="relative max-w-4xl max-h-[80vh] p-4" onClick={(e) => e.stopPropagation()}>
@@ -92,8 +55,8 @@ const SophisticatedVoiceAssistant = () => {
   // Refs
   const settingsRef = useRef(settings);
   const isOpenRef = useRef(isOpen);
-  const isListeningRef = useRef(isListening);
-  const isSpeakingRef = useRef(isSpeaking);
+  const isListeningRef = useRef(false);
+  const isSpeakingRef = useRef(false);
   const hasBeenActivatedRef = useRef(hasBeenActivated);
   const powersRef = useRef(powers);
   const clientActionsRef = useRef(clientActions);
@@ -105,28 +68,22 @@ const SophisticatedVoiceAssistant = () => {
   const synthRef = useRef(null);
   const audioRef = useRef(null);
   const stopPermanentlyRef = useRef(false);
-  const stopListeningRef = useRef(false); // Flag to indicate explicit stop
   const activationTriggerRef = useRef(0);
-  const speechTimeoutRef = useRef(null);
-  const sentenceQueueRef = useRef([]);
-  const speechManagerTimeoutRef = useRef(null);
+  const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+
+  // Web Audio API refs
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const sourceRef = useRef(null);
   const animationFrameRef = useRef(null);
 
-  // Streaming refs
-  const wsRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioStreamRef = useRef(null);
-  const silenceTimerRef = useRef(null);
-  const finalTranscriptRef = useRef("");
-
+  // Sync refs with state
   useEffect(() => { settingsRef.current = settings; }, [settings]);
-  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
-  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
-  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
+  useEffect(() => { 
+    isOpenRef.current = isOpen;
+    console.log(`[ASSISTANT] State changed: isOpen = ${isOpen}`);
+  }, [isOpen]);
   useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
   useEffect(() => { powersRef.current = powers; }, [powers]);
   useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
@@ -135,47 +92,103 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
 
   const fetchAllAssistantData = useCallback(async () => {
+    console.log("[ASSISTANT] Fetching all assistant data...");
     setIsLoading(true);
     try {
-      const { data: settingsData, error } = await supabase.from("settings").select("*").order('created_at', { ascending: true }).limit(1).single();
-      
-      if (error && error.code !== 'PGRST116') {
-        console.error("Error fetching settings:", error);
-        showError("Erro ao carregar configurações do assistente.");
-      }
+      let settingsData = null;
+      const currentSession = sessionRef.current;
 
-      setSettings(settingsData || defaultSettings);
+      if (currentSession) {
+        const { data: workspaceMember } = await supabase
+          .from('workspace_members')
+          .select('workspace_id')
+          .eq('user_id', currentSession.user.id)
+          .limit(1)
+          .single();
+        
+        if (workspaceMember) {
+          const { data } = await supabase
+            .from("settings")
+            .select("*")
+            .eq('workspace_id', workspaceMember.workspace_id)
+            .limit(1)
+            .single();
+          settingsData = data;
+        }
+      }
+      
+      if (!settingsData) {
+        const { data } = await supabase
+          .from("settings")
+          .select("*")
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .single();
+        settingsData = data;
+      }
+      
+      setSettings(settingsData);
+      console.log("[ASSISTANT] Settings loaded:", settingsData);
 
       const { data: powersData } = await supabase.from("powers").select("*");
       setPowers(powersData || []);
+      console.log("[ASSISTANT] Powers loaded:", powersData);
+
       const { data: actionsData } = await supabase.from("client_actions").select("*");
       setClientActions(actionsData || []);
-      
-      return settingsData || defaultSettings;
+      console.log("[ASSISTANT] Client Actions loaded:", actionsData);
+
+      return settingsData;
     } catch (error) {
+      console.error("[ERROR] Failed to fetch assistant data:", error);
       showError("Erro ao carregar dados do assistente.");
-      setSettings(defaultSettings);
       return null;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current && isListeningRef.current) {
+      console.log("[SPEECH] Stopping listening.");
+      recognitionRef.current.stop();
+    }
+  }, []);
+
+  const startListening = useCallback(() => {
+    if (isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current || !recognitionRef.current) {
+      return;
+    }
+    try {
+      console.log("[SPEECH] Starting listening.");
+      recognitionRef.current.start();
+    } catch (e) {
+      console.error("[ERROR] Error starting recognition:", e);
+    }
+  }, []);
+
   const stopSpeaking = useCallback(() => {
+    if (synthRef.current?.speaking || (audioRef.current && !audioRef.current.paused)) {
+      console.log("[SPEECH] Stopping speech.");
+    }
     if (synthRef.current?.speaking) synthRef.current.cancel();
     if (audioRef.current && !audioRef.current.paused) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
     setAudioIntensity(0);
     if (isSpeakingRef.current) {
-      console.log("[SophisticatedVoiceAssistant] stopSpeaking: Setting isSpeaking to false.");
+      isSpeakingRef.current = false;
       setIsSpeaking(false);
     }
-    if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-    sentenceQueueRef.current = [];
-    if (speechManagerTimeoutRef.current) clearTimeout(speechManagerTimeoutRef.current);
+    if (speechTimeoutRef.current) {
+      clearTimeout(speechTimeoutRef.current);
+      speechTimeoutRef.current = null;
+    }
   }, []);
 
   const setupAudioAnalysis = useCallback(() => {
@@ -203,49 +216,55 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
-  const runConversation = useRef(async (_userMessage) => {});
-
-  const stopListening = useCallback(() => {
-    if (!isListeningRef.current) return; // Only stop if currently listening
-    console.log("[SophisticatedVoiceAssistant] stopListening: Stopping microphone.");
-    stopListeningRef.current = true; // Set flag for explicit stop
-    if (settingsRef.current?.input_mode === 'streaming') {
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
-      audioStreamRef.current?.getTracks().forEach(track => track.stop());
-      audioStreamRef.current = null;
-      wsRef.current?.close();
-      wsRef.current = null;
-      finalTranscriptRef.current = "";
-    } else {
-      recognitionRef.current?.stop();
-    }
-    setIsListening(false);
-  }, []);
-
-  const speakSingleSentence = useCallback(async (text, onEndCallback) => {
+  const speak = useCallback(async (text, onEndCallback) => {
     const currentSettings = settingsRef.current;
     if (!text || !currentSettings) {
       onEndCallback?.();
       return;
     }
+
     const onSpeechEnd = () => {
-      if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-      onEndCallback?.();
+      if (speechTimeoutRef.current) {
+        clearTimeout(speechTimeoutRef.current);
+        speechTimeoutRef.current = null;
+      }
+      if (isSpeakingRef.current) {
+        console.log("[SPEECH] Speech finished.");
+        isSpeakingRef.current = false;
+        setIsSpeaking(false);
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+        setAudioIntensity(0);
+        onEndCallback?.();
+        if (isOpenRef.current && !stopPermanentlyRef.current) {
+          startListening();
+        }
+      }
     };
-    console.log("[SophisticatedVoiceAssistant] speakSingleSentence: Setting isSpeaking to true.");
+
+    stopSpeaking();
+    stopListening();
+
+    isSpeakingRef.current = true;
     setIsSpeaking(true);
+    setAiResponse(text);
+    console.log(`[SPEECH] Speaking: "${text}"`);
+
     const estimatedSpeechTime = (text.length / 15) * 1000 + 3000;
     speechTimeoutRef.current = setTimeout(onSpeechEnd, estimatedSpeechTime);
+
     try {
       if (currentSettings.voice_model === "browser" && synthRef.current) {
+        console.log("[SPEECH] Using browser Web Speech API for synthesis.");
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
-        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onEndCallback(); };
+        utterance.onerror = (e) => { console.error("[ERROR] SpeechSynthesis Error:", e); onSpeechEnd(); };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
+        console.log("[SPEECH] Using OpenAI TTS API for synthesis.");
         const response = await fetch(OPENAI_TTS_API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
@@ -256,614 +275,419 @@ const SophisticatedVoiceAssistant = () => {
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
         setupAudioAnalysis();
-        audioRef.current.onended = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = () => { onEndCallback(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
         runAudioAnalysis();
       } else {
-        onEndCallback();
+        console.warn("[SPEECH] No voice model configured. Skipping speech.");
+        onSpeechEnd();
       }
-    } catch (e) {
+    } catch (e: any) {
+      console.error("[ERROR] Speech synthesis failed:", e);
       showError(`Erro na síntese de voz: ${e.message}`);
-      onEndCallback();
+      onSpeechEnd();
     }
-  }, [setupAudioAnalysis, runAudioAnalysis]);
-
-  const speechManager = useCallback(() => {
-    if (isSpeakingRef.current || sentenceQueueRef.current.length === 0) {
-      if (speechManagerTimeoutRef.current) clearTimeout(speechManagerTimeoutRef.current);
-      speechManagerTimeoutRef.current = setTimeout(speechManager, 100);
-      return;
-    }
-    const sentenceToSpeak = sentenceQueueRef.current.shift();
-    if (sentenceToSpeak) {
-      speakSingleSentence(sentenceToSpeak, () => {
-        if (sentenceQueueRef.current.length === 0) {
-          console.log("[SophisticatedVoiceAssistant] speechManager: All sentences spoken. Setting isSpeaking to false.");
-          setIsSpeaking(false);
-          if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-          setAudioIntensity(0);
-        } else {
-          speechManager();
-        }
-      });
-    }
-  }, [speakSingleSentence]);
-
-  const speak = useCallback((text, onEndCallback) => {
-    stopSpeaking();
-    // REMOVIDO: stopListening(); // Esta linha foi removida
-    setAiResponse(text);
-    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-    sentenceQueueRef.current = sentences;
-    speechManager();
-    if (onEndCallback) {
-      const checkCompletion = () => {
-        if (!isSpeakingRef.current && sentenceQueueRef.current.length === 0) onEndCallback();
-        else setTimeout(checkCompletion, 200);
-      };
-      checkCompletion();
-    }
-  }, [stopSpeaking, speechManager]); // stopListening removido das dependências
+  }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
   const executeClientAction = useCallback((action) => {
+    console.log(`[ACTION] Executing client action: ${action.action_type}`, action.action_payload);
     stopListening();
     speak("Ok, executando.", () => {
       switch (action.action_type) {
         case 'OPEN_URL': window.open(action.action_payload.url, '_blank', 'noopener,noreferrer'); break;
         case 'SHOW_IMAGE': setImageToShow(action.action_payload); break;
         case 'OPEN_IFRAME_URL': setUrlToOpenInIframe(action.action_payload.url); break;
-        default: console.warn(`Ação desconhecida: ${action.action_type}`); break;
+        default: console.warn(`[ACTION] Unknown client action type: ${action.action_type}`); break;
       }
     });
   }, [speak, stopListening]);
 
-  const processCommand = useCallback((command) => {
-    if (!command) return;
-    console.log("[SophisticatedVoiceAssistant] processCommand: Processing command:", command);
-    const currentSettings = settingsRef.current;
-    if (currentSettings?.deactivation_phrases.some(p => command.includes(p.toLowerCase()))) {
-      console.log("[SophisticatedVoiceAssistant] processCommand: Deactivation phrase detected.");
-      setIsOpen(false);
-      stopSpeaking();
-      return;
-    }
-    const matchedAction = clientActionsRef.current.find(a => command.includes(a.trigger_phrase.toLowerCase()));
-    if (matchedAction) {
-      console.log("[SophisticatedVoiceAssistant] processCommand: Client action matched:", matchedAction.trigger_phrase);
-      executeClientAction(matchedAction);
-      return;
-    }
-    console.log("[SophisticatedVoiceAssistant] processCommand: No client action, running conversation.");
-    runConversation.current(command);
-  }, [stopSpeaking, executeClientAction]);
-
-  const startListening = useCallback(() => {
-    const currentSettings = settingsRef.current;
-    if (!currentSettings || isListeningRef.current || stopPermanentlyRef.current) return; // Removed isSpeakingRef.current from here
-
-    console.log("[SophisticatedVoiceAssistant] startListening: Starting microphone.");
-    stopListeningRef.current = false; // Reset flag for explicit stop
-
-    if (currentSettings.input_mode === 'streaming') {
-      if (wsRef.current) return;
-
-      let wsUrl = '';
-      switch (currentSettings.streaming_stt_provider) {
-        case 'deepgram':
-          wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/mic-stream-proxy`;
-          break;
-        case 'openai':
-          wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/openai-stt-proxy`;
-          break;
-        case 'google':
-          wsUrl = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/google-stt-proxy`;
-          break;
-        default:
-          showError("Provedor de streaming STT não configurado ou inválido.");
-          return;
-      }
-
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-      ws.onopen = async () => {
-        console.log(`[SophisticatedVoiceAssistant] Conectado ao proxy WebSocket para ${currentSettings.streaming_stt_provider}.`);
-        setIsListening(true);
-        try {
-          audioStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-          const recorder = new MediaRecorder(audioStreamRef.current, { mimeType: 'audio/webm; codecs=opus' });
-          mediaRecorderRef.current = recorder;
-          recorder.ondataavailable = (event) => {
-            if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(event.data);
-            }
-          };
-          recorder.start(250);
-        } catch (err) {
-          showError("Não foi possível acessar o microfone.");
-          setMicPermission("denied");
-          setIsPermissionModalOpen(true);
-          ws.close();
-        }
-      };
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.error) {
-          console.error("[SophisticatedVoiceAssistant] Erro do provedor de streaming:", data.error);
-          showError(`Erro no streaming de voz: ${data.error}`);
-          stopListening();
-          return;
-        }
-
-        const transcriptChunk = data.channel?.alternatives?.[0]?.transcript || data.text || "";
-        const isFinal = data.is_final;
-
-        if (transcriptChunk) {
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = setTimeout(() => {
-            console.log("[SophisticatedVoiceAssistant] Silence detected.");
-            const currentSettings = settingsRef.current;
-            if (currentSettings?.streaming_stt_provider === 'openai') {
-              if (wsRef.current?.readyState === WebSocket.OPEN) {
-                console.log("[SophisticatedVoiceAssistant] Requesting final transcript from OpenAI proxy.");
-                wsRef.current.send(JSON.stringify({ type: 'process_audio' }));
-              }
-            } else {
-              if (finalTranscriptRef.current) {
-                const commandToProcess = finalTranscriptRef.current.trim();
-                finalTranscriptRef.current = "";
-                stopListening();
-                processCommand(commandToProcess);
-              }
-            }
-          }, 1200);
-
-          if (isFinal) {
-            finalTranscriptRef.current += transcriptChunk + " ";
-            setTranscript(finalTranscriptRef.current);
-
-            const currentSettings = settingsRef.current;
-            if (currentSettings?.streaming_stt_provider === 'openai') {
-              const commandToProcess = finalTranscriptRef.current.trim();
-              finalTranscriptRef.current = "";
-              stopListening();
-              processCommand(commandToProcess);
-            }
-          } else {
-            setTranscript(finalTranscriptRef.current + transcriptChunk);
-          }
-        }
-      };
-      ws.onclose = () => { wsRef.current = null; setIsListening(false); console.log("[SophisticatedVoiceAssistant] WebSocket de streaming fechado."); };
-      ws.onerror = (err) => { showError("Erro na conexão de streaming."); console.error("[SophisticatedVoiceAssistant] WebSocket streaming error:", err); wsRef.current = null; setIsListening(false); };
-    } else { // input_mode === 'local'
-      if (recognitionRef.current) {
-        try { 
-          recognitionRef.current.start(); 
-          setIsListening(true); // Set listening state immediately for local mode
-        } catch (e) { 
-          console.error("[SophisticatedVoiceAssistant] Erro ao iniciar reconhecimento local:", e); 
-          setIsListening(false);
-        }
-      }
-    }
-  }, [processCommand, stopListening]);
-
-  const runConversationFn = useCallback(async (userMessage) => {
+  const runConversation = useCallback(async (userMessage) => {
     if (!userMessage) return;
+    console.log(`[AI] Starting conversation with user message: "${userMessage}"`);
     setTranscript(userMessage);
     setAiResponse("");
-    stopListening(); // Stop listening while AI processes
+    stopListening();
+
     const currentHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
     setMessageHistory(currentHistory);
+    
     const currentSettings = settingsRef.current;
     if (!currentSettings || !currentSettings.openai_api_key) {
-      speak("Chave da API OpenAI não configurada.");
+      const errorMsg = "Desculpe, a chave da API OpenAI não está configurada.";
+      console.error("[ERROR] OpenAI API key is not configured.");
+      speak(errorMsg);
+      showError("Chave da API OpenAI não configurada.");
       return;
     }
+
     const systemPrompt = replacePlaceholders(currentSettings.system_prompt, systemVariablesRef.current);
-    const tools = powersRef.current.map(p => ({ type: "function", function: { name: p.name, description: p.description, parameters: p.parameters_schema || { type: "object", properties: {} } } }));
-    const requestBody = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)], tools: tools.length ? tools : undefined, tool_choice: tools.length ? "auto" : undefined, stream: true };
+    const tools = powersRef.current.map(power => ({
+      type: "function",
+      function: { name: power.name, description: power.description, parameters: power.parameters_schema || { type: "object", properties: {} } },
+    }));
+
+    const requestBody = {
+      model: currentSettings.ai_model,
+      messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
+      tools: tools.length > 0 ? tools : undefined,
+      tool_choice: tools.length > 0 ? "auto" : undefined,
+      stream: true,
+    };
+
+    console.log("[AI] Sending request to OpenAI with streaming:", requestBody);
+
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(requestBody) });
-      if (!response.ok) throw new Error(`Erro da API OpenAI: ${(await response.json()).error?.message}`);
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`);
+      }
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let fullResponse = "", toolCalls = [], sentenceBuffer = "";
-      const processAndSpeakBuffer = (force = false) => {
-        const punctuation = /[.!?]/;
-        let splitPoint = force ? sentenceBuffer.length : sentenceBuffer.search(punctuation);
-        if (splitPoint > -1) {
-          const sentence = sentenceBuffer.substring(0, splitPoint + 1).trim();
-          if (sentence) { sentenceQueueRef.current.push(sentence); speechManager(); }
-          sentenceBuffer = sentenceBuffer.substring(splitPoint + 1);
-        }
-      };
+      let fullResponse = "";
+      let toolCalls = [];
+
       while (true) {
         const { done, value } = await reader.read();
-        if (done) { if (sentenceBuffer.trim()) processAndSpeakBuffer(true); break; }
+        if (done) break;
+
         const chunk = decoder.decode(value);
-        for (const line of chunk.split("\n")) {
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
           if (line.startsWith("data: ")) {
             const dataStr = line.substring(6);
             if (dataStr === "[DONE]") break;
+            
             try {
               const data = JSON.parse(dataStr);
               const delta = data.choices[0]?.delta;
+
               if (delta?.content) {
                 fullResponse += delta.content;
-                setAiResponse(curr => curr + delta.content);
-                if (currentSettings.output_mode === 'streaming') { sentenceBuffer += delta.content; processAndSpeakBuffer(); }
+                setAiResponse(current => current + delta.content);
               }
               if (delta?.tool_calls) {
-                delta.tool_calls.forEach(tc => {
-                  if (!toolCalls[tc.index]) toolCalls[tc.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
-                  if (tc.id) toolCalls[tc.index].id = tc.id;
-                  if (tc.function.name) toolCalls[tc.index].function.name = tc.function.name;
-                  if (tc.function.arguments) toolCalls[tc.index].function.arguments += tc.function.arguments;
+                delta.tool_calls.forEach(toolCall => {
+                  if (!toolCalls[toolCall.index]) {
+                    toolCalls[toolCall.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
+                  }
+                  if (toolCall.id) toolCalls[toolCall.index].id = toolCall.id;
+                  if (toolCall.function.name) toolCalls[toolCall.index].function.name = toolCall.function.name;
+                  if (toolCall.function.arguments) toolCalls[toolCall.index].function.arguments += toolCall.function.arguments;
                 });
               }
-            } catch (e) { console.error("Erro ao parsear chunk:", dataStr, e); }
+            } catch (e) {
+              console.error("[ERROR] Failed to parse stream chunk:", dataStr, e);
+            }
           }
         }
       }
-      const aiMessage = { role: "assistant", content: fullResponse, tool_calls: toolCalls.length ? toolCalls : undefined };
-      setMessageHistory(prev => [...prev, aiMessage]);
-      if (aiMessage.tool_calls?.length) {
-        speak(`Ok, um momento.`, async () => {
-          const toolPromises = aiMessage.tool_calls.map(async (tc) => {
-            const power = powersRef.current.find(p => p.name === tc.function.name);
-            if (!power) throw new Error(`Poder "${tc.function.name}" não encontrado.`);
-            const args = JSON.parse(tc.function.arguments);
-            const allVars = { ...systemVariablesRef.current, ...args };
-            const payload = { url: replacePlaceholders(power.url, allVars), method: power.method, headers: JSON.parse(replacePlaceholders(JSON.stringify(power.headers || {}), allVars)), body: { ...(power.body || {}), ...args } };
-            const { data, error } = await supabaseAnon.functions.invoke('proxy-api', { body: payload });
-            if (error) throw new Error(`Erro ao invocar ${tc.function.name}: ${error.message}`);
-            return { tool_call_id: tc.id, role: "tool", name: tc.function.name, content: JSON.stringify(data.data || data) };
-          });
-          const toolResponses = await Promise.all(toolPromises);
-          const historyForSecondCall = [...currentHistory, aiMessage, ...toolResponses];
-          setMessageHistory(historyForSecondCall);
-          setAiResponse("");
-          const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify({ model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)], stream: true }) });
-          if (!secondResponse.ok) throw new Error(`Erro da API OpenAI: ${(await secondResponse.json()).error?.message}`);
-          const secondReader = secondResponse.body.getReader();
-          let finalResponseText = "";
-          sentenceBuffer = "";
-          while (true) {
-            const { done, value } = await secondReader.read();
-            if (done) { if (sentenceBuffer.trim()) processAndSpeakBuffer(true); break; }
-            const chunk = decoder.decode(value);
-            for (const line of chunk.split("\n")) {
-              if (line.startsWith("data: ")) {
-                const dataStr = line.substring(6);
-                if (dataStr === "[DONE]") break;
-                try {
-                  const data = JSON.parse(dataStr);
-                  const delta = data.choices[0]?.delta?.content;
-                  if (delta) {
-                    finalResponseText += delta;
-                    setAiResponse(curr => curr + delta);
-                    if (currentSettings.output_mode === 'streaming') { sentenceBuffer += delta; processAndSpeakBuffer(); }
-                  }
-                } catch (e) { console.error("Erro ao parsear chunk 2:", dataStr, e); }
-              }
+
+      const aiMessage = { role: "assistant", content: fullResponse, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
+      const newHistoryWithAIMessage = [...currentHistory, aiMessage];
+      setMessageHistory(newHistoryWithAIMessage);
+
+      if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
+        console.log("[AI] Tool call requested:", aiMessage.tool_calls);
+        speak(`Ok, um momento enquanto eu acesso minhas ferramentas.`, async () => {
+            let toolResponses;
+            try {
+                const toolPromises = aiMessage.tool_calls.map(async (toolCall) => {
+                    const functionName = toolCall.function.name;
+                    const functionArgs = JSON.parse(toolCall.function.arguments);
+                    
+                    const power = powersRef.current.find(p => p.name === functionName);
+                    if (!power) throw new Error(`Power "${functionName}" not found.`);
+
+                    console.log(`[TOOL] Executing power: ${functionName} via proxy-api with args:`, functionArgs);
+
+                    const allVariables = { ...systemVariablesRef.current, ...functionArgs };
+                    const processedUrl = replacePlaceholders(power.url, allVariables);
+                    const processedHeaders = JSON.parse(replacePlaceholders(JSON.stringify(power.headers || {}), allVariables));
+                    const templateBody = power.body || {};
+                    const finalBody = { ...templateBody, ...functionArgs };
+
+                    const payload = { url: processedUrl, method: power.method, headers: processedHeaders, body: finalBody };
+                    const { data: functionResult, error: functionError } = await supabaseAnon.functions.invoke('proxy-api', { body: payload });
+
+                    if (functionError) {
+                        console.error(`[ERROR] Error invoking tool ${functionName} via proxy:`, functionError);
+                        throw new Error(`Error invoking function ${functionName}: ${functionError.message}`);
+                    }
+                    console.log(`[TOOL] Tool ${functionName} returned:`, functionResult);
+                    return { tool_call_id: toolCall.id, role: "tool", name: functionName, content: JSON.stringify(functionResult.data || functionResult) };
+                });
+                toolResponses = await Promise.all(toolPromises);
+            } catch (e: any) {
+                console.error("[ERROR] A tool execution failed:", e);
+                toolResponses = aiMessage.tool_calls.map(toolCall => ({
+                    tool_call_id: toolCall.id,
+                    role: "tool",
+                    name: toolCall.function.name,
+                    content: JSON.stringify({ error: "Failed to execute tool.", details: e.message }),
+                }));
+                speak(`Desculpe, houve um erro ao usar minhas ferramentas.`);
             }
-          }
-          setMessageHistory(prev => [...prev, { role: "assistant", content: finalResponseText }]);
-          if (currentSettings.output_mode !== 'streaming') speak(finalResponseText);
+
+            const historyForSecondCall = [...newHistoryWithAIMessage, ...toolResponses];
+            setMessageHistory(historyForSecondCall);
+
+            setAiResponse(""); 
+            
+            const secondRequestBody = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)], stream: true };
+            console.log("[AI] Sending second request to OpenAI with tool results:", secondRequestBody);
+
+            const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+                body: JSON.stringify(secondRequestBody),
+            });
+            if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
+            
+            const secondReader = secondResponse.body.getReader();
+            let finalResponseText = "";
+            while (true) {
+                const { done, value } = await secondReader.read();
+                if (done) break;
+                const chunk = decoder.decode(value);
+                const lines = chunk.split("\n");
+                for (const line of lines) {
+                    if (line.startsWith("data: ")) {
+                        const dataStr = line.substring(6);
+                        if (dataStr === "[DONE]") break;
+                        try {
+                            const data = JSON.parse(dataStr);
+                            const delta = data.choices[0]?.delta?.content;
+                            if (delta) {
+                                finalResponseText += delta;
+                                setAiResponse(current => current + delta);
+                            }
+                        } catch (e) {
+                            console.error("[ERROR] Failed to parse second stream chunk:", dataStr, e);
+                        }
+                    }
+                }
+            }
+            setMessageHistory(prev => [...prev, { role: "assistant", content: finalResponseText }]);
+            speak(finalResponseText);
         });
       } else {
-        if (currentSettings.output_mode !== 'streaming') speak(fullResponse);
+        console.log("[AI] No tool call, speaking response directly.");
+        speak(fullResponse);
       }
-    } catch (e) {
-      speak(`Desculpe, não consegui processar sua solicitação.`);
+    } catch (e: any) {
+      console.error("[ERROR] Error in runConversation:", e);
+      const errorMsg = `Desculpe, não consegui processar sua solicitação.`;
+      speak(errorMsg);
       showError(`Erro na conversa: ${e.message}`);
-    } finally {
-      // Restart listening after AI response is fully spoken
-      if (isOpenRef.current && !isSpeakingRef.current) { // Check if assistant is still open and not speaking
-        startListening();
-      }
     }
-  }, [speak, stopListening, speechManager]);
+  }, [speak, stopListening]);
 
-  useEffect(() => {
-    runConversation.current = runConversationFn;
-  }, [runConversationFn]);
-
-  const handleManualActivation = useCallback(() => {
-    if (isOpenRef.current) return;
-    if (micPermission !== "granted") {
-      setIsPermissionModalOpen(true);
-      return;
-    }
-    const latestSettings = settingsRef.current;
-    if (!latestSettings) {
-      showError("Configurações do assistente ainda não carregaram.");
-      return;
-    }
-    
-    const message = hasBeenActivatedRef.current ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-    
-    console.log("[SophisticatedVoiceAssistant] handleManualActivation: Activating assistant. Message:", message);
-    setIsOpen(true);
-    setHasBeenActivated(true);
-    
-    // Stop current listening (wake word) before speaking
-    stopListening(); 
-
-    speak(message, () => {
-      console.log("[SophisticatedVoiceAssistant] handleManualActivation: Welcome message spoken. Attempting to start listening.");
-      // Start listening only if the assistant is still open and not speaking
-      if (isOpenRef.current && !isSpeakingRef.current) {
-        startListening();
-      }
-    });
-  }, [micPermission, speak, startListening, stopListening]);
-
-  const initializeWebSpeech = useCallback(() => {
+  const initializeAssistant = useCallback(() => {
+    console.log("[ASSISTANT] Initializing...");
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      console.warn("[SophisticatedVoiceAssistant] Web Speech API not supported in this browser");
+      console.error("[ERROR] Speech Recognition not supported by this browser.");
+      showError("Reconhecimento de voz não suportado.");
+      setMicPermission("denied");
       return;
     }
     recognitionRef.current = new SpeechRecognition();
     recognitionRef.current.continuous = true;
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
-    recognitionRef.current.onstart = () => {
-      console.log("[SophisticatedVoiceAssistant] Speech recognition started (local mode).");
-      setIsListening(true);
-    };
-    
+    recognitionRef.current.onstart = () => { isListeningRef.current = true; setIsListening(true); console.log("[SPEECH] Recognition started."); };
     recognitionRef.current.onend = () => {
-      console.log("[SophisticatedVoiceAssistant] Speech recognition ended (local mode).");
+      isListeningRef.current = false;
       setIsListening(false);
-      // Auto-restart only if not explicitly stopped and assistant is NOT open (i.e., listening for wake word)
-      if (!stopListeningRef.current && !stopPermanentlyRef.current && !isOpenRef.current) {
-        console.log("[SophisticatedVoiceAssistant] Auto-restarting wake word listening...");
-        setTimeout(() => {
-          try {
-            // Double-check conditions before starting
-            if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current && !isOpenRef.current) {
-              recognitionRef.current.start();
-            }
-          } catch (e) {
-            console.error("[SophisticatedVoiceAssistant] Failed to restart recognition:", e);
-          }
-        }, 100);
-      }
+      console.log("[SPEECH] Recognition ended.");
+      if (!isSpeakingRef.current && !stopPermanentlyRef.current) startListening();
     };
-
     recognitionRef.current.onerror = (e) => {
-      console.error("[SophisticatedVoiceAssistant] Speech recognition error (local mode):", e.error);
-      if (e.error === "not-allowed" || e.error === "permission-denied") {
+      console.error("[ERROR] Speech Recognition Error:", e.error, e.message);
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         setMicPermission("denied");
         setIsPermissionModalOpen(true);
       }
-      setIsListening(false); // Ensure listening state is false on error
     };
-    
     recognitionRef.current.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      console.log("[SophisticatedVoiceAssistant] Recognized speech (local mode):", transcript);
-      const currentSettings = settingsRef.current;
-      if (!currentSettings) {
-        console.warn("[SophisticatedVoiceAssistant] Settings not loaded when speech recognized.");
-        return;
-      }
+      console.log(`[USER] Recognized transcript: "${transcript}"`);
       
+      const currentSettings = settingsRef.current;
+      if (!currentSettings) return;
+
       if (isOpenRef.current) {
-        console.log("[SophisticatedVoiceAssistant] Assistant is OPEN, processing command.");
-        processCommand(transcript);
+        const closePhrases = currentSettings.deactivation_phrases || [];
+        if (closePhrases.some((phrase) => transcript.includes(phrase.toLowerCase()))) {
+          console.log("[USER] Close phrase detected. Closing assistant.");
+          setIsOpen(false);
+          setAiResponse("");
+          setTranscript("");
+          stopSpeaking();
+          return;
+        }
+        const matchedAction = clientActionsRef.current.find((a) => transcript.includes(a.trigger_phrase.toLowerCase()));
+        if (matchedAction) {
+          console.log(`[USER] Client action triggered by phrase: "${matchedAction.trigger_phrase}"`);
+          executeClientAction(matchedAction);
+          return;
+        }
+        runConversation(transcript);
       } else {
-        console.log("[SophisticatedVoiceAssistant] Assistant is CLOSED, checking for activation phrase.");
-        const activationPhrases = currentSettings.activation_phrases || ["ativar"];
-        if (activationPhrases.some(p => transcript.includes(p.toLowerCase()))) {
-          console.log("[SophisticatedVoiceAssistant] Activation phrase detected!");
-          handleManualActivation();
+        const activationPhrases = currentSettings.activation_phrases || [];
+        if (activationPhrases.some(phrase => transcript.includes(phrase.toLowerCase()))) {
+          console.log(`[USER] Activation phrase detected.`);
+          fetchAllAssistantData().then((latestSettings) => {
+            if (!latestSettings) return;
+            setIsOpen(true);
+            const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
+            speak(messageToSpeak);
+            setHasBeenActivated(true);
+          });
         }
       }
     };
-    
     if ("speechSynthesis" in window) {
       synthRef.current = window.speechSynthesis;
+      console.log("[ASSISTANT] Speech Synthesis initialized.");
     }
-  }, [processCommand, handleManualActivation]);
+  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData]);
+
+  const checkAndRequestMicPermission = useCallback(async () => {
+    console.log("[ASSISTANT] Checking microphone permission...");
+    try {
+      const permissionStatus = await navigator.permissions.query({ name: "microphone" });
+      console.log(`[ASSISTANT] Microphone permission status: ${permissionStatus.state}`);
+      setMicPermission(permissionStatus.state);
+      if (permissionStatus.state === "granted") {
+        if (!recognitionRef.current) initializeAssistant();
+        startListening();
+      } else {
+        setIsPermissionModalOpen(true);
+      }
+      permissionStatus.onchange = () => {
+        console.log(`[ASSISTANT] Microphone permission status changed to: ${permissionStatus.state}`);
+        setMicPermission(permissionStatus.state);
+      }
+    } catch(e) {
+      console.error("[ERROR] Could not query microphone permission:", e);
+      setMicPermission("denied");
+    }
+  }, [initializeAssistant, startListening]);
 
   const handleAllowMic = useCallback(async () => {
+    console.log("[USER] Clicked 'Allow Microphone'.");
     setIsPermissionModalOpen(false);
-    if (audioContextRef.current?.state === 'suspended') {
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
       await audioContextRef.current.resume();
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log("[ASSISTANT] Microphone access granted by user.");
       setMicPermission("granted");
-      stream.getTracks().forEach(track => track.stop()); // Stop the stream immediately
-      
-      const currentSettings = settingsRef.current;
-      if (currentSettings?.input_mode === 'local') {
-        if (!recognitionRef.current) {
-          initializeWebSpeech();
-        }
-        // Start listening for wake word or if assistant is already open
-        if (!isOpenRef.current) { // Only start if not already open (for wake word)
-          startListening();
-        } else { // If already open (e.g., from manual button click), ensure it starts
-          startListening();
-        }
-      } else if (currentSettings?.input_mode === 'streaming') {
-        // For streaming, only start if assistant is open
-        if (isOpenRef.current) {
-          startListening();
-        }
-      }
-    } catch (e) {
-      console.error("[SophisticatedVoiceAssistant] Microphone access denied:", e);
+      if (!recognitionRef.current) initializeAssistant();
+      startListening();
+    } catch(e) {
+      console.error("[ERROR] User denied microphone access or an error occurred:", e);
       setMicPermission("denied");
       setIsPermissionModalOpen(true);
     }
-  }, [initializeWebSpeech, startListening]);
+  }, [initializeAssistant, startListening]);
 
-  const checkAndRequestMicPermission = useCallback(async () => {
-    try {
-      if (navigator.permissions && navigator.permissions.query) {
-        const permissionStatus = await navigator.permissions.query({ name: "microphone" });
-        setMicPermission(permissionStatus.state);
-        
-        if (permissionStatus.state === "granted") {
-          const currentSettings = settingsRef.current;
-          if (currentSettings?.input_mode === 'local') {
-            if (!recognitionRef.current) {
-              initializeWebSpeech();
-            }
-            // Start listening for wake word if not already open
-            if (!isOpenRef.current) {
-              startListening();
-            }
-          }
-        } else if (permissionStatus.state === "prompt") {
-          setIsPermissionModalOpen(true);
-        } else if (permissionStatus.state === "denied") {
-          setMicPermission("denied");
-          setIsPermissionModalOpen(true);
-        }
-        
-        permissionStatus.onchange = () => {
-          setMicPermission(permissionStatus.state);
-          if (permissionStatus.state === "granted") {
-            const currentSettings = settingsRef.current;
-            if (currentSettings?.input_mode === 'local') {
-              if (!recognitionRef.current) {
-                initializeWebSpeech();
-              }
-              if (!isOpenRef.current) {
-                startListening();
-              }
-            }
-          }
-        };
-      } else {
-        console.warn("[SophisticatedVoiceAssistant] Permissions API not supported, showing modal as fallback.");
-        setIsPermissionModalOpen(true);
-      }
-    } catch (e) {
-      console.warn("[SophisticatedVoiceAssistant] Error checking permissions, showing modal:", e);
-      setMicPermission("denied");
-      setIsPermissionModalOpen(true);
+  const handleManualActivation = useCallback(() => {
+    console.log("[USER] Manually activating assistant.");
+    if (isOpenRef.current) return;
+    if (micPermission !== "granted") {
+      checkAndRequestMicPermission();
+    } else {
+      fetchAllAssistantData().then((latestSettings) => {
+        if (!latestSettings) return;
+        setIsOpen(true);
+        const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
+        speak(messageToSpeak);
+        setHasBeenActivated(true);
+      });
     }
-  }, [initializeWebSpeech, startListening]);
+  }, [micPermission, checkAndRequestMicPermission, speak, startListening, fetchAllAssistantData]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
       activationTriggerRef.current = activationTrigger;
-      console.log("[SophisticatedVoiceAssistant] Activation triggered by context.");
       handleManualActivation();
     }
   }, [activationTrigger, handleManualActivation]);
 
   useEffect(() => {
-    const currentSettings = settingsRef.current;
-    if (!currentSettings) return;
-
-    const shouldBeListening = 
-      (isOpen && hasBeenActivated && !isSpeaking) || // Assistant is open, activated, and not speaking
-      (!isOpen && micPermission === 'granted' && currentSettings.input_mode === 'local' && !stopPermanentlyRef.current); // Assistant is closed, mic granted, local mode, and not permanently stopped
-
-    console.log(`[SophisticatedVoiceAssistant] useEffect[shouldBeListening]: isOpen=${isOpen}, hasBeenActivated=${hasBeenActivated}, isSpeaking=${isSpeaking}, micPermission=${micPermission}, input_mode=${currentSettings.input_mode}, isListening=${isListening}, shouldBeListening=${shouldBeListening}`);
-
-    if (shouldBeListening && !isListening) {
-      startListening();
-    } else if (!shouldBeListening && isListening) {
-      stopListening();
-    }
-  }, [isOpen, isSpeaking, hasBeenActivated, isListening, micPermission, settings, startListening, stopListening]);
-
-  useEffect(() => {
+    console.log("[ASSISTANT] Component mounted.");
     if (!audioContextRef.current) {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
     }
     
-    fetchAllAssistantData().then((fetchedSettings) => {
-      if (fetchedSettings) {
-        if (fetchedSettings.input_mode === 'local') {
-          initializeWebSpeech();
-        }
-        checkAndRequestMicPermission();
-      }
+    fetchAllAssistantData().then(() => {
+      checkAndRequestMicPermission();
     });
-    
+
     return () => {
-      console.log("[SophisticatedVoiceAssistant] Component unmounting. Stopping all audio.");
+      console.log("[ASSISTANT] Component unmounting. Cleaning up...");
       stopPermanentlyRef.current = true;
-      stopListening();
+      recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-        recognitionRef.current.onstart = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onresult = null;
-      }
     };
-  }, [fetchAllAssistantData, checkAndRequestMicPermission, initializeWebSpeech, stopListening]);
+  }, [fetchAllAssistantData, checkAndRequestMicPermission]);
 
   if (isLoading || !settings) return null;
-  const showTranscriptUI = settings.show_transcript;
 
   return (
     <>
-      <MicrophonePermissionModal 
-        isOpen={isPermissionModalOpen} 
-        onAllow={handleAllowMic} 
-        onClose={() => setIsPermissionModalOpen(false)} 
-        permissionState={micPermission} 
+      <MicrophonePermissionModal
+        isOpen={isPermissionModalOpen}
+        onAllow={handleAllowMic}
+        onClose={() => setIsPermissionModalOpen(false)}
+        permissionState={micPermission as 'prompt' | 'denied' | 'checking'}
       />
       {imageToShow && (
-        <ImageModal 
-          imageUrl={imageToShow.imageUrl} 
-          altText={imageToShow.altText} 
-          onClose={() => { 
-            setImageToShow(null); 
-            if (isOpen) startListening(); 
-          }} 
-        />
+        <ImageModal imageUrl={imageToShow.imageUrl} altText={imageToShow.altText} onClose={() => { setImageToShow(null); startListening(); }} />
       )}
       {urlToOpenInIframe && (
-        <UrlIframeModal 
-          url={urlToOpenInIframe} 
-          onClose={() => { 
-            setUrlToOpenInIframe(null); 
-            if (isOpen) startListening(); 
-          }} 
-        />
+        <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />
       )}
-      <div className={cn(
-        "fixed inset-0 z-[9999] flex flex-col items-center justify-between p-8 transition-opacity duration-500",
-        isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-      )}>
+      <div
+        className={cn(
+          "fixed inset-0 z-[9999] flex flex-col items-center justify-between p-8 transition-opacity duration-500",
+          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        )}
+      >
         <div className="absolute inset-0 -z-10 pointer-events-none">
           <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
-          {/* <AIScene audioIntensity={audioIntensity} isMobile={isMobile} /> */}
+          <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
         </div>
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
-          {showTranscriptUI && aiResponse && (
+          {aiResponse && (
             <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)]">
-              <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">{aiResponse}</p>
+              <p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">
+                {aiResponse}
+              </p>
             </div>
           )}
-          {showTranscriptUI && transcript && (
+          {transcript && (
             <p className="text-gray-200 text-lg mt-4 drop-shadow-md">{transcript}</p>
           )}
         </div>
         <div className="flex items-center justify-center gap-4 p-4 bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-2xl shadow-[0_0_20px_rgba(0,255,255,0.1)] pointer-events-auto">
           <AudioVisualizer isSpeaking={isSpeaking} />
           <div className="p-4 bg-cyan-900/20 rounded-full border border-cyan-400/30">
-            <Mic className={cn(
-              "h-8 w-8 text-cyan-300 transition-all",
-              isListening && "text-cyan-200 animate-pulse drop-shadow-[0_0_8px_rgba(0,255,255,0.8)]"
-            )} />
+            <Mic className={cn("h-8 w-8 text-cyan-300 transition-all", isListening && "text-cyan-200 animate-pulse drop-shadow-[0_0_8px_rgba(0,255,255,0.8)]")} />
           </div>
           <AudioVisualizer isSpeaking={isSpeaking} />
         </div>
