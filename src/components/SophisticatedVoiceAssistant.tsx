@@ -558,16 +558,23 @@ const SophisticatedVoiceAssistant = () => {
       setIsPermissionModalOpen(true);
       return;
     }
-    fetchAllAssistantData().then((latestSettings) => {
-      if (!latestSettings) return;
-      setIsOpen(true);
-      setHasBeenActivated(true);
-      const message = hasBeenActivatedRef.current ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-      speak(message, () => {
-        if (isOpenRef.current) startListening();
-      });
+    const latestSettings = settingsRef.current;
+    if (!latestSettings) {
+        showError("Configurações do assistente ainda não carregaram.");
+        return;
+    }
+    
+    const message = hasBeenActivatedRef.current ? latestSettings.continuation_phrase : latestSettings.welcome_message;
+    
+    setIsOpen(true);
+    setHasBeenActivated(true);
+    
+    speak(message, () => {
+      if (isOpenRef.current) {
+        startListening();
+      }
     });
-  }, [micPermission, fetchAllAssistantData, speak, startListening]);
+  }, [micPermission, speak, startListening]);
 
   const initializeWebSpeech = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -587,11 +594,13 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.onend = () => {
       console.log("Speech recognition ended");
       setIsListening(false);
-      if (!stopListeningRef.current && !stopPermanentlyRef.current) {
-        console.log("Restarting speech recognition...");
+      // Only auto-restart if we are NOT supposed to be stopped and the assistant is CLOSED (i.e., we are listening for wake word)
+      if (!stopListeningRef.current && !stopPermanentlyRef.current && !isOpenRef.current) {
+        console.log("Restarting wake word listening...");
         setTimeout(() => {
           try {
-            if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current) {
+            // Double-check conditions before starting
+            if (recognitionRef.current && !isListeningRef.current && !isSpeakingRef.current && !isOpenRef.current) {
               recognitionRef.current.start();
             }
           } catch (e) {
@@ -615,11 +624,9 @@ const SophisticatedVoiceAssistant = () => {
       const currentSettings = settingsRef.current;
       if (!currentSettings) return;
       
-      // Always process commands when assistant is open
       if (isOpenRef.current) {
         processCommand(transcript);
       } else {
-        // Check for activation phrases when assistant is closed
         const activationPhrases = currentSettings.activation_phrases || ["ativar"];
         if (activationPhrases.some(p => transcript.includes(p.toLowerCase()))) {
           handleManualActivation();
@@ -799,7 +806,7 @@ const SophisticatedVoiceAssistant = () => {
       )}>
         <div className="absolute inset-0 -z-10 pointer-events-none">
           <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
-          <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
+          {/* <AIScene audioIntensity={audioIntensity} isMobile={isMobile} /> */}
         </div>
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
