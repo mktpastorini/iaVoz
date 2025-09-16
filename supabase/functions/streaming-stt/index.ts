@@ -6,22 +6,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Deepgram API URL for streaming transcription with real-time parameters
 const DEEPGRAM_URL = "wss://api.deepgram.com/v1/listen?model=nova-2-pt&language=pt-BR&smart_format=true&interim_results=true&endpointing=200&utterance_end_ms=1000";
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders, status: 204 });
   }
-  // Ensure the request is for a WebSocket upgrade
   if (req.headers.get("upgrade") !== "websocket") {
     return new Response("This endpoint requires a WebSocket connection.", { status: 400 });
   }
 
   const { socket: clientSocket, response } = Deno.upgradeWebSocket(req);
 
-  // Use the Supabase service role key to securely fetch API keys from the server-side
   const supabaseAdmin = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
@@ -33,7 +29,6 @@ serve(async (req) => {
   clientSocket.onopen = async () => {
     console.log("[Edge Function] Client WebSocket connected.");
     try {
-      // Fetch the Deepgram API key from the settings of the default (first created) workspace
       const { data: settings, error } = await supabaseAdmin
         .from('settings')
         .select('deepgram_api_key')
@@ -41,24 +36,26 @@ serve(async (req) => {
         .limit(1)
         .single();
 
+      // Log aprimorado para depuração da chave de API
       if (error || !settings?.deepgram_api_key) {
-        const errorMessage = "A chave de API do Deepgram não está configurada no painel de administração.";
-        console.error("[Edge Function] Error fetching Deepgram API key:", error?.message || "API key not found.");
-        clientSocket.send(JSON.stringify({ type: 'error', message: errorMessage }));
+        const logMessage = error ? `Database error: ${error.message}` : "API key not found in settings.";
+        const userMessage = "A chave de API do Deepgram não está configurada corretamente no painel de administração.";
+        console.error(`[Edge Function] Error fetching Deepgram API key: ${logMessage}`);
+        clientSocket.send(JSON.stringify({ type: 'error', message: userMessage }));
         clientSocket.close(1011, "Server configuration error.");
         return;
       }
+      
+      console.log("[Edge Function] Deepgram API key found. Connecting to Deepgram...");
 
-      // Establish a WebSocket connection to Deepgram, authenticating with the fetched key
       deepgramSocket = new WebSocket(DEEPGRAM_URL, ["token", settings.deepgram_api_key]);
 
       deepgramSocket.onopen = () => {
-        console.log("[Edge Function] Deepgram WebSocket connected.");
+        console.log("[Edge Function] Deepgram WebSocket connected successfully.");
         clientSocket.send(JSON.stringify({ type: 'info', message: 'Streaming connection established.' }));
       };
 
       deepgramSocket.onmessage = (event) => {
-        // Forward transcription results from Deepgram back to the client
         const deepgramMessage = JSON.parse(event.data);
         if (deepgramMessage.channel?.alternatives[0]?.transcript) {
             clientSocket.send(JSON.stringify({
@@ -70,14 +67,21 @@ serve(async (req) => {
 
       deepgramSocket.onclose = (event) => {
         console.log(`[Edge Function] Deepgram WebSocket closed: ${event.code} ${event.reason}`);
-        if (clientSocket.readyState === WebSocket.OPEN) {
+        // Adicionado log para erro de autenticação
+        if (event.code === 4001) {
+             const authErrorMessage = "Falha na autenticação com o Deepgram. Verifique se a chave de API é válida e tem permissões.";
+             console.error("[Edge Function] Deepgram authentication failed (Code 4001).");
+             if (clientSocket.readyState === WebSocket.OPEN) {
+                clientSocket.send(JSON.stringify({ type: 'error', message: authErrorMessage }));
+             }
+        } else if (clientSocket.readyState === WebSocket.OPEN) {
             clientSocket.send(JSON.stringify({ type: 'info', message: 'Streaming connection closed.' }));
         }
         deepgramSocket = null;
       };
 
       deepgramSocket.onerror = (error) => {
-        const errorMessage = "Ocorreu um erro com o serviço de streaming. Verifique se a chave de API do Deepgram é válida.";
+        const errorMessage = "Ocorreu um erro com o serviço de streaming. Verifique a validade da sua chave de API do Deepgram.";
         console.error("[Edge Function] Deepgram WebSocket error:", error);
         if (clientSocket.readyState === WebSocket.OPEN) {
             clientSocket.send(JSON.stringify({ type: 'error', message: errorMessage }));
@@ -92,7 +96,6 @@ serve(async (req) => {
   };
 
   clientSocket.onmessage = (event) => {
-    // When the client sends audio data, forward it to Deepgram
     if (deepgramSocket && deepgramSocket.readyState === WebSocket.OPEN) {
       deepgramSocket.send(event.data);
     }
@@ -101,7 +104,6 @@ serve(async (req) => {
   clientSocket.onclose = (event) => {
     console.log(`[Edge Function] Client WebSocket closed: ${event.code} ${event.reason}`);
     if (deepgramSocket && deepgramSocket.readyState === WebSocket.OPEN) {
-      // Gracefully close the connection to Deepgram
       deepgramSocket.send(JSON.stringify({ type: 'CloseStream' }));
       deepgramSocket.close();
     }

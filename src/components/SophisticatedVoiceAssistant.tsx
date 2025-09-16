@@ -612,6 +612,8 @@ const SophisticatedVoiceAssistant = () => {
         const activationPhrases = currentSettings.activation_phrases || [];
         if (activationPhrases.some(phrase => transcript.includes(phrase.toLowerCase()))) {
           console.log(`[USER] Activation phrase detected.`);
+          // Correção: Parar de ouvir para evitar múltiplos gatilhos antes de ativar
+          stopListening();
           handleManualActivation();
         }
       }
