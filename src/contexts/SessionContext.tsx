@@ -63,7 +63,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   useEffect(() => {
     const fetchUserData = async () => {
-      // Only fetch data if there is a logged-in user
       if (user && user.id) {
         if (user.id === lastUserIdRef.current) {
           setInitialLoadComplete(true);
@@ -108,7 +107,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
           setWorkspace(workspaceData);
         }
       } else {
-        // If no user, clear data and mark as loaded
         lastUserIdRef.current = null;
         setProfile(null);
         setWorkspace(null);
