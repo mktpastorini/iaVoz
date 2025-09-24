@@ -135,7 +135,8 @@ const SettingsPage: React.FC = () => {
       return;
     }
 
-    const settingsData = {
+    // Construir o objeto de dados de forma explícita para evitar problemas de formatação
+    const settingsData: any = {
       workspace_id: workspace.id,
       system_prompt: formData.system_prompt,
       assistant_prompt: formData.assistant_prompt,
@@ -154,6 +155,8 @@ const SettingsPage: React.FC = () => {
       welcome_message: formData.welcome_message || null,
       continuation_phrase: formData.continuation_phrase || null,
     };
+
+    console.log("Dados sendo enviados para o Supabase:", settingsData); // Log para debug
 
     const { error } = await supabase.from("settings").upsert(
       settingsData,
