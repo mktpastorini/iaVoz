@@ -14,7 +14,7 @@ import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import { OglOrb } from "./OglOrb";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 
