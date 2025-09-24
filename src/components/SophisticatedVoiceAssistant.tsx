@@ -131,6 +131,7 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
+  // Funções de áudio básicas (definidas primeiro)
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
       console.log("[SPEECH] Stopping local listening.");
@@ -199,6 +200,85 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
+  // Funções de streaming (definidas antes de speak)
+  const stopStreaming = useCallback(() => {
+    if (isStreamingRef.current) {
+      console.log("[STREAMING] Stopping stream...");
+      isStreamingRef.current = false;
+      setIsListening(false);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      if (sttSocketRef.current && sttSocketRef.current.readyState === WebSocket.OPEN) {
+        sttSocketRef.current.close();
+      }
+      mediaRecorderRef.current = null;
+      sttSocketRef.current = null;
+    }
+  }, []);
+
+  const startStreaming = useCallback(async () => {
+    if (isStreamingRef.current || isSpeakingRef.current || stopPermanentlyRef.current) {
+      return;
+    }
+    console.log("[STREAMING] Starting stream...");
+    isStreamingRef.current = true;
+    setIsListening(true);
+    setTranscript("");
+    setInterimTranscript("");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      sttSocketRef.current = new WebSocket(STREAMING_STT_FUNCTION_URL);
+
+      sttSocketRef.current.onopen = () => {
+        console.log("[STREAMING] WebSocket connected. Starting media recorder.");
+        mediaRecorderRef.current?.start(250); // Send audio data every 250ms
+      };
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0 && sttSocketRef.current?.readyState === WebSocket.OPEN) {
+          sttSocketRef.current.send(event.data);
+        }
+      };
+
+      sttSocketRef.current.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type === 'transcript') {
+          const transcriptData = message.data;
+          const newTranscript = transcriptData.channel.alternatives[0].transcript;
+          if (transcriptData.is_final) {
+            setTranscript(prev => (prev + " " + newTranscript).trim());
+            setInterimTranscript("");
+            if (transcriptData.speech_final) {
+              const finalUtterance = (transcript + " " + newTranscript).trim();
+              console.log(`[STREAMING] Final utterance received: "${finalUtterance}"`);
+              stopStreaming();
+              runConversation(finalUtterance);
+            }
+          } else {
+            setInterimTranscript(newTranscript);
+          }
+        } else if (message.type === 'error') {
+          console.error("[STREAMING] Error from Edge Function:", message.message);
+          showError(`Erro no streaming: ${message.message}`);
+          stopStreaming();
+        }
+      };
+
+      sttSocketRef.current.onclose = () => console.log("[STREAMING] WebSocket closed.");
+      sttSocketRef.current.onerror = (err) => { console.error("[STREAMING] WebSocket error:", err); stopStreaming(); };
+
+    } catch (err) {
+      console.error("[STREAMING] Error starting stream:", err);
+      showError("Não foi possível iniciar o microfone para streaming.");
+      isStreamingRef.current = false;
+      setIsListening(false);
+    }
+  }, [stopStreaming, runConversation, transcript]);
+
+  // Agora speak pode usar startStreaming com segurança
   const speak = useCallback(async (text, onEndCallback) => {
     const currentSettings = settingsRef.current;
     if (!text || !currentSettings) {
@@ -480,83 +560,6 @@ const SophisticatedVoiceAssistant = () => {
       showError(`Erro na conversa: ${e.message}`);
     }
   }, [speak, stopListening, stopStreaming]);
-
-  const stopStreaming = useCallback(() => {
-    if (isStreamingRef.current) {
-      console.log("[STREAMING] Stopping stream...");
-      isStreamingRef.current = false;
-      setIsListening(false);
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-      if (sttSocketRef.current && sttSocketRef.current.readyState === WebSocket.OPEN) {
-        sttSocketRef.current.close();
-      }
-      mediaRecorderRef.current = null;
-      sttSocketRef.current = null;
-    }
-  }, []);
-
-  const startStreaming = useCallback(async () => {
-    if (isStreamingRef.current || isSpeakingRef.current || stopPermanentlyRef.current) {
-      return;
-    }
-    console.log("[STREAMING] Starting stream...");
-    isStreamingRef.current = true;
-    setIsListening(true);
-    setTranscript("");
-    setInterimTranscript("");
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      sttSocketRef.current = new WebSocket(STREAMING_STT_FUNCTION_URL);
-
-      sttSocketRef.current.onopen = () => {
-        console.log("[STREAMING] WebSocket connected. Starting media recorder.");
-        mediaRecorderRef.current?.start(250); // Send audio data every 250ms
-      };
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0 && sttSocketRef.current?.readyState === WebSocket.OPEN) {
-          sttSocketRef.current.send(event.data);
-        }
-      };
-
-      sttSocketRef.current.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === 'transcript') {
-          const transcriptData = message.data;
-          const newTranscript = transcriptData.channel.alternatives[0].transcript;
-          if (transcriptData.is_final) {
-            setTranscript(prev => (prev + " " + newTranscript).trim());
-            setInterimTranscript("");
-            if (transcriptData.speech_final) {
-              const finalUtterance = (transcript + " " + newTranscript).trim();
-              console.log(`[STREAMING] Final utterance received: "${finalUtterance}"`);
-              stopStreaming();
-              runConversation(finalUtterance);
-            }
-          } else {
-            setInterimTranscript(newTranscript);
-          }
-        } else if (message.type === 'error') {
-          console.error("[STREAMING] Error from Edge Function:", message.message);
-          showError(`Erro no streaming: ${message.message}`);
-          stopStreaming();
-        }
-      };
-
-      sttSocketRef.current.onclose = () => console.log("[STREAMING] WebSocket closed.");
-      sttSocketRef.current.onerror = (err) => { console.error("[STREAMING] WebSocket error:", err); stopStreaming(); };
-
-    } catch (err) {
-      console.error("[STREAMING] Error starting stream:", err);
-      showError("Não foi possível iniciar o microfone para streaming.");
-      isStreamingRef.current = false;
-      setIsListening(false);
-    }
-  }, [stopStreaming, runConversation, transcript]);
 
   const initializeAssistant = useCallback(() => {
     console.log("[ASSISTANT] Initializing...");
