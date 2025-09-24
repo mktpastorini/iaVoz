@@ -667,8 +667,8 @@ const SophisticatedVoiceAssistant = () => {
           isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         )}
       >
+        <div className="absolute inset-0 -z-20 pointer-events-none bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
         <div className="absolute inset-0 -z-10 pointer-events-none">
-          <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
           <Orb audioIntensity={audioIntensity} />
         </div>
         <div />
