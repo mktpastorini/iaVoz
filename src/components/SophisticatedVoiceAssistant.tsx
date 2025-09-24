@@ -13,11 +13,10 @@ import { Mic, X } from "lucide-react";
 import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
+import { AIScene } from "./AIScene";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { OrbScene } from "./OrbScene"; // Importar o novo OrbScene
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
-const STREAMING_STT_FUNCTION_URL = `wss://mcnegecxqstyqlbcrhxp.supabase.co/functions/v1/streaming-stt`;
 
 const ImageModal = ({ imageUrl, altText, onClose }) => (
   <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/80" onClick={onClose}>
@@ -34,7 +33,7 @@ const SophisticatedVoiceAssistant = () => {
   const { session } = useSession();
   const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
-  const isMobile = useIsMobile(); // Mantido caso precise para outros elementos da UI
+  const isMobile = useIsMobile();
 
   const [settings, setSettings] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,7 +51,6 @@ const SophisticatedVoiceAssistant = () => {
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
   const [audioIntensity, setAudioIntensity] = useState(0);
-  const [interimTranscript, setInterimTranscript] = useState("");
 
   // Refs
   const settingsRef = useRef(settings);
@@ -73,10 +71,6 @@ const SophisticatedVoiceAssistant = () => {
   const activationTriggerRef = useRef(0);
   const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Streaming Refs
-  const sttSocketRef = useRef<WebSocket | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const isStreamingRef = useRef(false);
 
   // Web Audio API refs
   const audioContextRef = useRef(null);
@@ -101,15 +95,38 @@ const SophisticatedVoiceAssistant = () => {
     console.log("[ASSISTANT] Fetching all assistant data...");
     setIsLoading(true);
     try {
-      const { data: settingsData, error } = await supabase
-        .from("settings")
-        .select("*")
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .single();
-      
-      if (error && error.code !== 'PGRST116') throw error;
+      let settingsData = null;
+      const currentSession = sessionRef.current;
 
+      if (currentSession) {
+        const { data: workspaceMember } = await supabase
+          .from('workspace_members')
+          .select('workspace_id')
+          .eq('user_id', currentSession.user.id)
+          .limit(1)
+          .single();
+        
+        if (workspaceMember) {
+          const { data } = await supabase
+            .from("settings")
+            .select("*")
+            .eq('workspace_id', workspaceMember.workspace_id)
+            .limit(1)
+            .single();
+          settingsData = data;
+        }
+      }
+      
+      if (!settingsData) {
+        const { data } = await supabase
+          .from("settings")
+          .select("*")
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .single();
+        settingsData = data;
+      }
+      
       setSettings(settingsData);
       console.log("[ASSISTANT] Settings loaded:", settingsData);
 
@@ -131,10 +148,9 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
-  // Funções de áudio básicas (definidas primeiro)
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListeningRef.current) {
-      console.log("[SPEECH] Stopping local listening.");
+      console.log("[SPEECH] Stopping listening.");
       recognitionRef.current.stop();
     }
   }, []);
@@ -144,10 +160,10 @@ const SophisticatedVoiceAssistant = () => {
       return;
     }
     try {
-      console.log("[SPEECH] Starting local listening.");
+      console.log("[SPEECH] Starting listening.");
       recognitionRef.current.start();
     } catch (e) {
-      console.error("[ERROR] Error starting local recognition:", e);
+      console.error("[ERROR] Error starting recognition:", e);
     }
   }, []);
 
@@ -200,85 +216,6 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
-  // Funções de streaming (definidas antes de speak)
-  const stopStreaming = useCallback(() => {
-    if (isStreamingRef.current) {
-      console.log("[STREAMING] Stopping stream...");
-      isStreamingRef.current = false;
-      setIsListening(false);
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-      if (sttSocketRef.current && sttSocketRef.current.readyState === WebSocket.OPEN) {
-        sttSocketRef.current.close();
-      }
-      mediaRecorderRef.current = null;
-      sttSocketRef.current = null;
-    }
-  }, []);
-
-  const startStreaming = useCallback(async () => {
-    if (isStreamingRef.current || isSpeakingRef.current || stopPermanentlyRef.current) {
-      return;
-    }
-    console.log("[STREAMING] Starting stream...");
-    isStreamingRef.current = true;
-    setIsListening(true);
-    setTranscript("");
-    setInterimTranscript("");
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      sttSocketRef.current = new WebSocket(STREAMING_STT_FUNCTION_URL);
-
-      sttSocketRef.current.onopen = () => {
-        console.log("[STREAMING] WebSocket connected. Starting media recorder.");
-        mediaRecorderRef.current?.start(250); // Send audio data every 250ms
-      };
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0 && sttSocketRef.current?.readyState === WebSocket.OPEN) {
-          sttSocketRef.current.send(event.data);
-        }
-      };
-
-      sttSocketRef.current.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === 'transcript') {
-          const transcriptData = message.data;
-          const newTranscript = transcriptData.channel.alternatives[0].transcript;
-          if (transcriptData.is_final) {
-            setTranscript(prev => (prev + " " + newTranscript).trim());
-            setInterimTranscript("");
-            if (transcriptData.speech_final) {
-              const finalUtterance = (transcript + " " + newTranscript).trim();
-              console.log(`[STREAMING] Final utterance received: "${finalUtterance}"`);
-              stopStreaming();
-              runConversation(finalUtterance);
-            }
-          } else {
-            setInterimTranscript(newTranscript);
-          }
-        } else if (message.type === 'error') {
-          console.error("[STREAMING] Error from Edge Function:", message.message);
-          showError(`Erro no streaming: ${message.message}`);
-          stopStreaming();
-        }
-      };
-
-      sttSocketRef.current.onclose = () => console.log("[STREAMING] WebSocket closed.");
-      sttSocketRef.current.onerror = (err) => { console.error("[STREAMING] WebSocket error:", err); stopStreaming(); };
-
-    } catch (err) {
-      console.error("[STREAMING] Error starting stream:", err);
-      showError("Não foi possível iniciar o microfone para streaming.");
-      isStreamingRef.current = false;
-      setIsListening(false);
-    }
-  }, [stopStreaming, runConversation, transcript]);
-
-  // Agora speak pode usar startStreaming com segurança
   const speak = useCallback(async (text, onEndCallback) => {
     const currentSettings = settingsRef.current;
     if (!text || !currentSettings) {
@@ -302,18 +239,13 @@ const SophisticatedVoiceAssistant = () => {
         setAudioIntensity(0);
         onEndCallback?.();
         if (isOpenRef.current && !stopPermanentlyRef.current) {
-          if (settingsRef.current?.input_mode === 'streaming') {
-            startStreaming();
-          } else {
-            startListening();
-          }
+          startListening();
         }
       }
     };
 
     stopSpeaking();
     stopListening();
-    stopStreaming();
 
     isSpeakingRef.current = true;
     setIsSpeaking(true);
@@ -344,7 +276,7 @@ const SophisticatedVoiceAssistant = () => {
         audioRef.current = new Audio(audioUrl);
         setupAudioAnalysis();
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = (e) => { console.error("[ERROR] HTML Audio Element Error:", e); onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
         runAudioAnalysis();
       } else {
@@ -356,7 +288,7 @@ const SophisticatedVoiceAssistant = () => {
       showError(`Erro na síntese de voz: ${e.message}`);
       onSpeechEnd();
     }
-  }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis, startStreaming]);
+  }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
   const executeClientAction = useCallback((action) => {
     console.log(`[ACTION] Executing client action: ${action.action_type}`, action.action_payload);
@@ -377,7 +309,6 @@ const SophisticatedVoiceAssistant = () => {
     setTranscript(userMessage);
     setAiResponse("");
     stopListening();
-    stopStreaming(); // Garante que o streaming pare ao iniciar a conversa
 
     const currentHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
     setMessageHistory(currentHistory);
@@ -559,7 +490,7 @@ const SophisticatedVoiceAssistant = () => {
       speak(errorMsg);
       showError(`Erro na conversa: ${e.message}`);
     }
-  }, [speak, stopListening, stopStreaming]);
+  }, [speak, stopListening]);
 
   const initializeAssistant = useCallback(() => {
     console.log("[ASSISTANT] Initializing...");
@@ -616,9 +547,13 @@ const SophisticatedVoiceAssistant = () => {
         const activationPhrases = currentSettings.activation_phrases || [];
         if (activationPhrases.some(phrase => transcript.includes(phrase.toLowerCase()))) {
           console.log(`[USER] Activation phrase detected.`);
-          // Correção: Parar de ouvir para evitar múltiplos gatilhos antes de ativar
-          stopListening();
-          handleManualActivation();
+          fetchAllAssistantData().then((latestSettings) => {
+            if (!latestSettings) return;
+            setIsOpen(true);
+            const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
+            speak(messageToSpeak);
+            setHasBeenActivated(true);
+          });
         }
       }
     };
@@ -626,7 +561,7 @@ const SophisticatedVoiceAssistant = () => {
       synthRef.current = window.speechSynthesis;
       console.log("[ASSISTANT] Speech Synthesis initialized.");
     }
-  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData, startStreaming, handleManualActivation]);
+  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log("[ASSISTANT] Checking microphone permission...");
@@ -636,12 +571,7 @@ const SophisticatedVoiceAssistant = () => {
       setMicPermission(permissionStatus.state);
       if (permissionStatus.state === "granted") {
         if (!recognitionRef.current) initializeAssistant();
-        // Decide whether to start local listening or streaming based on settings
-        if (settingsRef.current?.input_mode === 'streaming') {
-          startStreaming();
-        } else {
-          startListening();
-        }
+        startListening();
       } else {
         setIsPermissionModalOpen(true);
       }
@@ -653,7 +583,7 @@ const SophisticatedVoiceAssistant = () => {
       console.error("[ERROR] Could not query microphone permission:", e);
       setMicPermission("denied");
     }
-  }, [initializeAssistant, startListening, startStreaming]);
+  }, [initializeAssistant, startListening]);
 
   const handleAllowMic = useCallback(async () => {
     console.log("[USER] Clicked 'Allow Microphone'.");
@@ -666,29 +596,17 @@ const SophisticatedVoiceAssistant = () => {
       console.log("[ASSISTANT] Microphone access granted by user.");
       setMicPermission("granted");
       if (!recognitionRef.current) initializeAssistant();
-      // Decide whether to start local listening or streaming based on settings
-      if (settingsRef.current?.input_mode === 'streaming') {
-        startStreaming();
-      } else {
-        startListening();
-      }
+      startListening();
     } catch(e) {
       console.error("[ERROR] User denied microphone access or an error occurred:", e);
       setMicPermission("denied");
       setIsPermissionModalOpen(true);
     }
-  }, [initializeAssistant, startListening, startStreaming]);
+  }, [initializeAssistant, startListening]);
 
   const handleManualActivation = useCallback(() => {
     console.log("[USER] Manually activating assistant.");
     if (isOpenRef.current) return;
-    
-    // Resume AudioContext on user interaction
-    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-      console.log("[AUDIO] Resuming AudioContext due to user gesture.");
-      audioContextRef.current.resume();
-    }
-
     if (micPermission !== "granted") {
       checkAndRequestMicPermission();
     } else {
@@ -696,17 +614,11 @@ const SophisticatedVoiceAssistant = () => {
         if (!latestSettings) return;
         setIsOpen(true);
         const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-        speak(messageToSpeak, () => {
-          if (latestSettings.input_mode === 'streaming') {
-            startStreaming();
-          } else {
-            startListening();
-          }
-        });
+        speak(messageToSpeak);
         setHasBeenActivated(true);
       });
     }
-  }, [micPermission, checkAndRequestMicPermission, speak, startListening, fetchAllAssistantData, startStreaming]);
+  }, [micPermission, checkAndRequestMicPermission, speak, startListening, fetchAllAssistantData]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
@@ -721,9 +633,7 @@ const SophisticatedVoiceAssistant = () => {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
     }
     
-    fetchAllAssistantData().then((initialSettings) => {
-      // After fetching settings, then check mic permission
-      settingsRef.current = initialSettings; // Ensure ref is updated immediately
+    fetchAllAssistantData().then(() => {
       checkAndRequestMicPermission();
     });
 
@@ -732,9 +642,8 @@ const SophisticatedVoiceAssistant = () => {
       stopPermanentlyRef.current = true;
       recognitionRef.current?.abort();
       if (synthRef.current?.speaking) synthRef.current.cancel();
-      stopStreaming();
     };
-  }, [fetchAllAssistantData, checkAndRequestMicPermission, stopStreaming]);
+  }, [fetchAllAssistantData, checkAndRequestMicPermission]);
 
   if (isLoading || !settings) return null;
 
@@ -760,8 +669,7 @@ const SophisticatedVoiceAssistant = () => {
       >
         <div className="absolute inset-0 -z-10 pointer-events-none">
           <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
-          {/* Substituído AIScene pelo novo OrbScene */}
-          <OrbScene audioIntensity={audioIntensity} />
+          <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
         </div>
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
@@ -772,10 +680,8 @@ const SophisticatedVoiceAssistant = () => {
               </p>
             </div>
           )}
-          {(transcript || interimTranscript) && (
-            <p className="text-gray-200 text-lg mt-4 drop-shadow-md">
-              {transcript} <span className="text-gray-400">{interimTranscript}</span>
-            </p>
+          {transcript && (
+            <p className="text-gray-200 text-lg mt-4 drop-shadow-md">{transcript}</p>
           )}
         </div>
         <div className="flex items-center justify-center gap-4 p-4 bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-2xl shadow-[0_0_20px_rgba(0,255,255,0.1)] pointer-events-auto">
