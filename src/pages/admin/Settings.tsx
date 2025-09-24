@@ -135,17 +135,34 @@ const SettingsPage: React.FC = () => {
       return;
     }
 
+    const settingsData = {
+      workspace_id: workspace.id,
+      system_prompt: formData.system_prompt,
+      assistant_prompt: formData.assistant_prompt,
+      ai_model: formData.ai_model,
+      voice_model: formData.voice_model,
+      enable_streaming_voice: formData.enable_streaming_voice,
+      openai_tts_voice: formData.openai_tts_voice || null,
+      voice_sensitivity: formData.voice_sensitivity,
+      openai_api_key: formData.openai_api_key || null,
+      gemini_api_key: formData.gemini_api_key || null,
+      deepgram_api_key: formData.deepgram_api_key || null,
+      google_tts_api_key: formData.google_tts_api_key || null,
+      conversation_memory_length: formData.conversation_memory_length,
+      activation_phrases: formData.activation_phrases,
+      deactivation_phrases: formData.deactivation_phrases,
+      welcome_message: formData.welcome_message || null,
+      continuation_phrase: formData.continuation_phrase || null,
+    };
+
     const { error } = await supabase.from("settings").upsert(
-      {
-        workspace_id: workspace.id,
-        ...formData,
-      },
+      settingsData,
       { onConflict: "workspace_id" }
     );
 
     if (error) {
       showError("Erro ao salvar configurações.");
-      console.error(error);
+      console.error("Supabase error:", error);
     } else {
       showSuccess("Configurações salvas com sucesso!");
     }
@@ -333,27 +350,21 @@ const SettingsPage: React.FC = () => {
       <Card>
         <CardHeader><CardTitle>Chaves de API</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          {voiceModel === 'openai-tts' && (
-            <div>
-              <Label>Chave API OpenAI</Label>
-              <Input {...register("openai_api_key")} type="password" placeholder="Sua chave API OpenAI" />
-            </div>
-          )}
-          {voiceModel === 'deepgram' && (
-            <div>
-              <Label>Chave API Deepgram</Label>
-              <Input {...register("deepgram_api_key")} type="password" placeholder="Sua chave API Deepgram" />
-            </div>
-          )}
-          {voiceModel === 'google-tts' && (
-            <div>
-              <Label>Chave API Google TTS</Label>
-              <Input {...register("google_tts_api_key")} type="password" placeholder="Sua chave API Google Cloud" />
-            </div>
-          )}
+          <div>
+            <Label>Chave API OpenAI</Label>
+            <Input {...register("openai_api_key")} type="password" placeholder="Usada para IA e Voz OpenAI TTS" />
+          </div>
+          <div>
+            <Label>Chave API Deepgram</Label>
+            <Input {...register("deepgram_api_key")} type="password" placeholder="Usada para Voz Deepgram" />
+          </div>
+          <div>
+            <Label>Chave API Google TTS</Label>
+            <Input {...register("google_tts_api_key")} type="password" placeholder="Usada para Voz Google" />
+          </div>
           <div>
             <Label>Chave API Gemini</Label>
-            <Input {...register("gemini_api_key")} type="password" placeholder="Sua chave API Gemini" />
+            <Input {...register("gemini_api_key")} type="password" placeholder="Usada para IA Gemini (futuro)" />
           </div>
         </CardContent>
       </Card>
