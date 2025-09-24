@@ -13,12 +13,12 @@ import { Mic, X } from "lucide-react";
 import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
-import { AIScene } from "./AIScene";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { OglOrb } from "./OglOrb";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 
-const ImageModal = ({ imageUrl, altText, onClose }) => (
+const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string, altText: string, onClose: () => void }) => (
   <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/80" onClick={onClose}>
     <div className="relative max-w-4xl max-h-[80vh] p-4" onClick={(e) => e.stopPropagation()}>
       <img src={imageUrl} alt={altText} className="w-full h-full object-contain rounded-lg" />
@@ -35,18 +35,18 @@ const SophisticatedVoiceAssistant = () => {
   const { activationTrigger } = useVoiceAssistant();
   const isMobile = useIsMobile();
 
-  const [settings, setSettings] = useState(null);
+  const [settings, setSettings] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
-  const [messageHistory, setMessageHistory] = useState([]);
-  const [powers, setPowers] = useState([]);
-  const [clientActions, setClientActions] = useState([]);
-  const [imageToShow, setImageToShow] = useState(null);
-  const [urlToOpenInIframe, setUrlToOpenInIframe] = useState(null);
+  const [messageHistory, setMessageHistory] = useState<any[]>([]);
+  const [powers, setPowers] = useState<any[]>([]);
+  const [clientActions, setClientActions] = useState<any[]>([]);
+  const [imageToShow, setImageToShow] = useState<any>(null);
+  const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null);
   const [micPermission, setMicPermission] = useState("checking");
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
@@ -64,19 +64,19 @@ const SophisticatedVoiceAssistant = () => {
   const sessionRef = useRef(session);
   const messageHistoryRef = useRef(messageHistory);
 
-  const recognitionRef = useRef(null);
-  const synthRef = useRef(null);
-  const audioRef = useRef(null);
+  const recognitionRef = useRef<any>(null);
+  const synthRef = useRef<SpeechSynthesis | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
   const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 
   // Web Audio API refs
-  const audioContextRef = useRef(null);
-  const analyserRef = useRef(null);
-  const sourceRef = useRef(null);
-  const animationFrameRef = useRef(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   // Sync refs with state
   useEffect(() => { settingsRef.current = settings; }, [settings]);
@@ -216,7 +216,7 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
-  const speak = useCallback(async (text, onEndCallback) => {
+  const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
     const currentSettings = settingsRef.current;
     if (!text || !currentSettings) {
       onEndCallback?.();
@@ -290,7 +290,7 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, [stopSpeaking, stopListening, startListening, setupAudioAnalysis, runAudioAnalysis]);
 
-  const executeClientAction = useCallback((action) => {
+  const executeClientAction = useCallback((action: any) => {
     console.log(`[ACTION] Executing client action: ${action.action_type}`, action.action_payload);
     stopListening();
     speak("Ok, executando.", () => {
@@ -303,7 +303,7 @@ const SophisticatedVoiceAssistant = () => {
     });
   }, [speak, stopListening]);
 
-  const runConversation = useCallback(async (userMessage) => {
+  const runConversation = useCallback(async (userMessage: string) => {
     if (!userMessage) return;
     console.log(`[AI] Starting conversation with user message: "${userMessage}"`);
     setTranscript(userMessage);
@@ -350,10 +350,10 @@ const SophisticatedVoiceAssistant = () => {
         throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`);
       }
 
-      const reader = response.body.getReader();
+      const reader = response.body!.getReader();
       const decoder = new TextDecoder();
       let fullResponse = "";
-      let toolCalls = [];
+      let toolCalls: any[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -376,7 +376,7 @@ const SophisticatedVoiceAssistant = () => {
                 setAiResponse(current => current + delta.content);
               }
               if (delta?.tool_calls) {
-                delta.tool_calls.forEach(toolCall => {
+                delta.tool_calls.forEach((toolCall: any) => {
                   if (!toolCalls[toolCall.index]) {
                     toolCalls[toolCall.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
                   }
@@ -401,7 +401,7 @@ const SophisticatedVoiceAssistant = () => {
         speak(`Ok, um momento enquanto eu acesso minhas ferramentas.`, async () => {
             let toolResponses;
             try {
-                const toolPromises = aiMessage.tool_calls.map(async (toolCall) => {
+                const toolPromises = aiMessage.tool_calls!.map(async (toolCall) => {
                     const functionName = toolCall.function.name;
                     const functionArgs = JSON.parse(toolCall.function.arguments);
                     
@@ -429,7 +429,7 @@ const SophisticatedVoiceAssistant = () => {
                 toolResponses = await Promise.all(toolPromises);
             } catch (e: any) {
                 console.error("[ERROR] A tool execution failed:", e);
-                toolResponses = aiMessage.tool_calls.map(toolCall => ({
+                toolResponses = aiMessage.tool_calls!.map(toolCall => ({
                     tool_call_id: toolCall.id,
                     role: "tool",
                     name: toolCall.function.name,
@@ -453,7 +453,7 @@ const SophisticatedVoiceAssistant = () => {
             });
             if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
             
-            const secondReader = secondResponse.body.getReader();
+            const secondReader = secondResponse.body!.getReader();
             let finalResponseText = "";
             while (true) {
                 const { done, value } = await secondReader.read();
@@ -494,7 +494,7 @@ const SophisticatedVoiceAssistant = () => {
 
   const initializeAssistant = useCallback(() => {
     console.log("[ASSISTANT] Initializing...");
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       console.error("[ERROR] Speech Recognition not supported by this browser.");
       showError("Reconhecimento de voz não suportado.");
@@ -512,14 +512,14 @@ const SophisticatedVoiceAssistant = () => {
       console.log("[SPEECH] Recognition ended.");
       if (!isSpeakingRef.current && !stopPermanentlyRef.current) startListening();
     };
-    recognitionRef.current.onerror = (e) => {
+    recognitionRef.current.onerror = (e: any) => {
       console.error("[ERROR] Speech Recognition Error:", e.error, e.message);
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         setMicPermission("denied");
         setIsPermissionModalOpen(true);
       }
     };
-    recognitionRef.current.onresult = (event) => {
+    recognitionRef.current.onresult = (event: any) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
       console.log(`[USER] Recognized transcript: "${transcript}"`);
       
@@ -528,7 +528,7 @@ const SophisticatedVoiceAssistant = () => {
 
       if (isOpenRef.current) {
         const closePhrases = currentSettings.deactivation_phrases || [];
-        if (closePhrases.some((phrase) => transcript.includes(phrase.toLowerCase()))) {
+        if (closePhrases.some((phrase: string) => transcript.includes(phrase.toLowerCase()))) {
           console.log("[USER] Close phrase detected. Closing assistant.");
           setIsOpen(false);
           setAiResponse("");
@@ -545,7 +545,7 @@ const SophisticatedVoiceAssistant = () => {
         runConversation(transcript);
       } else {
         const activationPhrases = currentSettings.activation_phrases || [];
-        if (activationPhrases.some(phrase => transcript.includes(phrase.toLowerCase()))) {
+        if (activationPhrases.some((phrase: string) => transcript.includes(phrase.toLowerCase()))) {
           console.log(`[USER] Activation phrase detected.`);
           fetchAllAssistantData().then((latestSettings) => {
             if (!latestSettings) return;
@@ -566,7 +566,7 @@ const SophisticatedVoiceAssistant = () => {
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log("[ASSISTANT] Checking microphone permission...");
     try {
-      const permissionStatus = await navigator.permissions.query({ name: "microphone" });
+      const permissionStatus = await navigator.permissions.query({ name: "microphone" as PermissionName });
       console.log(`[ASSISTANT] Microphone permission status: ${permissionStatus.state}`);
       setMicPermission(permissionStatus.state);
       if (permissionStatus.state === "granted") {
@@ -630,7 +630,7 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => {
     console.log("[ASSISTANT] Component mounted.");
     if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      audioContextRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)();
     }
     
     fetchAllAssistantData().then(() => {
@@ -669,7 +669,7 @@ const SophisticatedVoiceAssistant = () => {
       >
         <div className="absolute inset-0 -z-10 pointer-events-none">
           <div className="absolute inset-0 bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
-          <AIScene audioIntensity={audioIntensity} isMobile={isMobile} />
+          <OglOrb audioIntensity={audioIntensity} />
         </div>
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">

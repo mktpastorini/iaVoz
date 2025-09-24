@@ -3,7 +3,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
-import { AIScene } from "@/components/AIScene";
+import { OglOrb } from "@/components/OglOrb";
 
 const Index = () => {
   const { activateAssistant } = useVoiceAssistant();
@@ -63,7 +63,7 @@ const Index = () => {
 
       {/* Background scene behind UI */}
       <div className="fixed inset-0 -z-10 pointer-events-none">
-        <AIScene />
+        <OglOrb audioIntensity={0} />
       </div>
     </div>
   );
