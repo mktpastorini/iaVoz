@@ -70,7 +70,10 @@ const SophisticatedVoiceAssistant = () => {
   const stopPermanentlyRef = useRef(false);
   const activationTriggerRef = useRef(0);
   const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+  const mediaSourceRef = useRef<MediaSource | null>(null);
+  const sourceBufferRef = useRef<SourceBuffer | null>(null);
+  const audioChunkQueue = useRef<ArrayBuffer[]>([]);
+  const isAppendingBuffer = useRef(false);
 
   // Web Audio API refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -175,7 +178,23 @@ const SophisticatedVoiceAssistant = () => {
     if (audioRef.current && !audioRef.current.paused) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      if (audioRef.current.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audioRef.current.src);
+        audioRef.current.src = '';
+      }
     }
+    if (mediaSourceRef.current && mediaSourceRef.current.readyState === 'open') {
+      try {
+        mediaSourceRef.current.endOfStream();
+      } catch (e) {
+        console.warn("Error ending MediaSource stream:", e);
+      }
+    }
+    mediaSourceRef.current = null;
+    sourceBufferRef.current = null;
+    audioChunkQueue.current = [];
+    isAppendingBuffer.current = false;
+
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -252,9 +271,6 @@ const SophisticatedVoiceAssistant = () => {
     setAiResponse(text);
     console.log(`[SPEECH] Speaking: "${text}"`);
 
-    const estimatedSpeechTime = (text.length / 15) * 1000 + 3000;
-    speechTimeoutRef.current = setTimeout(onSpeechEnd, estimatedSpeechTime);
-
     try {
       if (currentSettings.voice_model === "browser" && synthRef.current) {
         console.log("[SPEECH] Using browser Web Speech API for synthesis.");
@@ -264,21 +280,92 @@ const SophisticatedVoiceAssistant = () => {
         utterance.onerror = (e) => { console.error("[ERROR] SpeechSynthesis Error:", e); onSpeechEnd(); };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
-        console.log("[SPEECH] Using OpenAI TTS API for synthesis.");
-        const response = await fetch(OPENAI_TTS_API_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-          body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }),
-        });
-        if (!response.ok) throw new Error("Falha na API OpenAI TTS");
-        const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
-        audioRef.current = new Audio(audioUrl);
-        setupAudioAnalysis();
-        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        await audioRef.current.play();
-        runAudioAnalysis();
+        if (currentSettings.enable_streaming_voice) {
+          console.log("[SPEECH] Using OpenAI TTS API with STREAMING.");
+          if (!('MediaSource' in window)) {
+            showError("Streaming de áudio não é suportado neste navegador.");
+            throw new Error("MediaSource not supported");
+          }
+          
+          audioRef.current = new Audio();
+          setupAudioAnalysis();
+          mediaSourceRef.current = new MediaSource();
+          audioRef.current.src = URL.createObjectURL(mediaSourceRef.current);
+          
+          mediaSourceRef.current.addEventListener('sourceopen', async () => {
+            if (!mediaSourceRef.current) return;
+            const mimeCodec = 'audio/mpeg';
+            sourceBufferRef.current = mediaSourceRef.current.addSourceBuffer(mimeCodec);
+            
+            const processQueue = () => {
+              if (!isAppendingBuffer.current && audioChunkQueue.current.length > 0 && sourceBufferRef.current && !sourceBufferRef.current.updating) {
+                isAppendingBuffer.current = true;
+                const chunk = audioChunkQueue.current.shift();
+                if (chunk) {
+                  try {
+                    sourceBufferRef.current.appendBuffer(chunk);
+                  } catch (e) {
+                    console.error("Error appending buffer:", e);
+                    isAppendingBuffer.current = false;
+                  }
+                } else {
+                  isAppendingBuffer.current = false;
+                }
+              }
+            };
+
+            sourceBufferRef.current.addEventListener('updateend', () => {
+              isAppendingBuffer.current = false;
+              if (audioChunkQueue.current.length > 0) {
+                processQueue();
+              } else if (mediaSourceRef.current?.readyState === 'open' && !isAppendingBuffer.current) {
+                try {
+                  mediaSourceRef.current.endOfStream();
+                } catch (e) {
+                  console.warn("Error ending stream on updateend:", e);
+                }
+              }
+            });
+
+            const response = await fetch(OPENAI_TTS_API_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+              body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text, response_format: "mp3" }),
+            });
+
+            if (!response.ok || !response.body) throw new Error("Falha na API OpenAI TTS");
+            
+            const reader = response.body.getReader();
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              audioChunkQueue.current.push(value.buffer);
+              processQueue();
+            }
+          });
+
+          audioRef.current.onended = onSpeechEnd;
+          audioRef.current.onerror = onSpeechEnd;
+          await audioRef.current.play();
+          runAudioAnalysis();
+
+        } else {
+          console.log("[SPEECH] Using OpenAI TTS API with buffering.");
+          const response = await fetch(OPENAI_TTS_API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
+            body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }),
+          });
+          if (!response.ok) throw new Error("Falha na API OpenAI TTS");
+          const audioBlob = await response.blob();
+          const audioUrl = URL.createObjectURL(audioBlob);
+          audioRef.current = new Audio(audioUrl);
+          setupAudioAnalysis();
+          audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+          audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+          await audioRef.current.play();
+          runAudioAnalysis();
+        }
       } else {
         console.warn("[SPEECH] No voice model configured. Skipping speech.");
         onSpeechEnd();

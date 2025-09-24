@@ -23,8 +23,9 @@ import { showSuccess, showError } from "@/utils/toast";
 import { FieldInsertPopover } from "@/components/FieldInsertPopover";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
-// Interface para o tipo de dado do campo do usuário
+// Interface for the type of dado do campo do usuário
 interface UserDataField {
   id: string;
   name: string;
@@ -32,7 +33,7 @@ interface UserDataField {
   type: 'string' | 'number' | 'boolean';
 }
 
-// Interface para o tipo de dado do Poder (simplificada para o popover)
+// Interface for the type of dado do Poder (simplificada para o popover)
 interface Power {
   id: string;
   name: string;
@@ -44,6 +45,7 @@ const settingsSchema = z.object({
   assistant_prompt: z.string().min(10, "Prompt do assistente é obrigatório"),
   ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gemini-pro", "gpt-4o-mini"]),
   voice_model: z.enum(["browser", "openai-tts", "gemini-tts"]),
+  enable_streaming_voice: z.boolean().optional(),
   openai_tts_voice: z.string().optional().nullable(),
   voice_sensitivity: z.number().min(0).max(100),
   openai_api_key: z.string().optional().nullable(),
@@ -76,6 +78,7 @@ Ferramentas Disponíveis (Poderes):
     "Você é um assistente amigável e profissional que ajuda agências de tecnologia a automatizar processos e criar soluções de IA personalizadas.",
   ai_model: "gpt-4o-mini",
   voice_model: "browser",
+  enable_streaming_voice: false,
   openai_tts_voice: "alloy",
   voice_sensitivity: 50,
   openai_api_key: "",
@@ -140,6 +143,7 @@ const SettingsPage: React.FC = () => {
         assistant_prompt: formData.assistant_prompt,
         ai_model: formData.ai_model,
         voice_model: formData.voice_model,
+        enable_streaming_voice: formData.enable_streaming_voice,
         openai_tts_voice: formData.openai_tts_voice || null,
         voice_sensitivity: formData.voice_sensitivity,
         openai_api_key: formData.openai_api_key || null,
@@ -182,6 +186,7 @@ const SettingsPage: React.FC = () => {
         setValue("assistant_prompt", settingsData.assistant_prompt ?? defaultValues.assistant_prompt);
         setValue("ai_model", settingsData.ai_model ?? defaultValues.ai_model);
         setValue("voice_model", settingsData.voice_model ?? defaultValues.voice_model);
+        setValue("enable_streaming_voice", settingsData.enable_streaming_voice ?? defaultValues.enable_streaming_voice);
         setValue("openai_tts_voice", settingsData.openai_tts_voice ?? defaultValues.openai_tts_voice);
         setValue("voice_sensitivity", settingsData.voice_sensitivity ?? defaultValues.voice_sensitivity);
         setValue("openai_api_key", settingsData.openai_api_key ?? defaultValues.openai_api_key);
@@ -474,7 +479,7 @@ const SettingsPage: React.FC = () => {
         <CardHeader>
           <CardTitle>Modelo de Voz</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <Controller
             control={control}
             name="voice_model"
@@ -491,6 +496,22 @@ const SettingsPage: React.FC = () => {
               </Select>
             )}
           />
+          {voiceModel === "openai-tts" && (
+            <div className="flex items-center space-x-2 rounded-md border p-4">
+              <Controller
+                control={control}
+                name="enable_streaming_voice"
+                render={({ field }) => (
+                  <Switch
+                    id="enable_streaming_voice"
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                )}
+              />
+              <Label htmlFor="enable_streaming_voice">Habilitar Voz em Tempo Real (Streaming)</Label>
+            </div>
+          )}
         </CardContent>
       </Card>
 
