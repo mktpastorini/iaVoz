@@ -283,7 +283,9 @@ const SettingsPage: React.FC = () => {
               <Input value={activationInput} onChange={(e) => setActivationInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPhrase('activation'); } }} placeholder="Digite e tecle Enter" />
               <Button type="button" onClick={() => handleAddPhrase('activation')}>Adicionar</Button>
             </div>
-            <div className="flex flex-wrap gap-2"><{activationPhrases?.map(p => <Badge key={p} variant="secondary" className="flex items-center gap-1">{p}<button type="button" onClick={() => handleRemovePhrase('activation', p)} className="rounded-full hover:bg-muted-foreground/20 p-0.5"><X className="h-3 w-3" /></button></Badge>)}</div>
+            <div className="flex flex-wrap gap-2">
+              {activationPhrases?.map(p => <Badge key={p} variant="secondary" className="flex items-center gap-1">{p}<button type="button" onClick={() => handleRemovePhrase('activation', p)} className="rounded-full hover:bg-muted-foreground/20 p-0.5"><X className="h-3 w-3" /></button></Badge>)}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -293,7 +295,9 @@ const SettingsPage: React.FC = () => {
               <Input value={deactivationInput} onChange={(e) => setDeactivationInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPhrase('deactivation'); } }} placeholder="Digite e tecle Enter" />
               <Button type="button" onClick={() => handleAddPhrase('deactivation')}>Adicionar</Button>
             </div>
-            <div className="flex flex-wrap gap-2"><{deactivationPhrases?.map(p => <Badge key={p} variant="secondary" className="flex items-center gap-1">{p}<button type="button" onClick={() => handleRemovePhrase('deactivation', p)} className="rounded-full hover:bg-muted-foreground/20 p-0.5"><X className="h-3 w-3" /></button></Badge>)}</div>
+            <div className="flex flex-wrap gap-2">
+              {deactivationPhrases?.map(p => <Badge key={p} variant="secondary" className="flex items-center gap-1">{p}<button type="button" onClick={() => handleRemovePhrase('deactivation', p)} className="rounded-full hover:bg-muted-foreground/20 p-0.5"><X className="h-3 w-3" /></button></Badge>)}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -319,7 +323,7 @@ const SettingsPage: React.FC = () => {
           {voiceModel === "openai-tts" && (
             <div>
               <Label>Voz OpenAI TTS</Label>
-              <Controller control={control} name="openai_tts_voice" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value || "alloy"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><{OPENAI_TTS_VOICES.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} />
+              <Controller control={control} name="openai_tts_voice" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value || "alloy"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{OPENAI_TTS_VOICES.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} />
             </div>
           )}
         </CardContent>
