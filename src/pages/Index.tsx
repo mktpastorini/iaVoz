@@ -3,7 +3,6 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
-import { AIScene } from "@/components/AIScene";
 
 const Index = () => {
   const { activateAssistant } = useVoiceAssistant();
@@ -61,9 +60,10 @@ const Index = () => {
         </div>
       </main>
 
-      {/* Background scene behind UI */}
+      {/* Background com gradiente aprimorado para manter o visual sem o AIScene */}
       <div className="fixed inset-0 -z-10 pointer-events-none">
-        <AIScene />
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-900/20 via-blue-950/20 to-purple-950/20" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-cyan-500/10 via-transparent to-purple-600/10" />
       </div>
     </div>
   );
