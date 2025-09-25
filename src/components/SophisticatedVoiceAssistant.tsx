@@ -50,14 +50,22 @@ const mapOpenAIToGeminiSchema = (openaiSchema: any) => {
 // Função para converter o histórico de mensagens para o formato do Gemini
 const mapToGeminiHistory = (history: any[]) => {
   return history.filter(msg => msg.role !== 'system').map(msg => {
-    const role = msg.role === 'assistant' ? 'model' : 'user';
+    let role;
+    if (msg.role === 'assistant') {
+      role = 'model';
+    } else if (msg.role === 'tool') {
+      role = 'tool';
+    } else {
+      role = 'user';
+    }
+    
     let parts = [];
 
     if (msg.role === 'tool') {
       try {
-        parts.push({ toolResponse: { name: msg.name, response: JSON.parse(msg.content) } });
+        parts.push({ functionResponse: { name: msg.name, response: JSON.parse(msg.content) } });
       } catch (e) {
-        parts.push({ toolResponse: { name: msg.name, response: { content: msg.content } } });
+        parts.push({ functionResponse: { name: msg.name, response: { content: msg.content } } });
       }
     } else {
       if (msg.content) parts.push({ text: msg.content });
