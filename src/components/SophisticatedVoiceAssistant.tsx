@@ -263,6 +263,18 @@ const SophisticatedVoiceAssistant = () => {
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = onSpeechEnd;
         await audioRef.current.play();
+      } else if (currentSettings.voice_model === "gemini-tts") {
+        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', {
+            body: {
+                text,
+                model: currentSettings.gemini_tts_model,
+            },
+        });
+        if (error) throw new Error(`Erro na Edge Function do Gemini TTS: ${error.message}`);
+        const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
+        audioRef.current = new Audio(audioUrl);
+        audioRef.current.onended = onSpeechEnd;
+        await audioRef.current.play();
       } else { onSpeechEnd(); }
     } catch (e: any) { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); }
   }, [stopSpeaking, stopListening, startListening]);
@@ -348,7 +360,8 @@ const SophisticatedVoiceAssistant = () => {
       let fullResponse = "";
       let toolCalls: any[] = [];
       let sentenceBuffer = "";
-      
+      let audioQueueEmptyCallback: (() => void) | null = null;
+
       const onStreamEnd = () => {
         setIsSpeaking(false);
         if (isOpenRef.current && !stopPermanentlyRef.current) {
@@ -358,8 +371,9 @@ const SophisticatedVoiceAssistant = () => {
 
       const playGeminiAudioQueue = () => {
         if (isPlayingGeminiAudio.current || geminiAudioQueue.current.length === 0) {
-          if (!isPlayingGeminiAudio.current && isAiStreamingCompleteRef.current) {
-            onStreamEnd();
+          if (!isPlayingGeminiAudio.current && isAiStreamingCompleteRef.current && audioQueueEmptyCallback) {
+            audioQueueEmptyCallback();
+            audioQueueEmptyCallback = null;
           }
           return;
         }
@@ -438,9 +452,9 @@ const SophisticatedVoiceAssistant = () => {
       if (currentSettings.voice_model === 'gemini-tts') {
         if (sentenceBuffer.trim().length > 0) {
           await processSentence(sentenceBuffer.trim());
-        } else {
-          playGeminiAudioQueue();
         }
+        audioQueueEmptyCallback = onStreamEnd;
+        playGeminiAudioQueue();
       }
 
       const aiMessage = { role: "assistant", content: fullResponse || null, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
