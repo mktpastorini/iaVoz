@@ -71,7 +71,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         lastUserIdRef.current = user.id;
 
         try {
-          // Removido .single() para evitar erro 406 se o perfil não existir
+          // Usando .limit(1) para evitar erro se o perfil não existir
           const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('id, first_name, last_name, avatar_url')
@@ -83,7 +83,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
             showError('Erro ao carregar perfil.');
             setProfile(null);
           } else {
-            // Define o perfil se ele existir no array retornado
+            // Define o perfil se ele existir no array retornado, caso contrário, nulo.
             setProfile(profileData && profileData.length > 0 ? profileData[0] : null);
           }
         } catch (err) {

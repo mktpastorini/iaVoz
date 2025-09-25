@@ -25,7 +25,7 @@ serve(async (req) => {
       });
     }
 
-    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:synthesizeSpeech?key=${geminiApiKey}`;
+    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:synthesizeSpeech`;
 
     const requestBody = {
       input: { text },
@@ -39,7 +39,10 @@ serve(async (req) => {
 
     const response = await fetch(GEMINI_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'X-goog-api-key': geminiApiKey
+      },
       body: JSON.stringify(requestBody),
     });
 
