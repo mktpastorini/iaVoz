@@ -287,8 +287,15 @@ const SophisticatedVoiceAssistant = () => {
         });
         if (error) throw new Error(`Google TTS proxy error: ${error.message}`);
         audioBlob = data;
+      } else if (currentSettings.voice_model === "deepgram" && currentSettings.deepgram_api_key) {
+        console.log("[SPEECH] Using Deepgram TTS API via proxy.");
+        const { data, error } = await supabase.functions.invoke('deepgram-proxy', {
+          body: { action: 'tts', text },
+        });
+        if (error) throw new Error(`Deepgram TTS proxy error: ${error.message}`);
+        audioBlob = data;
       } else {
-        console.warn("[SPEECH] No voice model configured. Skipping speech.");
+        console.warn("[SPEECH] No voice model configured or key is missing. Skipping speech.");
         onSpeechEnd();
         return;
       }

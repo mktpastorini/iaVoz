@@ -54,7 +54,7 @@ serve(async (req) => {
 
     const requestBody = {
       contents: formattedMessages,
-      // tools: tools ? [{ function_declarations: tools.map(t => t.function) }] : undefined,
+      tools: tools ? [{ function_declarations: tools.map(t => t.function) }] : undefined,
     };
 
     const geminiResponse = await fetch(GEMINI_API_URL, {
