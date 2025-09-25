@@ -101,54 +101,30 @@ const SophisticatedVoiceAssistant = () => {
     console.log("[ASSISTANT] Fetching all assistant data...");
     setIsLoading(true);
     try {
-      let settingsData = null;
-      const currentSession = sessionRef.current;
-
-      if (currentSession) {
-        const { data: workspaceMember } = await supabase
-          .from('workspace_members')
-          .select('workspace_id')
-          .eq('user_id', currentSession.user.id)
-          .limit(1)
-          .single();
-        
-        if (workspaceMember) {
-          const { data } = await supabase
-            .from("settings")
-            .select("*")
-            .eq('workspace_id', workspaceMember.workspace_id)
-            .limit(1)
-            .single();
-          settingsData = data;
-        }
-      }
+      const { data: settingsData, error: settingsError } = await supabaseAnon
+        .from("settings")
+        .select("*")
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
       
-      if (!settingsData) {
-        const { data } = await supabase
-          .from("settings")
-          .select("*")
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single();
-        settingsData = data;
-      }
-      
+      if (settingsError) throw settingsError;
       setSettings(settingsData);
       console.log("[ASSISTANT] Settings loaded:", settingsData);
 
-      const { data: powersData } = await supabase.from("powers").select("*");
+      const workspaceId = settingsData.workspace_id;
+
+      const { data: powersData } = await supabaseAnon.from("powers").select("*").eq('workspace_id', workspaceId);
       setPowers(powersData || []);
       console.log("[ASSISTANT] Powers loaded:", powersData);
 
-      const { data: actionsData } = await supabase.from("client_actions").select("*");
+      const { data: actionsData } = await supabaseAnon.from("client_actions").select("*").eq('workspace_id', workspaceId);
       setClientActions(actionsData || []);
       console.log("[ASSISTANT] Client Actions loaded:", actionsData);
 
-      return settingsData;
     } catch (error) {
       console.error("[ERROR] Failed to fetch assistant data:", error);
       showError("Erro ao carregar dados do assistente.");
-      return null;
     } finally {
       setIsLoading(false);
     }
@@ -502,13 +478,10 @@ const SophisticatedVoiceAssistant = () => {
         const activationPhrases = currentSettings.activation_phrases || [];
         if (activationPhrases.some((phrase: string) => transcript.includes(phrase.toLowerCase()))) {
           console.log(`[USER] Activation phrase detected.`);
-          fetchAllAssistantData().then((latestSettings) => {
-            if (!latestSettings) return;
-            setIsOpen(true);
-            const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-            speak(messageToSpeak);
-            setHasBeenActivated(true);
-          });
+          setIsOpen(true);
+          const messageToSpeak = hasBeenActivatedRef.current && currentSettings.continuation_phrase ? currentSettings.continuation_phrase : currentSettings.welcome_message;
+          speak(messageToSpeak);
+          setHasBeenActivated(true);
         }
       }
     };
@@ -516,7 +489,7 @@ const SophisticatedVoiceAssistant = () => {
       synthRef.current = window.speechSynthesis;
       console.log("[ASSISTANT] Speech Synthesis initialized.");
     }
-  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData]);
+  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log("[ASSISTANT] Checking microphone permission...");
@@ -565,15 +538,12 @@ const SophisticatedVoiceAssistant = () => {
     if (micPermission !== "granted") {
       checkAndRequestMicPermission();
     } else {
-      fetchAllAssistantData().then((latestSettings) => {
-        if (!latestSettings) return;
-        setIsOpen(true);
-        const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-        speak(messageToSpeak);
-        setHasBeenActivated(true);
-      });
+      setIsOpen(true);
+      const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase ? settingsRef.current.continuation_phrase : settingsRef.current.welcome_message;
+      speak(messageToSpeak);
+      setHasBeenActivated(true);
     }
-  }, [micPermission, checkAndRequestMicPermission, speak, startListening, fetchAllAssistantData]);
+  }, [micPermission, checkAndRequestMicPermission, speak, startListening]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
