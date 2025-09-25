@@ -243,6 +243,20 @@ const SophisticatedVoiceAssistant = () => {
         };
         socket.onerror = (error) => { console.error("ElevenLabs WebSocket Error:", error); onSpeechEnd(); };
         socket.onclose = () => { if (audioQueueRef.current.length === 0 && !isPlayingAudioRef.current) onSpeechEnd(); };
+      } else if (currentSettings.voice_model === "google-cloud-tts") {
+        const { data, error } = await supabaseAnon.functions.invoke('google-tts', {
+          body: {
+            text,
+            voiceName: currentSettings.google_tts_voice_name,
+            speakingRate: currentSettings.google_tts_speaking_rate,
+            pitch: currentSettings.google_tts_pitch,
+          },
+        });
+        if (error) throw new Error(`Erro na Edge Function do Google TTS: ${error.message}`);
+        const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
+        audioRef.current = new Audio(audioUrl);
+        audioRef.current.onended = onSpeechEnd;
+        await audioRef.current.play();
       } else { onSpeechEnd(); }
     } catch (e: any) { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); }
   }, [stopSpeaking, stopListening, startListening]);
