@@ -16,7 +16,7 @@ serve(async (req) => {
       throw new Error("A chave de API do Gemini (GEMINI_API_KEY) não está configurada como um 'Secret' no seu projeto Supabase.");
     }
 
-    const { text, model = 'tts-1' } = await req.json();
+    const { text, model = 'gemini-1.5-flash-preview-0514' } = await req.json();
 
     if (!text) {
       return new Response(JSON.stringify({ error: 'O parâmetro "text" é obrigatório.' }), {
@@ -25,23 +25,24 @@ serve(async (req) => {
       });
     }
 
-    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:synthesizeSpeech`;
+    // Usando o endpoint correto para geração de conteúdo multimodal (incluindo áudio)
+    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
     const requestBody = {
-      input: { text },
-      voice: {
-        languageCode: "pt-BR",
-      },
-      audioConfig: {
-        audioEncoding: "MP3",
-      },
+      contents: [{
+        role: "user",
+        parts: [{ text }]
+      }],
+      generationConfig: {
+        // Especifica que a resposta deve ser em áudio
+        responseMimeType: "audio/mpeg",
+      }
     };
 
     const response = await fetch(GEMINI_API_URL, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'X-goog-api-key': geminiApiKey
       },
       body: JSON.stringify(requestBody),
     });
@@ -51,24 +52,33 @@ serve(async (req) => {
       let errorBody;
       try {
         errorBody = JSON.parse(errorText);
-        console.error("Gemini TTS API Error (JSON):", errorBody);
+        console.error("--> ERRO DA API GOOGLE:", JSON.stringify(errorBody, null, 2));
         const errorMessage = errorBody?.error?.message || errorText;
-        throw new Error(`Erro na API do Gemini TTS: ${errorMessage}`);
+        throw new Error(`Erro na API do Google: ${errorMessage}`);
       } catch (e) {
-        console.error("Gemini TTS API Error (Text):", errorText);
-        throw new Error(`Erro na API do Gemini TTS: ${response.status} - ${errorText}`);
+        console.error("--> ERRO (TEXTO BRUTO) DA API GOOGLE:", errorText);
+        throw new Error(`Erro na API do Google: ${response.status} - ${errorText}`);
       }
     }
 
     const data = await response.json();
 
-    return new Response(JSON.stringify(data), {
+    // Extrai o conteúdo de áudio da resposta multimodal
+    const audioContent = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+    if (!audioContent) {
+      console.error("Resposta da API do Google não continha 'audioContent':", JSON.stringify(data, null, 2));
+      throw new Error("A resposta da API do Google não continha o conteúdo de áudio esperado.");
+    }
+
+    // Retorna no formato que o frontend espera
+    return new Response(JSON.stringify({ audioContent }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
-    console.error('[gemini-tts] Erro fatal na Edge Function:', error);
+    console.error('[gemini-tts] Erro fatal na Edge Function:', error.message);
     return new Response(
       JSON.stringify({ error: error.message }),
       {

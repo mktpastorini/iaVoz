@@ -79,7 +79,7 @@ const defaultValues: SettingsFormData = {
   google_tts_voice_name: "pt-BR-Wavenet-A",
   google_tts_speaking_rate: 1.0,
   google_tts_pitch: 0.0,
-  gemini_tts_model: "tts-1",
+  gemini_tts_model: "gemini-1.5-flash-preview-0514",
   voice_sensitivity: 50,
   openai_api_key: "",
   gemini_api_key: "",
@@ -143,8 +143,8 @@ const GOOGLE_TTS_VOICES = [
 ];
 
 const GEMINI_TTS_MODELS = [
-    { value: "tts-1", label: "Google TTS-1 (Padrão)" },
-    { value: "tts-1-hd", label: "Google TTS-1 (Alta Qualidade)" },
+    { value: "gemini-1.5-flash-preview-0514", label: "Gemini Flash Preview TTS (Rápido)" },
+    { value: "gemini-1.5-pro-preview-0514", label: "Gemini Pro Preview TTS (Expressivo)" },
 ];
 
 const SettingsPage: React.FC = () => {
