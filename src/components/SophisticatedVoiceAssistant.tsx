@@ -111,6 +111,8 @@ const SophisticatedVoiceAssistant = () => {
   const elevenlabsSocketRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingAudioRef = useRef(false);
+  const geminiAudioQueue = useRef<HTMLAudioElement[]>([]);
+  const isPlayingGeminiAudio = useRef(false);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
@@ -168,6 +170,9 @@ const SophisticatedVoiceAssistant = () => {
     if (synthRef.current?.speaking) synthRef.current.cancel();
     if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
     if (elevenlabsSocketRef.current) { elevenlabsSocketRef.current.close(); elevenlabsSocketRef.current = null; }
+    geminiAudioQueue.current.forEach(audio => audio.pause());
+    geminiAudioQueue.current = [];
+    isPlayingGeminiAudio.current = false;
     audioQueueRef.current = [];
     isPlayingAudioRef.current = false;
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -340,6 +345,30 @@ const SophisticatedVoiceAssistant = () => {
       const decoder = new TextDecoder();
       let fullResponse = "";
       let toolCalls: any[] = [];
+      let sentenceBuffer = "";
+      const playGeminiAudioQueue = async () => {
+        if (isPlayingGeminiAudio.current || geminiAudioQueue.current.length === 0) return;
+        isPlayingGeminiAudio.current = true;
+        const audio = geminiAudioQueue.current.shift();
+        if (audio) {
+          audio.play();
+          audio.onended = () => {
+            isPlayingGeminiAudio.current = false;
+            playGeminiAudioQueue();
+          };
+        } else {
+          isPlayingGeminiAudio.current = false;
+        }
+      };
+      const processSentence = async (sentence: string) => {
+        if (sentence.trim().length === 0) return;
+        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text: sentence } });
+        if (error) { console.error("Gemini TTS Error:", error); return; }
+        const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
+        const audio = new Audio(audioUrl);
+        geminiAudioQueue.current.push(audio);
+        playGeminiAudioQueue();
+      };
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -350,13 +379,14 @@ const SophisticatedVoiceAssistant = () => {
             if (dataStr === "[DONE]") break;
             try {
               const data = JSON.parse(dataStr);
+              let deltaText = "";
               if (isGemini) {
                 const part = data.candidates?.[0]?.content?.parts?.[0];
-                if (part?.text) { fullResponse += part.text; setAiResponse(c => c + part.text); }
+                if (part?.text) { deltaText = part.text; fullResponse += part.text; setAiResponse(c => c + part.text); }
                 if (part?.functionCall) toolCalls.push({ id: `call_${Math.random().toString(36).substring(2)}`, type: 'function', function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args) } });
               } else {
                 const delta = data.choices[0]?.delta;
-                if (delta?.content) { fullResponse += delta.content; setAiResponse(c => c + delta.content); }
+                if (delta?.content) { deltaText = delta.content; fullResponse += delta.content; setAiResponse(c => c + delta.content); }
                 if (delta?.tool_calls) delta.tool_calls.forEach((tc: any) => {
                   if (!toolCalls[tc.index]) toolCalls[tc.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
                   if (tc.id) toolCalls[tc.index].id = tc.id;
@@ -364,9 +394,22 @@ const SophisticatedVoiceAssistant = () => {
                   if (tc.function.arguments) toolCalls[tc.index].function.arguments += tc.function.arguments;
                 });
               }
+              if (deltaText && currentSettings.voice_model === 'gemini-tts') {
+                sentenceBuffer += deltaText;
+                const sentenceEnd = sentenceBuffer.match(/[.!?]/);
+                if (sentenceEnd) {
+                  const sentence = sentenceBuffer.substring(0, sentenceEnd.index! + 1);
+                  sentenceBuffer = sentenceBuffer.substring(sentenceEnd.index! + 1);
+                  processSentence(sentence);
+                }
+              }
             } catch (e) { console.error("Failed to parse stream chunk:", dataStr, e); }
           }
         }
+      }
+      if (sentenceBuffer.trim().length > 0 && currentSettings.voice_model === 'gemini-tts') {
+        processSentence(sentenceBuffer);
+        sentenceBuffer = "";
       }
       const aiMessage = { role: "assistant", content: fullResponse || null, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
       const newHistory = [...currentHistory, aiMessage];
@@ -408,7 +451,7 @@ const SophisticatedVoiceAssistant = () => {
           setMessageHistory(p => [...p, { role: "assistant", content: finalResponseText }]);
           speak(finalResponseText);
         });
-      } else { speak(fullResponse); }
+      } else if (currentSettings.voice_model !== 'gemini-tts') { speak(fullResponse); }
     } catch (e: any) { speak(`Desculpe, não consegui processar.`); showError(`Erro na conversa: ${e.message}`); }
   }, [speak, stopListening]);
 
