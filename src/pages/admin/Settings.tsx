@@ -50,6 +50,7 @@ const settingsSchema = z.object({
   google_tts_voice_name: z.string().optional().nullable(),
   google_tts_speaking_rate: z.number().min(0.25).max(4.0).optional().nullable(),
   google_tts_pitch: z.number().min(-20.0).max(20.0).optional().nullable(),
+  gemini_tts_model: z.string().optional().nullable(),
   voice_sensitivity: z.number().min(0).max(100),
   openai_api_key: z.string().optional().nullable(),
   gemini_api_key: z.string().optional().nullable(),
@@ -78,6 +79,7 @@ const defaultValues: SettingsFormData = {
   google_tts_voice_name: "pt-BR-Wavenet-A",
   google_tts_speaking_rate: 1.0,
   google_tts_pitch: 0.0,
+  gemini_tts_model: "gemini-2.5-flash-preview-tts",
   voice_sensitivity: 50,
   openai_api_key: "",
   gemini_api_key: "",
@@ -138,6 +140,11 @@ const GOOGLE_TTS_VOICES = [
   { value: "pt-BR-Wavenet-D", label: "Português (Brasil, Masculino D)" },
   { value: "en-US-Wavenet-A", label: "Inglês (EUA, Masculino A)" },
   { value: "en-US-Wavenet-F", label: "Inglês (EUA, Feminino F)" },
+];
+
+const GEMINI_TTS_MODELS = [
+    { value: "gemini-2.5-flash-preview-tts", label: "Gemini 2.5 Flash TTS" },
+    { value: "gemini-2.5-pro-preview-tts", label: "Gemini 2.5 Pro TTS" },
 ];
 
 const SettingsPage: React.FC = () => {
@@ -267,6 +274,7 @@ const SettingsPage: React.FC = () => {
           {voiceModel === 'deepgram-tts' && <div><Label>Voz Deepgram TTS</Label><Controller control={control} name="deepgram_tts_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DEEPGRAM_TTS_VOICES.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} /></div>}
           {voiceModel === 'elevenlabs-tts' && <div><Label>Voz ElevenLabs</Label><Controller control={control} name="elevenlabs_voice_id" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ELEVENLABS_VOICES.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} /></div>}
           {voiceModel === 'google-cloud-tts' && <><div><Label>Voz Google Cloud</Label><Controller control={control} name="google_tts_voice_name" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{GOOGLE_TTS_VOICES.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} /></div><div><Label>Velocidade da Fala</Label><Controller control={control} name="google_tts_speaking_rate" render={({ field }) => <Slider value={[field.value ?? 1]} onValueChange={v => field.onChange(v[0])} min={0.25} max={4.0} step={0.05} />} /></div><div><Label>Tom da Voz</Label><Controller control={control} name="google_tts_pitch" render={({ field }) => <Slider value={[field.value ?? 0]} onValueChange={v => field.onChange(v[0])} min={-20.0} max={20.0} step={0.1} />} /></div></>}
+          {voiceModel === 'gemini-tts' && <div><Label>Modelo Gemini TTS</Label><Controller control={control} name="gemini_tts_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{GEMINI_TTS_MODELS.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} /></div>}
         </CardContent>
       </Card>
 

@@ -362,7 +362,7 @@ const SophisticatedVoiceAssistant = () => {
       };
       const processSentence = async (sentence: string) => {
         if (sentence.trim().length === 0) return;
-        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text: sentence } });
+        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text: sentence, model: currentSettings.gemini_tts_model } });
         if (error) { console.error("Gemini TTS Error:", error); return; }
         const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
         const audio = new Audio(audioUrl);
