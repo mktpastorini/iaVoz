@@ -248,13 +248,7 @@ const SophisticatedVoiceAssistant = () => {
           console.error("[ERROR] SpeechSynthesis Error:", e); 
           onSpeechEnd(); 
         };
-        // This is a robust way to handle synthesis
-        try {
-          synthRef.current.speak(utterance);
-        } catch (e) {
-          console.error("[ERROR] synth.speak failed:", e);
-          onSpeechEnd();
-        }
+        synthRef.current.speak(utterance);
         return;
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         console.log("[SPEECH] Using OpenAI TTS API for synthesis.");
@@ -349,34 +343,22 @@ const SophisticatedVoiceAssistant = () => {
 
     try {
       let response;
-      console.log(`[AI] Calling ${isGemini ? 'Gemini' : 'OpenAI'}...`);
+      const messages = [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)];
+      const toolConfig = tools.length > 0 ? { tools, tool_choice: "auto" } : {};
+
+      console.log(`[AI] Calling ${isGemini ? 'Gemini' : 'OpenAI'} proxy...`);
       if (isGemini) {
         const { data, error } = await supabaseAnon.functions.invoke('gemini-proxy', {
-          body: {
-            model: currentSettings.ai_model,
-            messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
-            tools: tools.length > 0 ? tools : undefined,
-          }
+          body: { model: currentSettings.ai_model, messages, ...toolConfig }
         });
         if (error) throw new Error(`Gemini proxy error: ${error.message}`);
         response = data;
       } else {
-        const requestBody = {
-          model: currentSettings.ai_model,
-          messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
-          tools: tools.length > 0 ? tools : undefined,
-          tool_choice: tools.length > 0 ? "auto" : undefined,
-          stream: true,
-        };
-        response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-          body: JSON.stringify(requestBody),
+        const { data, error } = await supabaseAnon.functions.invoke('openai-proxy', {
+          body: { model: currentSettings.ai_model, messages, ...toolConfig, stream: true }
         });
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`);
-        }
+        if (error) throw new Error(`OpenAI proxy error: ${error.message}`);
+        response = data;
       }
 
       if (!response.body) {
