@@ -11,22 +11,10 @@ serve(async (req) => {
   }
 
   try {
-    console.log("[gemini-tts] Função iniciada.");
     const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
     if (!geminiApiKey) {
-      console.error("[gemini-tts] Erro: Secret GEMINI_API_KEY não encontrado.");
-      return new Response(
-        JSON.stringify({ 
-          error: 'A chave de API do Gemini não está configurada no servidor.',
-          solution: "Por favor, configure o secret 'GEMINI_API_KEY' no painel do seu projeto Supabase em 'Edge Functions'."
-        }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+      throw new Error("A chave de API do Gemini (GEMINI_API_KEY) não está configurada como um 'Secret' no seu projeto Supabase.");
     }
-    console.log("[gemini-tts] Chave de API encontrada.");
 
     const { text, model = 'gemini-2.5-flash-preview-tts' } = await req.json();
 
@@ -39,24 +27,23 @@ serve(async (req) => {
 
     const GOOGLE_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateSpeech?key=${geminiApiKey}`;
 
-    const requestBody = { text };
-
     const response = await fetch(GOOGLE_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({ text }),
     });
-    
-    console.log(`[gemini-tts] Resposta da API do Google: Status ${response.status}`);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[gemini-tts] Erro da API do Google: ${errorText}`);
       let errorBody;
       try {
         errorBody = JSON.parse(errorText);
-        throw new Error(`Erro na API do Gemini TTS: ${errorBody.error.message}`);
+        console.error("Gemini TTS API Error (JSON):", errorBody);
+        // Extrai a mensagem de erro específica da API do Google
+        const errorMessage = errorBody?.error?.message || errorText;
+        throw new Error(`Erro na API do Gemini TTS: ${errorMessage}`);
       } catch (e) {
+        console.error("Gemini TTS API Error (Text):", errorText);
         throw new Error(`Erro na API do Gemini TTS: ${response.status} - ${errorText}`);
       }
     }
@@ -70,6 +57,7 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('[gemini-tts] Erro fatal na Edge Function:', error);
+    // Garante que a resposta de erro seja sempre um JSON válido.
     return new Response(
       JSON.stringify({ error: error.message }),
       {
