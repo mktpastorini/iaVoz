@@ -202,7 +202,7 @@ const SophisticatedVoiceAssistant = () => {
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
       } else if (currentSettings.voice_model === "deepgram-tts" && currentSettings.deepgram_api_key) {
-        const response = await fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Api-Key ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
+        const response = await fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
         if (!response.ok) throw new Error("Falha na API Deepgram TTS");
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
@@ -365,6 +365,7 @@ const SophisticatedVoiceAssistant = () => {
     if (!settingsRef.current?.deepgram_api_key) { showError("Chave API Deepgram não configurada."); return; }
     const deepgram = createClient(settingsRef.current.deepgram_api_key);
     const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true });
+    
     connection.on(LiveTranscriptionEvents.Open, () => {
       navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
         const recorder = new MediaRecorder(stream);
@@ -373,10 +374,17 @@ const SophisticatedVoiceAssistant = () => {
         mediaRecorderRef.current = recorder;
       });
     });
+
     connection.on(LiveTranscriptionEvents.Transcript, data => {
       const transcript = data.channel.alternatives[0].transcript;
       if (transcript && data.is_final) handleDeepgramTranscript(transcript.toLowerCase());
     });
+
+    connection.on(LiveTranscriptionEvents.Error, (error) => {
+      console.error("Deepgram STT Error:", error);
+      showError(`Erro na transcrição Deepgram: ${error.toString()}`);
+    });
+
     connection.on(LiveTranscriptionEvents.Close, () => setIsListening(false));
     deepgramConnectionRef.current = connection;
   }, [handleDeepgramTranscript]);
