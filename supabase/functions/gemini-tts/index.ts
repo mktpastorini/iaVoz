@@ -27,19 +27,19 @@ serve(async (req) => {
 
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
-    // Usando a estrutura exata da documentação da API REST com o objeto "config".
+    // Usando 'generationConfig' (o nome correto) com a estrutura de 'contents' e 'voiceName' corretas.
     const requestBody = {
       contents: [{
         parts:[{
           text: text
         }]
       }],
-      config: {
+      generationConfig: {
         responseModalities: ["AUDIO"],
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
-              voiceName: "zephyr" // Usando uma das vozes válidas como "zephyr" ou "Kore"
+              voiceName: "zephyr"
             }
           }
         }
