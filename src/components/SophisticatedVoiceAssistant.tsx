@@ -15,6 +15,7 @@ import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import Orb from "./Orb";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { createClient, LiveClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 
@@ -71,6 +72,11 @@ const SophisticatedVoiceAssistant = () => {
   const activationTriggerRef = useRef(0);
   const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Streaming Refs
+  const sttConnectionRef = useRef<LiveClient | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioQueueRef = useRef<Blob[]>([]);
+  const isPlayingAudioRef = useRef(false);
 
   // Web Audio API refs
   const audioContextRef = useRef<AudioContext | null>(null);
