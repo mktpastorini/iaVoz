@@ -16,7 +16,7 @@ serve(async (req) => {
       throw new Error("A chave de API do Gemini (GEMINI_API_KEY) não está configurada como um 'Secret' no seu projeto Supabase.");
     }
 
-    const { text, model = 'gemini-2.5-flash-preview-tts' } = await req.json();
+    const { text, model = 'tts-1' } = await req.json();
 
     if (!text) {
       return new Response(JSON.stringify({ error: 'O parâmetro "text" é obrigatório.' }), {
@@ -25,12 +25,22 @@ serve(async (req) => {
       });
     }
 
-    const GOOGLE_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateSpeech?key=${geminiApiKey}`;
+    const GOOGLE_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:synthesizeSpeech?key=${geminiApiKey}`;
+
+    const requestBody = {
+      input: { text },
+      voice: {
+        languageCode: "pt-BR",
+      },
+      audioConfig: {
+        audioEncoding: "MP3",
+      },
+    };
 
     const response = await fetch(GOOGLE_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
