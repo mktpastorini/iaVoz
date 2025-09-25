@@ -67,7 +67,7 @@ const defaultValues: SettingsFormData = {
   streaming_stt_provider: "browser",
   openai_tts_voice: "alloy",
   deepgram_stt_model: "nova-2-general",
-  deepgram_tts_model: "aura-asteria-pt",
+  deepgram_tts_model: "aura-asteria-en", // Alterado para um padrão mais seguro
   voice_sensitivity: 50,
   openai_api_key: "",
   gemini_api_key: "",
@@ -86,10 +86,16 @@ const OPENAI_TTS_VOICES = [
 ];
 
 const DEEPGRAM_TTS_VOICES = [
+  { value: "aura-asteria-en", label: "Asteria (Inglês, US)" },
+  { value: "aura-luna-en", label: "Luna (Inglês, US)" },
+  { value: "aura-stella-en", label: "Stella (Inglês, US)" },
+  { value: "aura-hera-en", label: "Hera (Inglês, US)" },
   { value: "aura-asteria-pt", label: "Asteria (Português)" },
   { value: "aura-luna-pt", label: "Luna (Português)" },
   { value: "aura-stella-pt", label: "Stella (Português)" },
-  { value: "aura-athena-en", label: "Athena (Inglês)" },
+  { value: "aura-luna-es", label: "Luna (Espanhol)" },
+  { value: "aura-luna-fr", label: "Luna (Francês)" },
+  { value: "aura-stella-hi", label: "Stella (Hindi)" },
 ];
 
 const DEEPGRAM_STT_MODELS = [
