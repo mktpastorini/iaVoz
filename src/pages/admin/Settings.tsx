@@ -23,8 +23,9 @@ import { showSuccess, showError } from "@/utils/toast";
 import { FieldInsertPopover } from "@/components/FieldInsertPopover";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
-// Interface para o tipo de dado do campo do usuário
+// Interface for user data field type
 interface UserDataField {
   id: string;
   name: string;
@@ -32,7 +33,7 @@ interface UserDataField {
   type: 'string' | 'number' | 'boolean';
 }
 
-// Interface para o tipo de dado do Poder (simplificada para o popover)
+// Interface for Power data type (simplified for popover)
 interface Power {
   id: string;
   name: string;
@@ -42,8 +43,8 @@ interface Power {
 const settingsSchema = z.object({
   system_prompt: z.string().min(10, "Prompt do sistema é obrigatório"),
   assistant_prompt: z.string().min(10, "Prompt do assistente é obrigatório"),
-  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gemini-pro", "gpt-4o-mini"]),
-  voice_model: z.enum(["browser", "openai-tts", "gemini-tts"]),
+  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gemini-pro", "gpt-4o-mini", "gemini-1.5-flash-latest"]),
+  voice_model: z.enum(["browser", "openai-tts", "gemini-tts", "google-tts", "deepgram"]),
   openai_tts_voice: z.string().optional().nullable(),
   voice_sensitivity: z.number().min(0).max(100),
   openai_api_key: z.string().optional().nullable(),
@@ -53,6 +54,13 @@ const settingsSchema = z.object({
   deactivation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de desativação."),
   welcome_message: z.string().optional().nullable(),
   continuation_phrase: z.string().optional().nullable(),
+  // Streaming and STT fields
+  enable_streaming_voice: z.boolean(),
+  streaming_stt_provider: z.enum(["deepgram", "google", "openai"]).optional().nullable(),
+  deepgram_api_key: z.string().optional().nullable(),
+  openai_stt_api_key: z.string().optional().nullable(),
+  google_stt_api_key: z.string().optional().nullable(),
+  google_tts_api_key: z.string().optional().nullable(),
 });
 
 type SettingsFormData = z.infer<typeof settingsSchema>;
@@ -85,6 +93,12 @@ Ferramentas Disponíveis (Poderes):
   deactivation_phrases: ["fechar", "encerrar"],
   welcome_message: "Bem-vindo ao site! Diga 'ativar' para começar a conversar.",
   continuation_phrase: "Pode falar.",
+  enable_streaming_voice: false,
+  streaming_stt_provider: "deepgram",
+  deepgram_api_key: "",
+  openai_stt_api_key: "",
+  google_stt_api_key: "",
+  google_tts_api_key: "",
 };
 
 const OPENAI_TTS_VOICES = [
@@ -94,9 +108,6 @@ const OPENAI_TTS_VOICES = [
   { value: "onyx", label: "Onyx" },
   { value: "fable", label: "Fable" },
   { value: "alloy", label: "Alloy (padrão)" },
-  { value: "ash", label: "Ash" },
-  { value: "sage", label: "Sage" },
-  { value: "coral", label: "Coral" },
 ];
 
 const SettingsPage: React.FC = () => {
@@ -133,25 +144,31 @@ const SettingsPage: React.FC = () => {
       return;
     }
 
-    const { error } = await supabase.from("settings").upsert(
-      {
-        workspace_id: workspace.id,
-        system_prompt: formData.system_prompt,
-        assistant_prompt: formData.assistant_prompt,
-        ai_model: formData.ai_model,
-        voice_model: formData.voice_model,
-        openai_tts_voice: formData.openai_tts_voice || null,
-        voice_sensitivity: formData.voice_sensitivity,
-        openai_api_key: formData.openai_api_key || null,
-        gemini_api_key: formData.gemini_api_key || null,
-        conversation_memory_length: formData.conversation_memory_length,
-        activation_phrases: formData.activation_phrases,
-        deactivation_phrases: formData.deactivation_phrases,
-        welcome_message: formData.welcome_message || null,
-        continuation_phrase: formData.continuation_phrase || null,
-      },
-      { onConflict: "workspace_id" }
-    );
+    const settingsData = {
+      workspace_id: workspace.id,
+      system_prompt: formData.system_prompt,
+      assistant_prompt: formData.assistant_prompt,
+      ai_model: formData.ai_model,
+      voice_model: formData.voice_model,
+      openai_tts_voice: formData.openai_tts_voice || null,
+      voice_sensitivity: formData.voice_sensitivity,
+      openai_api_key: formData.openai_api_key || null,
+      gemini_api_key: formData.gemini_api_key || null,
+      conversation_memory_length: formData.conversation_memory_length,
+      activation_phrases: formData.activation_phrases,
+      deactivation_phrases: formData.deactivation_phrases,
+      welcome_message: formData.welcome_message || null,
+      continuation_phrase: formData.continuation_phrase || null,
+      // Streaming fields
+      enable_streaming_voice: formData.enable_streaming_voice,
+      streaming_stt_provider: formData.streaming_stt_provider || null,
+      deepgram_api_key: formData.deepgram_api_key || null,
+      openai_stt_api_key: formData.openai_stt_api_key || null,
+      google_stt_api_key: formData.google_stt_api_key || null,
+      google_tts_api_key: formData.google_tts_api_key || null,
+    };
+
+    const { error } = await supabase.from("settings").upsert(settingsData, { onConflict: "workspace_id" });
 
     if (error) {
       showError("Erro ao salvar configurações.");
@@ -162,12 +179,10 @@ const SettingsPage: React.FC = () => {
   }, [workspace]);
 
   useEffect(() => {
-    const fetchSettingsAndFieldsAndPowers = async () => {
+    const fetchSettingsAndRelatedData = async () => {
       if (!workspace?.id) return;
-
       setLoadingSettings(true);
 
-      // Fetch Settings
       const { data: settingsData, error: settingsError } = await supabase
         .from("settings")
         .select("*")
@@ -176,89 +191,63 @@ const SettingsPage: React.FC = () => {
 
       if (settingsError && settingsError.code !== "PGRST116") {
         showError("Erro ao carregar configurações.");
-        console.error(settingsError);
       } else if (settingsData) {
-        setValue("system_prompt", settingsData.system_prompt ?? defaultValues.system_prompt);
-        setValue("assistant_prompt", settingsData.assistant_prompt ?? defaultValues.assistant_prompt);
-        setValue("ai_model", settingsData.ai_model ?? defaultValues.ai_model);
-        setValue("voice_model", settingsData.voice_model ?? defaultValues.voice_model);
-        setValue("openai_tts_voice", settingsData.openai_tts_voice ?? defaultValues.openai_tts_voice);
-        setValue("voice_sensitivity", settingsData.voice_sensitivity ?? defaultValues.voice_sensitivity);
-        setValue("openai_api_key", settingsData.openai_api_key ?? defaultValues.openai_api_key);
-        setValue("gemini_api_key", settingsData.gemini_api_key ?? defaultValues.gemini_api_key);
-        setValue("conversation_memory_length", settingsData.conversation_memory_length ?? defaultValues.conversation_memory_length);
-        setValue("activation_phrases", settingsData.activation_phrases ?? defaultValues.activation_phrases);
-        setValue("deactivation_phrases", settingsData.deactivation_phrases ?? defaultValues.deactivation_phrases);
-        setValue("welcome_message", settingsData.welcome_message ?? defaultValues.welcome_message);
-        setValue("continuation_phrase", settingsData.continuation_phrase ?? defaultValues.continuation_phrase);
+        Object.keys(settingsData).forEach(key => {
+          const formKey = key as keyof SettingsFormData;
+          if (formKey in defaultValues) {
+            setValue(formKey, settingsData[key] ?? defaultValues[formKey]);
+          }
+        });
       }
 
-      // Fetch User Data Fields
-      const { data: fieldsData, error: fieldsError } = await supabase
+      const { data: fieldsData } = await supabase
         .from('user_data_fields')
         .select('id, name, description, type')
         .eq('workspace_id', workspace.id)
         .order('name', { ascending: true });
+      setUserDataFields(fieldsData || []);
 
-      if (fieldsError) {
-        console.error("Erro ao carregar campos de dados do usuário:", fieldsError);
-        showError("Erro ao carregar campos de dados do usuário.");
-      } else {
-        setUserDataFields(fieldsData || []);
-      }
-
-      // Fetch Powers
-      const { data: powersData, error: powersError } = await supabase
+      const { data: powersData } = await supabase
         .from('powers')
         .select('id, name, description')
         .eq('workspace_id', workspace.id)
         .order('name', { ascending: true });
-
-      if (powersError) {
-        console.error("Erro ao carregar poderes:", powersError);
-        showError("Erro ao carregar poderes.");
-      } else {
-        setPowers(powersData || []);
-      }
+      setPowers(powersData || []);
 
       setLoadingSettings(false);
     };
 
     if (!loading && workspace) {
-      fetchSettingsAndFieldsAndPowers();
+      fetchSettingsAndRelatedData();
     }
   }, [workspace, loading, setValue]);
 
   const handleAddPhrase = (type: 'activation' | 'deactivation') => {
     const input = type === 'activation' ? activationInput.trim().toLowerCase() : deactivationInput.trim().toLowerCase();
     if (!input) return;
-
-    const currentPhrases = getValues(type === 'activation' ? 'activation_phrases' : 'deactivation_phrases');
+    const fieldName = type === 'activation' ? 'activation_phrases' : 'deactivation_phrases';
+    const currentPhrases = getValues(fieldName);
     if (!currentPhrases.includes(input)) {
-      setValue(type === 'activation' ? 'activation_phrases' : 'deactivation_phrases', [...currentPhrases, input]);
+      setValue(fieldName, [...currentPhrases, input]);
     }
-
     if (type === 'activation') setActivationInput("");
     else setDeactivationInput("");
   };
 
   const handleRemovePhrase = (type: 'activation' | 'deactivation', phraseToRemove: string) => {
-    const currentPhrases = getValues(type === 'activation' ? 'activation_phrases' : 'deactivation_phrases');
-    setValue(type === 'activation' ? 'activation_phrases' : 'deactivation_phrases', currentPhrases.filter(p => p !== phraseToRemove));
+    const fieldName = type === 'activation' ? 'activation_phrases' : 'deactivation_phrases';
+    const currentPhrases = getValues(fieldName);
+    setValue(fieldName, currentPhrases.filter(p => p !== phraseToRemove));
   };
 
   const insertAtCursor = useCallback((textareaRef: React.RefObject<HTMLTextAreaElement>, textToInsert: string, fieldName: keyof SettingsFormData) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
-
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const value = getValues(fieldName) as string;
-
     const newValue = value.substring(0, start) + textToInsert + value.substring(end);
-
     setValue(fieldName, newValue, { shouldValidate: true });
-
     setTimeout(() => {
       if (textareaRef.current) {
         textareaRef.current.focus();
@@ -266,22 +255,6 @@ const SettingsPage: React.FC = () => {
       }
     }, 0);
   }, [getValues, setValue]);
-
-  const handleInsertSystemPromptField = (fieldName: string) => {
-    insertAtCursor(systemPromptRef, `{${fieldName}}`, "system_prompt");
-  };
-
-  const handleInsertAssistantPromptField = (fieldName: string) => {
-    insertAtCursor(assistantPromptRef, `{${fieldName}}`, "assistant_prompt");
-  };
-
-  const handleInsertSystemPromptPower = (powerName: string) => {
-    insertAtCursor(systemPromptRef, `{power:${powerName}}`, "system_prompt");
-  };
-
-  const handleInsertAssistantPromptPower = (powerName: string) => {
-    insertAtCursor(assistantPromptRef, `{power:${powerName}}`, "assistant_prompt");
-  };
 
   if (loading || loadingSettings) {
     return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
@@ -291,309 +264,140 @@ const SettingsPage: React.FC = () => {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <h1 className="text-3xl font-bold">Configurações do Assistente IA</h1>
 
+      {/* General Cards */}
       <Card>
-        <CardHeader>
-          <CardTitle>Mensagem de Boas-Vindas</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            {...register("welcome_message")}
-            rows={2}
-            placeholder="Mensagem que o assistente falará ao iniciar"
-          />
-          {errors.welcome_message && (
-            <p className="text-destructive text-sm mt-1">{errors.welcome_message.message}</p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Frase de Continuação</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Input
-            {...register("continuation_phrase")}
-            placeholder="Ex: Pode falar, Estou ouvindo"
-          />
-          {errors.continuation_phrase && (
-            <p className="text-destructive text-sm mt-1">{errors.continuation_phrase.message}</p>
-          )}
-          <p className="text-sm text-muted-foreground mt-1">
-            Esta frase será dita quando o assistente for reaberto após a primeira ativação.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Prompt do Sistema</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center mb-2">
-            <Label htmlFor="system_prompt" className="sr-only">Prompt do Sistema</Label>
-            <FieldInsertPopover fields={userDataFields} onInsert={handleInsertSystemPromptField} label="Inserir Campo" />
-            <FieldInsertPopover fields={powers} onInsert={handleInsertSystemPromptPower} label="Inserir Poder" />
+        <CardHeader><CardTitle>Mensagens do Assistente</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label>Mensagem de Boas-Vindas</Label>
+            <Textarea {...register("welcome_message")} rows={2} placeholder="Mensagem que o assistente falará ao iniciar" />
           </div>
-          <Controller
-            control={control}
-            name="system_prompt"
-            render={({ field }) => (
-              <Textarea
-                id="system_prompt"
-                {...field}
-                rows={3}
-                placeholder="Prompt do sistema para a IA"
-                ref={(e) => {
-                  systemPromptRef.current = e;
-                  field.ref(e);
-                }}
-              />
-            )}
-          />
-          {errors.system_prompt && (
-            <p className="text-destructive text-sm mt-1">{errors.system_prompt.message}</p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Prompt do Assistente</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center mb-2">
-            <Label htmlFor="assistant_prompt" className="sr-only">Prompt do Assistente</Label>
-            <FieldInsertPopover fields={userDataFields} onInsert={handleInsertAssistantPromptField} label="Inserir Campo" />
-            <FieldInsertPopover fields={powers} onInsert={handleInsertAssistantPromptPower} label="Inserir Poder" />
+          <div>
+            <Label>Frase de Continuação</Label>
+            <Input {...register("continuation_phrase")} placeholder="Ex: Pode falar, Estou ouvindo" />
+            <p className="text-sm text-muted-foreground mt-1">Dita quando o assistente é reaberto.</p>
           </div>
-          <Controller
-            control={control}
-            name="assistant_prompt"
-            render={({ field }) => (
-              <Textarea
-                id="assistant_prompt"
-                {...field}
-                rows={3}
-                placeholder="Prompt do assistente para a IA"
-                ref={(e) => {
-                  assistantPromptRef.current = e;
-                  field.ref(e);
-                }}
-              />
-            )}
-          />
-          {errors.assistant_prompt && (
-            <p className="text-destructive text-sm mt-1">{errors.assistant_prompt.message}</p>
-          )}
         </CardContent>
       </Card>
 
+      {/* Prompts */}
       <Card>
-        <CardHeader>
-          <CardTitle>Palavras/Frases de Ativação</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-2 mb-2">
-            <Input
-              value={activationInput}
-              onChange={(e) => setActivationInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPhrase('activation'); } }}
-              placeholder="Digite uma frase e tecle Enter"
-            />
-            <Button type="button" onClick={() => handleAddPhrase('activation')}>Adicionar</Button>
+        <CardHeader><CardTitle>Prompts da IA</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <div className="flex items-center mb-2 justify-between">
+              <Label htmlFor="system_prompt">Prompt do Sistema</Label>
+              <div>
+                <FieldInsertPopover fields={userDataFields} onInsert={(name) => insertAtCursor(systemPromptRef, `{${name}}`, "system_prompt")} label="Campo" />
+                <FieldInsertPopover fields={powers} onInsert={(name) => insertAtCursor(systemPromptRef, `{power:${name}}`, "system_prompt")} label="Poder" />
+              </div>
+            </div>
+            <Controller control={control} name="system_prompt" render={({ field }) => (<Textarea id="system_prompt" {...field} rows={3} ref={(e) => { systemPromptRef.current = e; field.ref(e); }} />)} />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {activationPhrases?.map(phrase => (
-              <Badge key={phrase} variant="secondary" className="flex items-center gap-1">
-                {phrase}
-                <button type="button" onClick={() => handleRemovePhrase('activation', phrase)} className="rounded-full hover:bg-muted-foreground/20 p-0.5">
-                  <X className="h-3 w-3" />
-                </button>
-              </Badge>
-            ))}
+          <div>
+            <div className="flex items-center mb-2 justify-between">
+              <Label htmlFor="assistant_prompt">Prompt do Assistente</Label>
+              <div>
+                <FieldInsertPopover fields={userDataFields} onInsert={(name) => insertAtCursor(assistantPromptRef, `{${name}}`, "assistant_prompt")} label="Campo" />
+                <FieldInsertPopover fields={powers} onInsert={(name) => insertAtCursor(assistantPromptRef, `{power:${name}}`, "assistant_prompt")} label="Poder" />
+              </div>
+            </div>
+            <Controller control={control} name="assistant_prompt" render={({ field }) => (<Textarea id="assistant_prompt" {...field} rows={3} ref={(e) => { assistantPromptRef.current = e; field.ref(e); }} />)} />
           </div>
-          {errors.activation_phrases && <p className="text-destructive text-sm mt-1">{errors.activation_phrases.message}</p>}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Palavras/Frases de Desativação</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-2 mb-2">
-            <Input
-              value={deactivationInput}
-              onChange={(e) => setDeactivationInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPhrase('deactivation'); } }}
-              placeholder="Digite uma frase e tecle Enter"
-            />
-            <Button type="button" onClick={() => handleAddPhrase('deactivation')}>Adicionar</Button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {deactivationPhrases?.map(phrase => (
-              <Badge key={phrase} variant="secondary" className="flex items-center gap-1">
-                {phrase}
-                <button type="button" onClick={() => handleRemovePhrase('deactivation', phrase)} className="rounded-full hover:bg-muted-foreground/20 p-0.5">
-                  <X className="h-3 w-3" />
-                </button>
-              </Badge>
-            ))}
-          </div>
-          {errors.deactivation_phrases && <p className="text-destructive text-sm mt-1">{errors.deactivation_phrases.message}</p>}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Modelo de IA</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Controller
-            control={control}
-            name="ai_model"
-            render={({ field }) => (
-              <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o modelo de IA" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem>
-                  <SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem>
-                  <SelectItem value="gemini-pro">Gemini Pro (não implementado)</SelectItem>
-                  <SelectItem value="gpt-4o-mini">GPT-4o Mini</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Modelo de Voz</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Controller
-            control={control}
-            name="voice_model"
-            render={({ field }) => (
-              <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o modelo de voz" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="browser">Navegador (Web Speech API)</SelectItem>
-                  <SelectItem value="openai-tts">OpenAI TTS</SelectItem>
-                  <SelectItem value="gemini-tts">Gemini TTS (não implementado)</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-          />
-        </CardContent>
-      </Card>
-
-      {voiceModel === "openai-tts" && (
+      {/* Activation/Deactivation Phrases */}
+      <div className="grid md:grid-cols-2 gap-6">
         <Card>
-          <CardHeader>
-            <CardTitle>Voz OpenAI TTS</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>Frases de Ativação</CardTitle></CardHeader>
           <CardContent>
-            <Controller
-              control={control}
-              name="openai_tts_voice"
-              render={({ field }) => (
-                <Select onValueChange={field.onChange} value={field.value || "alloy"}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione a voz OpenAI TTS" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {OPENAI_TTS_VOICES.map((voice) => (
-                      <SelectItem key={voice.value} value={voice.value}>
-                        {voice.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
+            <div className="flex gap-2 mb-2">
+              <Input value={activationInput} onChange={(e) => setActivationInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPhrase('activation'); } }} placeholder="Digite e tecle Enter" />
+              <Button type="button" onClick={() => handleAddPhrase('activation')}>Adicionar</Button>
+            </div>
+            <div className="flex flex-wrap gap-2 min-h-[2.5rem]">
+              {activationPhrases?.map(phrase => (<Badge key={phrase} variant="secondary" className="flex items-center gap-1">{phrase}<button type="button" onClick={() => handleRemovePhrase('activation', phrase)} className="rounded-full hover:bg-muted-foreground/20 p-0.5"><X className="h-3 w-3" /></button></Badge>))}
+            </div>
           </CardContent>
         </Card>
-      )}
+        <Card>
+          <CardHeader><CardTitle>Frases de Desativação</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex gap-2 mb-2">
+              <Input value={deactivationInput} onChange={(e) => setDeactivationInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPhrase('deactivation'); } }} placeholder="Digite e tecle Enter" />
+              <Button type="button" onClick={() => handleAddPhrase('deactivation')}>Adicionar</Button>
+            </div>
+            <div className="flex flex-wrap gap-2 min-h-[2.5rem]">
+              {deactivationPhrases?.map(phrase => (<Badge key={phrase} variant="secondary" className="flex items-center gap-1">{phrase}<button type="button" onClick={() => handleRemovePhrase('deactivation', phrase)} className="rounded-full hover:bg-muted-foreground/20 p-0.5"><X className="h-3 w-3" /></button></Badge>))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
+      {/* AI and Voice Models */}
       <Card>
-        <CardHeader>
-          <CardTitle>Sensibilidade do Microfone</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Controller
-            control={control}
-            name="voice_sensitivity"
-            render={({ field }) => (
-              <Slider
-                value={[field.value ?? 50]}
-                onValueChange={(value) => field.onChange(value[0])}
-                min={0}
-                max={100}
-                step={1}
-              />
-            )}
-          />
-          <p className="text-sm text-muted-foreground mt-1">
-            Ajuste a sensibilidade do microfone (0 a 100)
-          </p>
-          {errors.voice_sensitivity && (
-            <p className="text-destructive text-sm mt-1">{errors.voice_sensitivity.message}</p>
-          )}
+        <CardHeader><CardTitle>Modelos de IA e Voz</CardTitle></CardHeader>
+        <CardContent className="grid md:grid-cols-2 gap-6">
+          <div>
+            <Label>Modelo de IA</Label>
+            <Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="gpt-4o-mini">GPT-4o Mini</SelectItem><SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem><SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem><SelectItem value="gemini-1.5-flash-latest">Gemini 1.5 Flash</SelectItem><SelectItem value="gemini-pro" disabled>Gemini Pro (em breve)</SelectItem></SelectContent></Select>)} />
+          </div>
+          <div>
+            <Label>Modelo de Voz (TTS)</Label>
+            <Controller control={control} name="voice_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="browser">Navegador (Padrão)</SelectItem><SelectItem value="openai-tts">OpenAI TTS</SelectItem><SelectItem value="google-tts">Google TTS</SelectItem><SelectItem value="deepgram">Deepgram</SelectItem><SelectItem value="gemini-tts" disabled>Gemini TTS (em breve)</SelectItem></SelectContent></Select>)} />
+          </div>
+          {voiceModel === "openai-tts" && (<div><Label>Voz OpenAI TTS</Label><Controller control={control} name="openai_tts_voice" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value || "alloy"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{OPENAI_TTS_VOICES.map((voice) => (<SelectItem key={voice.value} value={voice.value}>{voice.label}</SelectItem>))}</SelectContent></Select>)} /></div>)}
         </CardContent>
       </Card>
 
+      {/* Streaming and STT */}
       <Card>
-        <CardHeader>
-          <CardTitle>Chave API OpenAI</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Input
-            {...register("openai_api_key")}
-            type="password"
-            placeholder="Sua chave API OpenAI"
-            autoComplete="new-password"
-          />
+        <CardHeader><CardTitle>Streaming e Transcrição (STT)</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center space-x-2">
+            <Controller control={control} name="enable_streaming_voice" render={({ field }) => (<Switch id="enable_streaming_voice" checked={field.value} onCheckedChange={field.onChange} />)} />
+            <Label htmlFor="enable_streaming_voice">Habilitar Voz em Tempo Real (Streaming)</Label>
+          </div>
+          <div>
+            <Label>Provedor de Transcrição (STT)</Label>
+            <Controller control={control} name="streaming_stt_provider" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value ?? "deepgram"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="deepgram">Deepgram</SelectItem><SelectItem value="google">Google STT</SelectItem><SelectItem value="openai">OpenAI Whisper</SelectItem></SelectContent></Select>)} />
+          </div>
         </CardContent>
       </Card>
 
+      {/* API Keys */}
       <Card>
-        <CardHeader>
-          <CardTitle>Chave API Gemini</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Input
-            {...register("gemini_api_key")}
-            type="password"
-            placeholder="Sua chave API Gemini"
-            autoComplete="new-password"
-          />
+        <CardHeader><CardTitle>Chaves de API</CardTitle></CardHeader>
+        <CardContent className="grid md:grid-cols-2 gap-6">
+          <div><Label>OpenAI API Key (GPT & TTS)</Label><Input {...register("openai_api_key")} type="password" placeholder="sk-..." autoComplete="new-password" /></div>
+          <div><Label>OpenAI STT API Key (Whisper)</Label><Input {...register("openai_stt_api_key")} type="password" placeholder="sk-..." autoComplete="new-password" /></div>
+          <div><Label>Gemini API Key</Label><Input {...register("gemini_api_key")} type="password" placeholder="AIza..." autoComplete="new-password" /></div>
+          <div><Label>Google TTS API Key</Label><Input {...register("google_tts_api_key")} type="password" placeholder="AIza..." autoComplete="new-password" /></div>
+          <div><Label>Google STT API Key</Label><Input {...register("google_stt_api_key")} type="password" placeholder="AIza..." autoComplete="new-password" /></div>
+          <div><Label>Deepgram API Key</Label><Input {...register("deepgram_api_key")} type="password" placeholder="Sua chave Deepgram" autoComplete="new-password" /></div>
         </CardContent>
       </Card>
 
+      {/* Advanced */}
       <Card>
-        <CardHeader>
-          <CardTitle>Memória da Conversa</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Input
-            {...register("conversation_memory_length")}
-            type="number"
-            min={0}
-            max={10}
-            placeholder="Número de mensagens para lembrar"
-          />
+        <CardHeader><CardTitle>Configurações Avançadas</CardTitle></CardHeader>
+        <CardContent className="grid md:grid-cols-2 gap-6">
+          <div>
+            <Label>Memória da Conversa</Label>
+            <Controller control={control} name="conversation_memory_length" render={({ field }) => (<Slider value={[field.value ?? 5]} onValueChange={(v) => field.onChange(v[0])} min={0} max={10} step={1} />)} />
+            <p className="text-sm text-muted-foreground mt-1">Pares de mensagens a serem lembradas: {watch("conversation_memory_length")}</p>
+          </div>
+          <div>
+            <Label>Sensibilidade do Microfone</Label>
+            <Controller control={control} name="voice_sensitivity" render={({ field }) => (<Slider value={[field.value ?? 50]} onValueChange={(v) => field.onChange(v[0])} min={0} max={100} step={1} />)} />
+            <p className="text-sm text-muted-foreground mt-1">Valor atual: {watch("voice_sensitivity")}</p>
+          </div>
         </CardContent>
       </Card>
 
       <Button type="submit" disabled={isSubmitting}>
-        Salvar Configurações
+        {isSubmitting ? "Salvando..." : "Salvar Configurações"}
       </Button>
     </form>
   );
