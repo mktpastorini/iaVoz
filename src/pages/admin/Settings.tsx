@@ -66,8 +66,8 @@ const defaultValues: SettingsFormData = {
   voice_model: "browser",
   streaming_stt_provider: "browser",
   openai_tts_voice: "alloy",
-  deepgram_stt_model: "nova-2-general",
-  deepgram_tts_model: "aura-asteria-en", // Alterado para um padrão mais seguro
+  deepgram_stt_model: "nova-2",
+  deepgram_tts_model: "aura-asteria-en",
   voice_sensitivity: 50,
   openai_api_key: "",
   gemini_api_key: "",
@@ -99,10 +99,11 @@ const DEEPGRAM_TTS_VOICES = [
 ];
 
 const DEEPGRAM_STT_MODELS = [
-  { value: "nova-2-general", label: "Nova 2 - Geral" },
+  { value: "nova-3", label: "Nova 3" },
+  { value: "nova-2", label: "Nova 2" },
+  { value: "whisper-large", label: "Whisper" },
   { value: "nova-2-meeting", label: "Nova 2 - Reunião" },
   { value: "nova-2-phonecall", label: "Nova 2 - Ligação" },
-  { value: "nova-2-finance", label: "Nova 2 - Finanças" },
 ];
 
 const SettingsPage: React.FC = () => {
