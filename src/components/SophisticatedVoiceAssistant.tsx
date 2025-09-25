@@ -113,6 +113,7 @@ const SophisticatedVoiceAssistant = () => {
   const isPlayingAudioRef = useRef(false);
   const geminiAudioQueue = useRef<HTMLAudioElement[]>([]);
   const isPlayingGeminiAudio = useRef(false);
+  const isAiStreamingCompleteRef = useRef(false);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
@@ -332,6 +333,7 @@ const SophisticatedVoiceAssistant = () => {
     };
     try {
       let response;
+      isAiStreamingCompleteRef.current = false;
       if (isGemini) {
         const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
         const body = { systemInstruction: { parts: [{ text: systemPrompt }] }, contents: mapToGeminiHistory(currentHistory.slice(-currentSettings.conversation_memory_length)), tools: geminiTools };
@@ -350,7 +352,7 @@ const SophisticatedVoiceAssistant = () => {
 
       const playGeminiAudioQueue = async () => {
         if (isPlayingGeminiAudio.current || geminiAudioQueue.current.length === 0) {
-          if (!isPlayingGeminiAudio.current && audioQueueEmptyCallback) {
+          if (!isPlayingGeminiAudio.current && isAiStreamingCompleteRef.current && audioQueueEmptyCallback) {
             audioQueueEmptyCallback();
             audioQueueEmptyCallback = null;
           }
@@ -370,12 +372,18 @@ const SophisticatedVoiceAssistant = () => {
       };
       const processSentence = async (sentence: string) => {
         if (sentence.trim().length === 0) return;
-        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text: sentence, model: currentSettings.gemini_tts_model } });
-        if (error) { console.error("Gemini TTS Error:", error); return; }
-        const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
-        const audio = new Audio(audioUrl);
-        geminiAudioQueue.current.push(audio);
-        playGeminiAudioQueue();
+        try {
+          const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text: sentence, model: currentSettings.gemini_tts_model } });
+          if (error) { throw new Error(error.message); }
+          const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
+          const audio = new Audio(audioUrl);
+          geminiAudioQueue.current.push(audio);
+          playGeminiAudioQueue();
+        } catch (e: any) {
+          console.error("Gemini TTS Error:", e);
+          showError(`Erro no Gemini TTS: ${e.message}`);
+          stopSpeaking();
+        }
       };
       while (true) {
         const { done, value } = await reader.read();
@@ -416,6 +424,7 @@ const SophisticatedVoiceAssistant = () => {
         }
       }
       
+      isAiStreamingCompleteRef.current = true;
       const finalSpeakCallback = () => {
         if (isOpenRef.current && !stopPermanentlyRef.current) {
           setTimeout(() => startListening(), 100);
