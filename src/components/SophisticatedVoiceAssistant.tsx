@@ -248,7 +248,13 @@ const SophisticatedVoiceAssistant = () => {
           console.error("[ERROR] SpeechSynthesis Error:", e); 
           onSpeechEnd(); 
         };
-        synthRef.current.speak(utterance);
+        // This is a robust way to handle synthesis
+        try {
+          synthRef.current.speak(utterance);
+        } catch (e) {
+          console.error("[ERROR] synth.speak failed:", e);
+          onSpeechEnd();
+        }
         return;
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         console.log("[SPEECH] Using OpenAI TTS API for synthesis.");
@@ -343,6 +349,7 @@ const SophisticatedVoiceAssistant = () => {
 
     try {
       let response;
+      console.log(`[AI] Calling ${isGemini ? 'Gemini' : 'OpenAI'}...`);
       if (isGemini) {
         const { data, error } = await supabaseAnon.functions.invoke('gemini-proxy', {
           body: {
@@ -498,9 +505,14 @@ const SophisticatedVoiceAssistant = () => {
     };
     if ("speechSynthesis" in window) {
       synthRef.current = window.speechSynthesis;
-      // Warm-up call to prevent initial errors
-      synthRef.current.getVoices();
-      console.log("[ASSISTANT] Speech Synthesis initialized.");
+      // Warm-up call to prevent initial errors on some browsers
+      if (synthRef.current.getVoices().length === 0) {
+        synthRef.current.onvoiceschanged = () => {
+          console.log("[ASSISTANT] Speech Synthesis voices loaded.");
+        };
+      } else {
+         console.log("[ASSISTANT] Speech Synthesis initialized.");
+      }
     }
   }, [executeClientAction, runConversation, speak, startListening, stopSpeaking]);
 
@@ -547,6 +559,10 @@ const SophisticatedVoiceAssistant = () => {
 
   const handleManualActivation = useCallback(() => {
     console.log("[USER] Manually activating assistant.");
+    // This is a user gesture, so we can safely resume the audio context.
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
     if (isOpenRef.current) return;
     if (micPermission !== "granted") {
       checkAndRequestMicPermission();

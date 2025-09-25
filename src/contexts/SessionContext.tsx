@@ -47,6 +47,10 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       }
       setSession(initialSession);
       setUser(initialSession?.user || null);
+      // If there's no initial session, we can consider the load complete for an anonymous user.
+      if (!initialSession) {
+        setInitialLoadComplete(true);
+      }
     };
 
     loadSessionAndUser();
@@ -109,6 +113,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       setInitialLoadComplete(true);
     };
 
+    // This check ensures we don't run on the initial undefined state of `user`
     if (user !== undefined) {
       fetchUserData();
     }
