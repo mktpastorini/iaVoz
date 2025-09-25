@@ -47,10 +47,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       }
       setSession(initialSession);
       setUser(initialSession?.user || null);
-      // If there's no initial session, we can consider the load complete for an anonymous user.
-      if (!initialSession) {
-        setInitialLoadComplete(true);
-      }
     };
 
     loadSessionAndUser();
@@ -67,8 +63,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   useEffect(() => {
     const fetchUserData = async () => {
-      // Only fetch data for authenticated, non-anonymous users
-      if (user && user.id && !user.is_anonymous) {
+      if (user && user.id) {
         if (user.id === lastUserIdRef.current) {
           setInitialLoadComplete(true);
           return;
@@ -76,18 +71,24 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         lastUserIdRef.current = user.id;
 
         try {
-          const { data: profileData, error: profileError } = await supabase
+          const { data: profileData, error: profileError, status } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', user.id)
             .single();
 
-          if (profileError && profileError.code !== 'PGRST116') {
-            console.error('Error fetching profile:', profileError);
-            showError('Erro ao carregar perfil.');
+          if (profileError) {
+            if (profileError.code === 'PGRST116') {
+              // Nenhum perfil encontrado, não é erro crítico
+              setProfile(null);
+            } else {
+              console.error('Error fetching profile:', profileError, 'Status:', status);
+              showError('Erro ao carregar perfil.');
+              setProfile(null);
+            }
+          } else {
+            setProfile(profileData);
           }
-          setProfile(profileData || null);
-
         } catch (err) {
           console.error('Unexpected error fetching profile:', err);
           showError('Erro inesperado ao carregar perfil.');
@@ -101,11 +102,11 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         if (workspaceError) {
           console.error('Error ensuring workspace:', workspaceError);
           showError('Erro ao garantir workspace.');
+          setWorkspace(null);
+        } else {
+          setWorkspace(workspaceData);
         }
-        setWorkspace(workspaceData || null);
-
       } else {
-        // Clear data for anonymous or logged-out users
         lastUserIdRef.current = null;
         setProfile(null);
         setWorkspace(null);
@@ -113,7 +114,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       setInitialLoadComplete(true);
     };
 
-    // This check ensures we don't run on the initial undefined state of `user`
     if (user !== undefined) {
       fetchUserData();
     }
