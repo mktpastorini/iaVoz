@@ -13,7 +13,17 @@ serve(async (req) => {
   try {
     const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
     if (!geminiApiKey) {
-      throw new Error('A chave de API do Gemini (GEMINI_API_KEY) não está configurada como um secret na Supabase.');
+      // Retorna uma mensagem de erro específica e útil.
+      return new Response(
+        JSON.stringify({ 
+          error: 'A chave de API do Gemini não está configurada no servidor.',
+          solution: "Por favor, configure o secret 'GEMINI_API_KEY' no painel do seu projeto Supabase em 'Edge Functions'."
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     const { text, model = 'gemini-2.5-flash-preview-tts' } = await req.json();

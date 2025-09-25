@@ -264,13 +264,26 @@ const SophisticatedVoiceAssistant = () => {
         audioRef.current.onended = onSpeechEnd;
         await audioRef.current.play();
       } else if (currentSettings.voice_model === "gemini-tts") {
-        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', {
-            body: {
-                text,
-                model: currentSettings.gemini_tts_model,
-            },
-        });
-        if (error) throw new Error(`Erro na Edge Function do Gemini TTS: ${error.message}`);
+        if (!currentSettings.gemini_api_key) {
+          showError("A chave de API do Gemini não está configurada nas Configurações.");
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = "pt-BR";
+          utterance.onend = onSpeechEnd;
+          utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
+          synthRef.current.speak(utterance);
+          return;
+        }
+        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text, model: currentSettings.gemini_tts_model } });
+        if (error) {
+          const errorJson = await (error as any).context?.json?.();
+          if (errorJson?.solution) {
+            showError(`${errorJson.error} ${errorJson.solution}`);
+          } else {
+            throw new Error(errorJson?.error || (error as any).message);
+          }
+          onSpeechEnd();
+          return;
+        }
         const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = onSpeechEnd;
@@ -392,9 +405,24 @@ const SophisticatedVoiceAssistant = () => {
 
       const processSentence = async (sentence: string) => {
         if (sentence.trim().length === 0) return;
+        if (!currentSettings.gemini_api_key) {
+          showError("A chave de API do Gemini não está configurada nas Configurações.");
+          stopSpeaking();
+          onStreamEnd();
+          return;
+        }
         try {
           const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text: sentence, model: currentSettings.gemini_tts_model } });
-          if (error) { throw new Error(error.message); }
+          if (error) {
+            const errorJson = await (error as any).context?.json?.();
+            if (errorJson?.solution) {
+              showError(`${errorJson.error} ${errorJson.solution}`);
+            } else {
+              throw new Error(errorJson?.error || (error as any).message);
+            }
+            onStreamEnd();
+            return;
+          }
           const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
           const audio = new Audio(audioUrl);
           geminiAudioQueue.current.push(audio);
