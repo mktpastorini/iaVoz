@@ -269,12 +269,21 @@ const SophisticatedVoiceAssistant = () => {
         }
         const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text, model: currentSettings.gemini_tts_model } });
         if (error) {
-          const errorJson = await (error as any).context?.json?.();
-          if (errorJson?.solution) {
-            showError(`${errorJson.error} ${errorJson.solution}`);
-          } else {
-            throw new Error(errorJson?.error || (error as any).message);
+          let errorMessage = (error as any).message || 'Ocorreu um erro desconhecido.';
+          try {
+            const errorContext = (error as any).context;
+            if (errorContext && typeof errorContext.json === 'function') {
+              const errorJson = await errorContext.json();
+              if (errorJson.solution) {
+                errorMessage = `${errorJson.error} ${errorJson.solution}`;
+              } else if (errorJson.error) {
+                errorMessage = errorJson.error;
+              }
+            }
+          } catch (e) {
+            console.error("Não foi possível analisar a resposta de erro da Edge Function:", e);
           }
+          showError(errorMessage);
           onSpeechEnd();
           return;
         }

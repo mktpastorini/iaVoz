@@ -11,8 +11,10 @@ serve(async (req) => {
   }
 
   try {
+    console.log("[gemini-tts] Função iniciada.");
     const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
     if (!geminiApiKey) {
+      console.error("[gemini-tts] Erro: Secret GEMINI_API_KEY não encontrado.");
       return new Response(
         JSON.stringify({ 
           error: 'A chave de API do Gemini não está configurada no servidor.',
@@ -24,6 +26,7 @@ serve(async (req) => {
         }
       );
     }
+    console.log("[gemini-tts] Chave de API encontrada.");
 
     const { text, model = 'gemini-2.5-flash-preview-tts' } = await req.json();
 
@@ -43,16 +46,17 @@ serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
     });
+    
+    console.log(`[gemini-tts] Resposta da API do Google: Status ${response.status}`);
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error(`[gemini-tts] Erro da API do Google: ${errorText}`);
       let errorBody;
       try {
         errorBody = JSON.parse(errorText);
-        console.error("Gemini TTS API Error (JSON):", errorBody);
         throw new Error(`Erro na API do Gemini TTS: ${errorBody.error.message}`);
       } catch (e) {
-        console.error("Gemini TTS API Error (Text):", errorText);
         throw new Error(`Erro na API do Gemini TTS: ${response.status} - ${errorText}`);
       }
     }
@@ -65,7 +69,7 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('[gemini-tts] Edge Function Error:', error);
+    console.error('[gemini-tts] Erro fatal na Edge Function:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
       {
