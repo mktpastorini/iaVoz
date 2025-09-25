@@ -27,7 +27,7 @@ serve(async (req) => {
 
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
-    // Adicionando o 'speechConfig' que estava faltando, conforme seu exemplo
+    // Removendo o 'speechConfig' para permitir que a API escolha a voz padrão
     const requestBody = {
       contents: [{
         role: "user",
@@ -35,11 +35,6 @@ serve(async (req) => {
       }],
       generationConfig: {
         responseModalities: ["AUDIO"],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: "pt-BR-Standard-A" }
-          }
-        }
       }
     };
 
