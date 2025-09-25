@@ -27,14 +27,14 @@ serve(async (req) => {
 
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
-    // Corrigindo a estrutura do 'contents' para remover o 'role', conforme a documentação da API REST.
+    // Usando 'generationConfig' (o nome correto) com a estrutura de 'contents' e 'voiceName' corretas.
     const requestBody = {
       contents: [{
         parts:[{
           text: text
         }]
       }],
-      config: {
+      generationConfig: {
         responseModalities: ["AUDIO"],
         speechConfig: {
           voiceConfig: {
