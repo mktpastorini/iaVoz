@@ -14,7 +14,6 @@ serve(async (req) => {
   }
 
   try {
-    // Use the Service Role Key to bypass RLS for this server-to-server interaction
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -38,8 +37,14 @@ serve(async (req) => {
       .eq('workspace_id', workspaceId)
       .single();
 
-    const googleApiKey = settings?.google_stt_api_key;
-    if (!googleApiKey) throw new Error("Google STT API key not configured.");
+    if (!settings) {
+      throw new Error("Settings not found for the default workspace.");
+    }
+
+    const googleApiKey = settings.google_stt_api_key;
+    if (!googleApiKey) {
+      throw new Error("Google STT API key not configured.");
+    }
 
     const audioBlob = await req.blob();
     const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(await audioBlob.arrayBuffer())));

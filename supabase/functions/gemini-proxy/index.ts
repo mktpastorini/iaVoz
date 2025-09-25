@@ -28,7 +28,6 @@ serve(async (req) => {
   }
 
   try {
-    // Use the Service Role Key to bypass RLS for this server-to-server interaction
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -47,8 +46,15 @@ serve(async (req) => {
     const workspaceId = defaultWorkspace.id;
 
     const { data: settings } = await supabaseAdmin.from('settings').select('gemini_api_key').eq('workspace_id', workspaceId).single();
-    const geminiApiKey = settings?.gemini_api_key;
-    if (!geminiApiKey) throw new Error("Gemini API key not configured for the default workspace.");
+    
+    if (!settings) {
+      throw new Error("Settings not found for the default workspace.");
+    }
+
+    const geminiApiKey = settings.gemini_api_key;
+    if (!geminiApiKey) {
+      throw new Error("Gemini API key not configured for the default workspace.");
+    }
 
     const { model, messages, tools } = await req.json();
     const formattedMessages = formatToGemini(messages);

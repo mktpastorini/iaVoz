@@ -14,7 +14,6 @@ serve(async (req) => {
   }
 
   try {
-    // Use the Service Role Key to bypass RLS for this server-to-server interaction
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -38,10 +37,16 @@ serve(async (req) => {
       .eq('workspace_id', workspaceId)
       .single();
 
-    const deepgramApiKey = settings?.deepgram_api_key;
-    if (!deepgramApiKey) throw new Error("Deepgram API key not configured for the default workspace.");
+    if (!settings) {
+      throw new Error("Settings not found for the default workspace.");
+    }
 
-    const { action, text, user_id } = await req.json(); // user_id can be passed for comment
+    const deepgramApiKey = settings.deepgram_api_key;
+    if (!deepgramApiKey) {
+      throw new Error("Deepgram API key not configured for the default workspace.");
+    }
+
+    const { action, text, user_id } = await req.json();
 
     if (action === 'get_key') {
       const response = await fetch(`${DEEPGRAM_API_URL}/keys`, {
