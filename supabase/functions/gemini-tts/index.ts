@@ -11,14 +11,12 @@ serve(async (req) => {
   }
 
   try {
-    console.log("[gemini-tts] Function invoked.");
     const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
     if (!geminiApiKey) {
       throw new Error("A chave de API do Gemini (GEMINI_API_KEY) não está configurada como um 'Secret' no seu projeto Supabase.");
     }
 
-    const { text, model } = await req.json();
-    console.log(`[gemini-tts] Received request with text: "${text ? text.substring(0, 50) : 'EMPTY'}"`);
+    const { text, model = 'tts-1' } = await req.json();
 
     if (!text) {
       return new Response(JSON.stringify({ error: 'O parâmetro "text" é obrigatório.' }), {
@@ -27,49 +25,39 @@ serve(async (req) => {
       });
     }
 
-    // Corrigindo o endpoint. A API de TTS do Google, mesmo para modelos mais novos,
-    // utiliza o endpoint 'texttospeech.googleapis.com'. O endpoint 'generativelanguage' é para o chat.
-    const GOOGLE_API_URL = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${geminiApiKey}`;
+    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:synthesizeSpeech?key=${geminiApiKey}`;
 
     const requestBody = {
       input: { text },
       voice: {
         languageCode: "pt-BR",
-        // Usando uma voz padrão de alta qualidade. O parâmetro 'model' do cliente não é usado aqui.
-        name: "pt-BR-Wavenet-A",
       },
       audioConfig: {
         audioEncoding: "MP3",
       },
     };
-    
-    console.log("[gemini-tts] Sending request to Google TTS API:", GOOGLE_API_URL);
-    console.log("[gemini-tts] Request body:", JSON.stringify(requestBody));
 
-    const response = await fetch(GOOGLE_API_URL, {
+    const response = await fetch(GEMINI_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
     });
-
-    console.log(`[gemini-tts] Received status from Google API: ${response.status}`);
 
     if (!response.ok) {
       const errorText = await response.text();
       let errorBody;
       try {
         errorBody = JSON.parse(errorText);
-        console.error("Google TTS API Error (JSON):", errorBody);
+        console.error("Gemini TTS API Error (JSON):", errorBody);
         const errorMessage = errorBody?.error?.message || errorText;
-        throw new Error(`Erro na API do Google TTS: ${errorMessage}`);
+        throw new Error(`Erro na API do Gemini TTS: ${errorMessage}`);
       } catch (e) {
-        console.error("Google TTS API Error (Text):", errorText);
-        throw new Error(`Erro na API do Google TTS: ${response.status} - ${errorText}`);
+        console.error("Gemini TTS API Error (Text):", errorText);
+        throw new Error(`Erro na API do Gemini TTS: ${response.status} - ${errorText}`);
       }
     }
 
     const data = await response.json();
-    console.log("[gemini-tts] Successfully received data from Google API.");
 
     return new Response(JSON.stringify(data), {
       status: 200,
@@ -79,7 +67,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('[gemini-tts] Erro fatal na Edge Function:', error);
     return new Response(
-      JSON.stringify({ error: error.message, stack: error.stack }),
+      JSON.stringify({ error: error.message }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
