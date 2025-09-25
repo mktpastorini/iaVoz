@@ -348,13 +348,18 @@ const SophisticatedVoiceAssistant = () => {
       let fullResponse = "";
       let toolCalls: any[] = [];
       let sentenceBuffer = "";
-      let audioQueueEmptyCallback: (() => void) | null = null;
+      
+      const onStreamEnd = () => {
+        setIsSpeaking(false);
+        if (isOpenRef.current && !stopPermanentlyRef.current) {
+          setTimeout(() => startListening(), 100);
+        }
+      };
 
-      const playGeminiAudioQueue = async () => {
+      const playGeminiAudioQueue = () => {
         if (isPlayingGeminiAudio.current || geminiAudioQueue.current.length === 0) {
-          if (!isPlayingGeminiAudio.current && isAiStreamingCompleteRef.current && audioQueueEmptyCallback) {
-            audioQueueEmptyCallback();
-            audioQueueEmptyCallback = null;
+          if (!isPlayingGeminiAudio.current && isAiStreamingCompleteRef.current) {
+            onStreamEnd();
           }
           return;
         }
@@ -370,6 +375,7 @@ const SophisticatedVoiceAssistant = () => {
           isPlayingGeminiAudio.current = false;
         }
       };
+
       const processSentence = async (sentence: string) => {
         if (sentence.trim().length === 0) return;
         try {
@@ -383,16 +389,21 @@ const SophisticatedVoiceAssistant = () => {
           console.error("Gemini TTS Error:", e);
           showError(`Erro no Gemini TTS: ${e.message}`);
           stopSpeaking();
+          onStreamEnd();
         }
       };
+
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          isAiStreamingCompleteRef.current = true;
+          break;
+        }
         const chunk = decoder.decode(value);
         for (const line of chunk.split("\n")) {
           if (line.startsWith("data: ")) {
             const dataStr = line.substring(6);
-            if (dataStr === "[DONE]") break;
+            if (dataStr === "[DONE]") continue;
             try {
               const data = JSON.parse(dataStr);
               let deltaText = "";
@@ -424,20 +435,12 @@ const SophisticatedVoiceAssistant = () => {
         }
       }
       
-      isAiStreamingCompleteRef.current = true;
-      const finalSpeakCallback = () => {
-        if (isOpenRef.current && !stopPermanentlyRef.current) {
-          setTimeout(() => startListening(), 100);
-        }
-      };
-
       if (currentSettings.voice_model === 'gemini-tts') {
         if (sentenceBuffer.trim().length > 0) {
-          processSentence(sentenceBuffer);
-          sentenceBuffer = "";
+          await processSentence(sentenceBuffer.trim());
+        } else {
+          playGeminiAudioQueue();
         }
-        audioQueueEmptyCallback = finalSpeakCallback;
-        playGeminiAudioQueue();
       }
 
       const aiMessage = { role: "assistant", content: fullResponse || null, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
