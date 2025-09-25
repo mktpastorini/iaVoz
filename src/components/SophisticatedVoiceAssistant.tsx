@@ -203,7 +203,10 @@ const SophisticatedVoiceAssistant = () => {
         await audioRef.current.play();
       } else if (currentSettings.voice_model === "deepgram-tts" && currentSettings.deepgram_api_key) {
         const response = await fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
-        if (!response.ok) throw new Error("Falha na API Deepgram TTS");
+        if (!response.ok) {
+          if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida.");
+          throw new Error(`Falha na API Deepgram TTS: ${response.statusText}`);
+        }
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
@@ -362,7 +365,11 @@ const SophisticatedVoiceAssistant = () => {
   };
 
   const connectToDeepgram = useCallback(async () => {
-    if (!settingsRef.current?.deepgram_api_key) { showError("Chave API Deepgram não configurada."); return; }
+    if (!settingsRef.current?.deepgram_api_key) {
+      showError("Para usar a transcrição da Deepgram, por favor, insira sua chave de API no painel de configurações.");
+      setIsListening(false);
+      return;
+    }
     const deepgram = createClient(settingsRef.current.deepgram_api_key);
     const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true });
     
@@ -382,7 +389,7 @@ const SophisticatedVoiceAssistant = () => {
 
     connection.on(LiveTranscriptionEvents.Error, (error) => {
       console.error("Deepgram STT Error:", error);
-      showError(`Erro na transcrição Deepgram: ${error.toString()}`);
+      showError(`Erro na transcrição Deepgram. Verifique sua chave de API e a conexão com a internet.`);
     });
 
     connection.on(LiveTranscriptionEvents.Close, () => setIsListening(false));
