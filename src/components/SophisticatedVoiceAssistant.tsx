@@ -108,6 +108,9 @@ const SophisticatedVoiceAssistant = () => {
   const animationFrameRef = useRef<number | null>(null);
   const deepgramConnectionRef = useRef<LiveClient | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const elevenlabsSocketRef = useRef<WebSocket | null>(null);
+  const audioQueueRef = useRef<ArrayBuffer[]>([]);
+  const isPlayingAudioRef = useRef(false);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
@@ -164,6 +167,9 @@ const SophisticatedVoiceAssistant = () => {
   const stopSpeaking = useCallback(() => {
     if (synthRef.current?.speaking) synthRef.current.cancel();
     if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
+    if (elevenlabsSocketRef.current) { elevenlabsSocketRef.current.close(); elevenlabsSocketRef.current = null; }
+    audioQueueRef.current = [];
+    isPlayingAudioRef.current = false;
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     setAudioIntensity(0);
     setIsSpeaking(false);
@@ -179,17 +185,16 @@ const SophisticatedVoiceAssistant = () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       setAudioIntensity(0);
       onEndCallback?.();
-      // Reinicia o ciclo de escuta de forma robusta
       stopListening();
       if (isOpenRef.current && !stopPermanentlyRef.current) {
-        setTimeout(() => startListening(), 100); // Pequeno delay para garantir que tudo foi encerrado
+        setTimeout(() => startListening(), 100);
       }
     };
     stopSpeaking();
     stopListening();
     setIsSpeaking(true);
     setAiResponse(text);
-    speechTimeoutRef.current = setTimeout(onSpeechEnd, (text.length / 15) * 1000 + 3000);
+    speechTimeoutRef.current = setTimeout(onSpeechEnd, (text.length / 15) * 1000 + 5000);
     try {
       if (currentSettings.voice_model === "browser" && synthRef.current) {
         const utterance = new SpeechSynthesisUtterance(text);
@@ -210,7 +215,6 @@ const SophisticatedVoiceAssistant = () => {
         if (!response.ok) {
           const errorBody = await response.json().catch(() => ({ err_msg: `Request failed with status ${response.status}` }));
           const errorMessage = errorBody.err_msg || errorBody.reason || JSON.stringify(errorBody);
-          console.error("Deepgram TTS Error Response:", errorBody);
           if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida ou incorreta.");
           throw new Error(`Falha na API Deepgram TTS: ${errorMessage}`);
         }
@@ -219,9 +223,54 @@ const SophisticatedVoiceAssistant = () => {
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
+      } else if (currentSettings.voice_model === "elevenlabs-tts" && currentSettings.elevenlabs_api_key) {
+        if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const voiceId = currentSettings.elevenlabs_voice_id || "21m00Tcm4TlvDq8ikWAM";
+        const socket = new WebSocket(`wss://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream-input?model_id=eleven_multilingual_v2`);
+        elevenlabsSocketRef.current = socket;
+        socket.binaryType = 'arraybuffer';
+        socket.onopen = () => {
+          socket.send(JSON.stringify({ text: " ", voice_settings: { stability: 0.5, similarity_boost: 0.8 }, xi_api_key: currentSettings.elevenlabs_api_key }));
+          socket.send(JSON.stringify({ text, try_trigger_generation: true }));
+          socket.send(JSON.stringify({ text: "" }));
+        };
+        socket.onmessage = (event) => {
+          const audioData = event.data;
+          if (audioData instanceof ArrayBuffer) {
+            audioQueueRef.current.push(audioData);
+            if (!isPlayingAudioRef.current) playAudioQueue(onSpeechEnd);
+          }
+        };
+        socket.onerror = (error) => { console.error("ElevenLabs WebSocket Error:", error); onSpeechEnd(); };
+        socket.onclose = () => { if (audioQueueRef.current.length === 0 && !isPlayingAudioRef.current) onSpeechEnd(); };
       } else { onSpeechEnd(); }
     } catch (e: any) { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); }
   }, [stopSpeaking, stopListening, startListening]);
+
+  const playAudioQueue = useCallback(async (onEnd: () => void) => {
+    if (isPlayingAudioRef.current || audioQueueRef.current.length === 0) return;
+    isPlayingAudioRef.current = true;
+    const audioData = audioQueueRef.current.shift();
+    if (!audioData || !audioContextRef.current) { isPlayingAudioRef.current = false; return; }
+    try {
+      const audioBuffer = await audioContextRef.current.decodeAudioData(audioData);
+      const source = audioContextRef.current.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContextRef.current.destination);
+      source.onended = () => {
+        isPlayingAudioRef.current = false;
+        if (audioQueueRef.current.length > 0) {
+          playAudioQueue(onEnd);
+        } else if (elevenlabsSocketRef.current?.readyState === WebSocket.CLOSED) {
+          onEnd();
+        }
+      };
+      source.start();
+    } catch (error) {
+      console.error("Error decoding audio data:", error);
+      isPlayingAudioRef.current = false;
+    }
+  }, []);
 
   const executeClientAction = useCallback((action: any) => {
     stopListening();
