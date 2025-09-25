@@ -27,7 +27,8 @@ serve(async (req) => {
 
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
-    // Removendo o 'speechConfig' para permitir que a API escolha a voz padrão
+    // Re-adicionando o 'speechConfig' para que a API saiba que deve gerar áudio,
+    // mas sem especificar um 'voiceName' para que ela use o padrão para o idioma.
     const requestBody = {
       contents: [{
         role: "user",
@@ -35,6 +36,11 @@ serve(async (req) => {
       }],
       generationConfig: {
         responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            // Deixar vazio para a API escolher a melhor voz padrão para pt-BR
+          }
+        }
       }
     };
 
@@ -65,7 +71,13 @@ serve(async (req) => {
 
     if (!audioContent) {
       console.error("Resposta da API do Google não continha 'audioContent':", JSON.stringify(data, null, 2));
-      throw new Error("A resposta da API do Google não continha o conteúdo de áudio esperado.");
+      return new Response(
+        JSON.stringify({ error: "A resposta da API do Google não continha o conteúdo de áudio esperado." }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     return new Response(JSON.stringify({ audioContent }), {
