@@ -365,12 +365,13 @@ const SophisticatedVoiceAssistant = () => {
   };
 
   const connectToDeepgram = useCallback(async () => {
-    if (!settingsRef.current?.deepgram_api_key) {
-      showError("Para usar a transcrição da Deepgram, por favor, insira sua chave de API no painel de configurações.");
+    const apiKey = settingsRef.current?.deepgram_api_key;
+    if (!apiKey || apiKey.trim() === "") {
+      showError("A chave de API da Deepgram não está configurada. Por favor, adicione-a no painel de configurações.");
       setIsListening(false);
       return;
     }
-    const deepgram = createClient(settingsRef.current.deepgram_api_key);
+    const deepgram = createClient(apiKey);
     const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true });
     
     connection.on(LiveTranscriptionEvents.Open, () => {
