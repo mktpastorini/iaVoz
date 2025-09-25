@@ -16,7 +16,7 @@ serve(async (req) => {
       throw new Error("A chave de API do Gemini (GEMINI_API_KEY) não está configurada como um 'Secret' no seu projeto Supabase.");
     }
 
-    const { text, model = 'gemini-1.5-flash-preview-0514' } = await req.json();
+    const { text, model = 'gemini-2.5-flash-preview-tts' } = await req.json();
 
     if (!text) {
       return new Response(JSON.stringify({ error: 'O parâmetro "text" é obrigatório.' }), {
@@ -25,7 +25,6 @@ serve(async (req) => {
       });
     }
 
-    // Usando o endpoint correto para geração de conteúdo multimodal (incluindo áudio)
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
     const requestBody = {
@@ -34,7 +33,6 @@ serve(async (req) => {
         parts: [{ text }]
       }],
       generationConfig: {
-        // Especifica que a resposta deve ser em áudio
         responseMimeType: "audio/mpeg",
       }
     };
@@ -62,8 +60,6 @@ serve(async (req) => {
     }
 
     const data = await response.json();
-
-    // Extrai o conteúdo de áudio da resposta multimodal
     const audioContent = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 
     if (!audioContent) {
@@ -71,7 +67,6 @@ serve(async (req) => {
       throw new Error("A resposta da API do Google não continha o conteúdo de áudio esperado.");
     }
 
-    // Retorna no formato que o frontend espera
     return new Response(JSON.stringify({ audioContent }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
