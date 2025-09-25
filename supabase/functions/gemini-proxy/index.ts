@@ -28,12 +28,13 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
+    // Use the Service Role Key to bypass RLS for this server-to-server interaction
+    const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { data: defaultWorkspace, error: dwError } = await supabaseClient
+    const { data: defaultWorkspace, error: dwError } = await supabaseAdmin
       .from('workspaces')
       .select('id')
       .order('created_at', { ascending: true })
@@ -45,7 +46,7 @@ serve(async (req) => {
     }
     const workspaceId = defaultWorkspace.id;
 
-    const { data: settings } = await supabaseClient.from('settings').select('gemini_api_key').eq('workspace_id', workspaceId).single();
+    const { data: settings } = await supabaseAdmin.from('settings').select('gemini_api_key').eq('workspace_id', workspaceId).single();
     const geminiApiKey = settings?.gemini_api_key;
     if (!geminiApiKey) throw new Error("Gemini API key not configured for the default workspace.");
 
@@ -77,7 +78,7 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('[gemini-proxy] Edge Function Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error.message, stack: error.stack }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

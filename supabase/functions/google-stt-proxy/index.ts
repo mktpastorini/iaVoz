@@ -14,25 +14,25 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
+    // Use the Service Role Key to bypass RLS for this server-to-server interaction
+    const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { data: { user } } = await supabaseClient.auth.getUser();
-    if (!user) throw new Error("User not authenticated");
-
-    const { data: workspaceMember } = await supabaseClient
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('user_id', user.id)
+    const { data: defaultWorkspace, error: dwError } = await supabaseAdmin
+      .from('workspaces')
+      .select('id')
+      .order('created_at', { ascending: true })
+      .limit(1)
       .single();
-    
-    const workspaceId = workspaceMember?.workspace_id;
-    if (!workspaceId) throw new Error("Workspace not found for user");
 
-    const { data: settings } = await supabaseClient
+    if (dwError || !defaultWorkspace) {
+      throw new Error("Default workspace not found.");
+    }
+    const workspaceId = defaultWorkspace.id;
+
+    const { data: settings } = await supabaseAdmin
       .from('settings')
       .select('google_stt_api_key, google_stt_model, google_stt_enhanced')
       .eq('workspace_id', workspaceId)
@@ -78,7 +78,7 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('[google-stt-proxy] Edge Function Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error.message, stack: error.stack }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
