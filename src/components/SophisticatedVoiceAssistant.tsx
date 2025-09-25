@@ -244,9 +244,12 @@ const SophisticatedVoiceAssistant = () => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
-        utterance.onerror = (e) => { console.error("[ERROR] SpeechSynthesis Error:", e); onSpeechEnd(); };
+        utterance.onerror = (e) => { 
+          console.error("[ERROR] SpeechSynthesis Error:", e); 
+          onSpeechEnd(); 
+        };
         synthRef.current.speak(utterance);
-        return; // Browser TTS handles its own playback
+        return;
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         console.log("[SPEECH] Using OpenAI TTS API for synthesis.");
         const response = await fetch(OPENAI_TTS_API_URL, {
@@ -317,9 +320,14 @@ const SophisticatedVoiceAssistant = () => {
     setMessageHistory(currentHistory);
     
     const currentSettings = settingsRef.current;
+    if (!currentSettings) {
+        showError("Configurações não carregadas.");
+        return;
+    }
     const isGemini = currentSettings.ai_model.startsWith('gemini');
     
-    if (!currentSettings || (!currentSettings.openai_api_key && !isGemini) || (!currentSettings.gemini_api_key && isGemini)) {
+    const hasApiKey = isGemini ? !!currentSettings.gemini_api_key : !!currentSettings.openai_api_key;
+    if (!hasApiKey) {
       const errorMsg = `Desculpe, a chave da API para ${isGemini ? 'Gemini' : 'OpenAI'} não está configurada.`;
       console.error(`[ERROR] API key for ${isGemini ? 'Gemini' : 'OpenAI'} is not configured.`);
       speak(errorMsg);
@@ -344,8 +352,8 @@ const SophisticatedVoiceAssistant = () => {
           }
         });
         if (error) throw new Error(`Gemini proxy error: ${error.message}`);
-        response = data; // This should be a ReadableStream
-      } else { // OpenAI
+        response = data;
+      } else {
         const requestBody = {
           model: currentSettings.ai_model,
           messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
@@ -364,7 +372,11 @@ const SophisticatedVoiceAssistant = () => {
         }
       }
 
-      const reader = response.body!.getReader();
+      if (!response.body) {
+        throw new Error("A resposta da API não continha um corpo para streaming.");
+      }
+
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullResponse = "";
       
@@ -374,7 +386,6 @@ const SophisticatedVoiceAssistant = () => {
         const chunk = decoder.decode(value, { stream: true });
         
         if (isGemini) {
-            // Gemini streaming format is different, often JSON chunks
             try {
                 const lines = chunk.split('\n');
                 for (const line of lines) {
@@ -391,7 +402,7 @@ const SophisticatedVoiceAssistant = () => {
             } catch (e) {
                 console.warn("Could not parse Gemini chunk:", chunk);
             }
-        } else { // OpenAI SSE format
+        } else {
             const lines = chunk.split("\n");
             for (const line of lines) {
                 if (line.startsWith("data: ")) {
@@ -487,6 +498,8 @@ const SophisticatedVoiceAssistant = () => {
     };
     if ("speechSynthesis" in window) {
       synthRef.current = window.speechSynthesis;
+      // Warm-up call to prevent initial errors
+      synthRef.current.getVoices();
       console.log("[ASSISTANT] Speech Synthesis initialized.");
     }
   }, [executeClientAction, runConversation, speak, startListening, stopSpeaking]);

@@ -63,7 +63,8 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   useEffect(() => {
     const fetchUserData = async () => {
-      if (user && user.id) {
+      // Only fetch data for authenticated, non-anonymous users
+      if (user && user.id && !user.is_anonymous) {
         if (user.id === lastUserIdRef.current) {
           setInitialLoadComplete(true);
           return;
@@ -71,24 +72,18 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         lastUserIdRef.current = user.id;
 
         try {
-          const { data: profileData, error: profileError, status } = await supabase
+          const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', user.id)
             .single();
 
-          if (profileError) {
-            if (profileError.code === 'PGRST116') {
-              // Nenhum perfil encontrado, não é erro crítico
-              setProfile(null);
-            } else {
-              console.error('Error fetching profile:', profileError, 'Status:', status);
-              showError('Erro ao carregar perfil.');
-              setProfile(null);
-            }
-          } else {
-            setProfile(profileData);
+          if (profileError && profileError.code !== 'PGRST116') {
+            console.error('Error fetching profile:', profileError);
+            showError('Erro ao carregar perfil.');
           }
+          setProfile(profileData || null);
+
         } catch (err) {
           console.error('Unexpected error fetching profile:', err);
           showError('Erro inesperado ao carregar perfil.');
@@ -102,11 +97,11 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         if (workspaceError) {
           console.error('Error ensuring workspace:', workspaceError);
           showError('Erro ao garantir workspace.');
-          setWorkspace(null);
-        } else {
-          setWorkspace(workspaceData);
         }
+        setWorkspace(workspaceData || null);
+
       } else {
+        // Clear data for anonymous or logged-out users
         lastUserIdRef.current = null;
         setProfile(null);
         setWorkspace(null);
