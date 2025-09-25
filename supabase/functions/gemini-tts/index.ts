@@ -16,8 +16,7 @@ serve(async (req) => {
       throw new Error("A chave de API do Gemini (GEMINI_API_KEY) não está configurada como um 'Secret' no seu projeto Supabase.");
     }
 
-    // Usando o modelo oficial 'latest' como padrão
-    const { text, model = 'gemini-1.5-flash-latest' } = await req.json();
+    const { text, model = 'gemini-2.5-flash-preview-tts' } = await req.json();
 
     if (!text) {
       return new Response(JSON.stringify({ error: 'O parâmetro "text" é obrigatório.' }), {
@@ -28,7 +27,7 @@ serve(async (req) => {
 
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
-    // Usando a estrutura de requisição correta com a voz que agora deve ser suportada pelo modelo 'latest'
+    // Usando a estrutura correta com um dos nomes de voz que a API informou serem válidos para este modelo.
     const requestBody = {
       contents: [{
         role: "user",
@@ -38,7 +37,7 @@ serve(async (req) => {
         responseModalities: ["AUDIO"],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: "pt-BR-Standard-A" }
+            prebuiltVoiceConfig: { voiceName: "zephyr" }
           }
         }
       }
