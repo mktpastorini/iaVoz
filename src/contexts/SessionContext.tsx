@@ -73,7 +73,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         try {
           const { data: profileData, error: profileError, status } = await supabase
             .from('profiles')
-            .select('*')
+            .select('id, first_name, last_name, avatar_url')
             .eq('id', user.id)
             .single();
 
