@@ -16,21 +16,20 @@ serve(async (req) => {
   try {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     );
 
-    const { data: { user } } = await supabaseClient.auth.getUser();
-    if (!user) throw new Error("User not authenticated");
-
-    const { data: workspaceMember } = await supabaseClient
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('user_id', user.id)
+    const { data: defaultWorkspace, error: dwError } = await supabaseClient
+      .from('workspaces')
+      .select('id')
+      .order('created_at', { ascending: true })
+      .limit(1)
       .single();
-    
-    const workspaceId = workspaceMember?.workspace_id;
-    if (!workspaceId) throw new Error("Workspace not found for user");
+
+    if (dwError || !defaultWorkspace) {
+      throw new Error("Default workspace not found.");
+    }
+    const workspaceId = defaultWorkspace.id;
 
     const { data: settings } = await supabaseClient
       .from('settings')
@@ -39,7 +38,7 @@ serve(async (req) => {
       .single();
 
     const googleApiKey = settings?.google_tts_api_key;
-    if (!googleApiKey) throw new Error("Google TTS API key not configured.");
+    if (!googleApiKey) throw new Error("Google TTS API key not configured for the default workspace.");
 
     const { text } = await req.json();
     if (!text) throw new Error("Text is required for TTS.");

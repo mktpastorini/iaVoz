@@ -14,26 +14,22 @@ serve(async (req) => {
   }
 
   try {
-    // Use the anon key as this function might be called by unauthenticated users
-    // Security is handled by checking for a valid user session if needed
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     );
 
-    // Get the user to find their workspace settings
-    const { data: { user } } = await supabaseClient.auth.getUser();
-    if (!user) throw new Error("User not authenticated");
-
-    const { data: workspaceMember } = await supabaseClient
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('user_id', user.id)
+    const { data: defaultWorkspace, error: dwError } = await supabaseClient
+      .from('workspaces')
+      .select('id')
+      .order('created_at', { ascending: true })
+      .limit(1)
       .single();
-    
-    const workspaceId = workspaceMember?.workspace_id;
-    if (!workspaceId) throw new Error("Workspace not found for user");
+
+    if (dwError || !defaultWorkspace) {
+      throw new Error("Default workspace not found.");
+    }
+    const workspaceId = defaultWorkspace.id;
 
     const { data: settings } = await supabaseClient
       .from('settings')
@@ -42,12 +38,11 @@ serve(async (req) => {
       .single();
 
     const deepgramApiKey = settings?.deepgram_api_key;
-    if (!deepgramApiKey) throw new Error("Deepgram API key not configured for this workspace.");
+    if (!deepgramApiKey) throw new Error("Deepgram API key not configured for the default workspace.");
 
-    const { action, text } = await req.json();
+    const { action, text, user_id } = await req.json(); // user_id can be passed for comment
 
     if (action === 'get_key') {
-      // Generate a short-lived key for the client-side STT WebSocket
       const response = await fetch(`${DEEPGRAM_API_URL}/keys`, {
         method: 'POST',
         headers: {
@@ -55,9 +50,9 @@ serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          comment: `Temporary key for user ${user.id}`,
+          comment: `Temporary key for user ${user_id || 'anonymous'}`,
           scopes: ["usage:write"],
-          time_to_live_in_seconds: 60, // Key is valid for 1 minute
+          time_to_live_in_seconds: 60,
         }),
       });
 
@@ -73,7 +68,6 @@ serve(async (req) => {
       });
 
     } else if (action === 'tts') {
-      // Handle Text-to-Speech request and stream audio back
       const ttsModel = settings.deepgram_tts_model || 'aura-asteria-pt';
       const ttsUrl = `${DEEPGRAM_API_URL}/speak?model=${ttsModel}&encoding=mp3&sample_rate=24000`;
 
@@ -91,7 +85,6 @@ serve(async (req) => {
         throw new Error(`Deepgram TTS failed: ${JSON.stringify(errorBody)}`);
       }
 
-      // Stream the audio response directly to the client
       return new Response(response.body, {
         headers: {
           ...corsHeaders,
