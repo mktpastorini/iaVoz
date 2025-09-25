@@ -17,6 +17,64 @@ import Orb from "./Orb";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
+const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+
+// Funções de conversão de schema de ferramentas (OpenAI -> Gemini)
+const mapOpenAITypeToGemini = (type: string) => {
+  const typeMap: { [key: string]: string } = {
+    string: 'STRING', number: 'NUMBER', boolean: 'BOOLEAN', object: 'OBJECT', array: 'ARRAY',
+  };
+  return typeMap[type?.toLowerCase()] || 'STRING';
+};
+
+const mapOpenAIPropertiesToGemini = (properties: any): any => {
+  if (!properties) return {};
+  return Object.entries(properties).reduce((acc, [key, prop]: [string, any]) => {
+    acc[key] = { ...prop, type: mapOpenAITypeToGemini(prop.type) };
+    if (prop.properties) {
+      acc[key].properties = mapOpenAIPropertiesToGemini(prop.properties);
+    }
+    return acc;
+  }, {} as { [key: string]: any });
+};
+
+const mapOpenAIToGeminiSchema = (openaiSchema: any) => {
+  if (!openaiSchema || openaiSchema.type !== 'object') return { type: 'OBJECT', properties: {} };
+  return {
+    type: 'OBJECT',
+    properties: mapOpenAIPropertiesToGemini(openaiSchema.properties),
+    required: openaiSchema.required || [],
+  };
+};
+
+// Função para converter o histórico de mensagens para o formato do Gemini
+const mapToGeminiHistory = (history: any[]) => {
+  return history.filter(msg => msg.role !== 'system').map(msg => {
+    const role = msg.role === 'assistant' ? 'model' : 'user';
+    let parts = [];
+
+    if (msg.role === 'tool') {
+      try {
+        parts.push({ toolResponse: { name: msg.name, response: JSON.parse(msg.content) } });
+      } catch (e) {
+        parts.push({ toolResponse: { name: msg.name, response: { content: msg.content } } });
+      }
+    } else {
+      if (msg.content) parts.push({ text: msg.content });
+      if (msg.tool_calls) {
+        parts.push(...msg.tool_calls.map((tc: any) => {
+          try {
+            return { functionCall: { name: tc.function.name, args: JSON.parse(tc.function.arguments) } };
+          } catch (e) {
+            console.error("Argumentos de função inválidos:", tc.function.arguments);
+            return null;
+          }
+        }).filter(Boolean));
+      }
+    }
+    return { role, parts };
+  });
+};
 
 const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string, altText: string, onClose: () => void }) => (
   <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/80" onClick={onClose}>
@@ -314,11 +372,13 @@ const SophisticatedVoiceAssistant = () => {
     setMessageHistory(currentHistory);
     
     const currentSettings = settingsRef.current;
-    if (!currentSettings || !currentSettings.openai_api_key) {
-      const errorMsg = "Desculpe, a chave da API OpenAI não está configurada.";
-      console.error("[ERROR] OpenAI API key is not configured.");
+    const isGemini = currentSettings?.ai_model?.startsWith('gemini');
+
+    if (!currentSettings || (isGemini && !currentSettings.gemini_api_key) || (!isGemini && !currentSettings.openai_api_key)) {
+      const errorMsg = `Desculpe, a chave da API para ${isGemini ? 'Gemini' : 'OpenAI'} não está configurada.`;
+      console.error(`[ERROR] API key for ${isGemini ? 'Gemini' : 'OpenAI'} is not configured.`);
       speak(errorMsg);
-      showError("Chave da API OpenAI não configurada.");
+      showError(errorMsg);
       return;
     }
 
@@ -328,26 +388,60 @@ const SophisticatedVoiceAssistant = () => {
       function: { name: power.name, description: power.description, parameters: power.parameters_schema || { type: "object", properties: {} } },
     }));
 
-    const requestBody = {
-      model: currentSettings.ai_model,
-      messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
-      tools: tools.length > 0 ? tools : undefined,
-      tool_choice: tools.length > 0 ? "auto" : undefined,
-      stream: true,
+    const executeTools = async (toolCalls: any[]) => {
+      const toolPromises = toolCalls.map(async (toolCall) => {
+        const functionName = toolCall.function.name;
+        const functionArgs = JSON.parse(toolCall.function.arguments);
+        const power = powersRef.current.find(p => p.name === functionName);
+        if (!power) throw new Error(`Power "${functionName}" not found.`);
+
+        console.log(`[TOOL] Executing power: ${functionName} via proxy-api with args:`, functionArgs);
+        const allVariables = { ...systemVariablesRef.current, ...functionArgs };
+        const processedUrl = replacePlaceholders(power.url, allVariables);
+        const processedHeaders = JSON.parse(replacePlaceholders(JSON.stringify(power.headers || {}), allVariables));
+        const templateBody = power.body || {};
+        const finalBody = { ...templateBody, ...functionArgs };
+
+        const payload = { url: processedUrl, method: power.method, headers: processedHeaders, body: finalBody };
+        const { data: functionResult, error: functionError } = await supabaseAnon.functions.invoke('proxy-api', { body: payload });
+
+        if (functionError) {
+          console.error(`[ERROR] Error invoking tool ${functionName} via proxy:`, functionError);
+          throw new Error(`Error invoking function ${functionName}: ${functionError.message}`);
+        }
+        console.log(`[TOOL] Tool ${functionName} returned:`, functionResult);
+        return { tool_call_id: toolCall.id, role: "tool", name: functionName, content: JSON.stringify(functionResult.data || functionResult) };
+      });
+      return Promise.all(toolPromises);
     };
 
-    console.log("[AI] Sending request to OpenAI with streaming:", requestBody);
-
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-        body: JSON.stringify(requestBody),
-      });
+      let response;
+      if (isGemini) {
+        const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
+        const requestBody = {
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: mapToGeminiHistory(currentHistory.slice(-currentSettings.conversation_memory_length)),
+          tools: geminiTools,
+        };
+        console.log("[AI] Sending request to Gemini with streaming:", requestBody);
+        const url = `${GEMINI_API_BASE_URL}${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.gemini_api_key}&alt=sse`;
+        response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+      } else { // OpenAI
+        const requestBody = {
+          model: currentSettings.ai_model,
+          messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
+          tools: tools.length > 0 ? tools : undefined,
+          tool_choice: tools.length > 0 ? "auto" : undefined,
+          stream: true,
+        };
+        console.log("[AI] Sending request to OpenAI with streaming:", requestBody);
+        response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(requestBody) });
+      }
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`);
+        throw new Error(`API Error: ${errorData.error?.message || JSON.stringify(errorData)}`);
       }
 
       const reader = response.body!.getReader();
@@ -358,7 +452,6 @@ const SophisticatedVoiceAssistant = () => {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         const chunk = decoder.decode(value);
         const lines = chunk.split("\n");
 
@@ -366,119 +459,88 @@ const SophisticatedVoiceAssistant = () => {
           if (line.startsWith("data: ")) {
             const dataStr = line.substring(6);
             if (dataStr === "[DONE]") break;
-            
             try {
               const data = JSON.parse(dataStr);
-              const delta = data.choices[0]?.delta;
-
-              if (delta?.content) {
-                fullResponse += delta.content;
-                setAiResponse(current => current + delta.content);
+              if (isGemini) {
+                const part = data.candidates?.[0]?.content?.parts?.[0];
+                if (part?.text) {
+                  fullResponse += part.text;
+                  setAiResponse(current => current + part.text);
+                }
+                if (part?.functionCall) {
+                  toolCalls.push({ id: `call_${Math.random().toString(36).substring(2)}`, type: 'function', function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args) } });
+                }
+              } else { // OpenAI
+                const delta = data.choices[0]?.delta;
+                if (delta?.content) {
+                  fullResponse += delta.content;
+                  setAiResponse(current => current + delta.content);
+                }
+                if (delta?.tool_calls) {
+                  delta.tool_calls.forEach((toolCall: any) => {
+                    if (!toolCalls[toolCall.index]) toolCalls[toolCall.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
+                    if (toolCall.id) toolCalls[toolCall.index].id = toolCall.id;
+                    if (toolCall.function.name) toolCalls[toolCall.index].function.name = toolCall.function.name;
+                    if (toolCall.function.arguments) toolCalls[toolCall.index].function.arguments += toolCall.function.arguments;
+                  });
+                }
               }
-              if (delta?.tool_calls) {
-                delta.tool_calls.forEach((toolCall: any) => {
-                  if (!toolCalls[toolCall.index]) {
-                    toolCalls[toolCall.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
-                  }
-                  if (toolCall.id) toolCalls[toolCall.index].id = toolCall.id;
-                  if (toolCall.function.name) toolCalls[toolCall.index].function.name = toolCall.function.name;
-                  if (toolCall.function.arguments) toolCalls[toolCall.index].function.arguments += toolCall.function.arguments;
-                });
-              }
-            } catch (e) {
-              console.error("[ERROR] Failed to parse stream chunk:", dataStr, e);
-            }
+            } catch (e) { console.error("[ERROR] Failed to parse stream chunk:", dataStr, e); }
           }
         }
       }
 
-      const aiMessage = { role: "assistant", content: fullResponse, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
+      const aiMessage = { role: "assistant", content: fullResponse || null, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
       const newHistoryWithAIMessage = [...currentHistory, aiMessage];
       setMessageHistory(newHistoryWithAIMessage);
 
-      if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
+      if (aiMessage.tool_calls?.length) {
         console.log("[AI] Tool call requested:", aiMessage.tool_calls);
         speak(`Ok, um momento enquanto eu acesso minhas ferramentas.`, async () => {
-            let toolResponses;
-            try {
-                const toolPromises = aiMessage.tool_calls!.map(async (toolCall) => {
-                    const functionName = toolCall.function.name;
-                    const functionArgs = JSON.parse(toolCall.function.arguments);
-                    
-                    const power = powersRef.current.find(p => p.name === functionName);
-                    if (!power) throw new Error(`Power "${functionName}" not found.`);
+          const toolResponses = await executeTools(aiMessage.tool_calls!);
+          const historyForSecondCall = [...newHistoryWithAIMessage, ...toolResponses];
+          setMessageHistory(historyForSecondCall);
+          setAiResponse("");
 
-                    console.log(`[TOOL] Executing power: ${functionName} via proxy-api with args:`, functionArgs);
-
-                    const allVariables = { ...systemVariablesRef.current, ...functionArgs };
-                    const processedUrl = replacePlaceholders(power.url, allVariables);
-                    const processedHeaders = JSON.parse(replacePlaceholders(JSON.stringify(power.headers || {}), allVariables));
-                    const templateBody = power.body || {};
-                    const finalBody = { ...templateBody, ...functionArgs };
-
-                    const payload = { url: processedUrl, method: power.method, headers: processedHeaders, body: finalBody };
-                    const { data: functionResult, error: functionError } = await supabaseAnon.functions.invoke('proxy-api', { body: payload });
-
-                    if (functionError) {
-                        console.error(`[ERROR] Error invoking tool ${functionName} via proxy:`, functionError);
-                        throw new Error(`Error invoking function ${functionName}: ${functionError.message}`);
-                    }
-                    console.log(`[TOOL] Tool ${functionName} returned:`, functionResult);
-                    return { tool_call_id: toolCall.id, role: "tool", name: functionName, content: JSON.stringify(functionResult.data || functionResult) };
-                });
-                toolResponses = await Promise.all(toolPromises);
-            } catch (e: any) {
-                console.error("[ERROR] A tool execution failed:", e);
-                toolResponses = aiMessage.tool_calls!.map(toolCall => ({
-                    tool_call_id: toolCall.id,
-                    role: "tool",
-                    name: toolCall.function.name,
-                    content: JSON.stringify({ error: "Failed to execute tool.", details: e.message }),
-                }));
-                speak(`Desculpe, houve um erro ao usar minhas ferramentas.`);
-            }
-
-            const historyForSecondCall = [...newHistoryWithAIMessage, ...toolResponses];
-            setMessageHistory(historyForSecondCall);
-
-            setAiResponse(""); 
-            
+          let secondResponse;
+          if (isGemini) {
+            const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
+            const secondRequestBody = { systemInstruction: { parts: [{ text: systemPrompt }] }, contents: mapToGeminiHistory(historyForSecondCall.slice(-currentSettings.conversation_memory_length)), tools: geminiTools };
+            const url = `${GEMINI_API_BASE_URL}${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.gemini_api_key}&alt=sse`;
+            secondResponse = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(secondRequestBody) });
+          } else { // OpenAI
             const secondRequestBody = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)], stream: true };
-            console.log("[AI] Sending second request to OpenAI with tool results:", secondRequestBody);
+            secondResponse = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(secondRequestBody) });
+          }
 
-            const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-                body: JSON.stringify(secondRequestBody),
-            });
-            if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
-            
-            const secondReader = secondResponse.body!.getReader();
-            let finalResponseText = "";
-            while (true) {
-                const { done, value } = await secondReader.read();
-                if (done) break;
-                const chunk = decoder.decode(value);
-                const lines = chunk.split("\n");
-                for (const line of lines) {
-                    if (line.startsWith("data: ")) {
-                        const dataStr = line.substring(6);
-                        if (dataStr === "[DONE]") break;
-                        try {
-                            const data = JSON.parse(dataStr);
-                            const delta = data.choices[0]?.delta?.content;
-                            if (delta) {
-                                finalResponseText += delta;
-                                setAiResponse(current => current + delta);
-                            }
-                        } catch (e) {
-                            console.error("[ERROR] Failed to parse second stream chunk:", dataStr, e);
-                        }
-                    }
-                }
+          if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
+          
+          const secondReader = secondResponse.body!.getReader();
+          let finalResponseText = "";
+          while (true) {
+            const { done, value } = await secondReader.read();
+            if (done) break;
+            const chunk = decoder.decode(value);
+            const lines = chunk.split("\n");
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const dataStr = line.substring(6);
+                if (dataStr === "[DONE]") break;
+                try {
+                  const data = JSON.parse(dataStr);
+                  let delta = "";
+                  if (isGemini) delta = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                  else delta = data.choices[0]?.delta?.content || "";
+                  if (delta) {
+                    finalResponseText += delta;
+                    setAiResponse(current => current + delta);
+                  }
+                } catch (e) { console.error("[ERROR] Failed to parse second stream chunk:", dataStr, e); }
+              }
             }
-            setMessageHistory(prev => [...prev, { role: "assistant", content: finalResponseText }]);
-            speak(finalResponseText);
+          }
+          setMessageHistory(prev => [...prev, { role: "assistant", content: finalResponseText }]);
+          speak(finalResponseText);
         });
       } else {
         console.log("[AI] No tool call, speaking response directly.");
