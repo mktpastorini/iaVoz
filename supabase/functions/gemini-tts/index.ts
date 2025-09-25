@@ -16,7 +16,8 @@ serve(async (req) => {
       throw new Error("A chave de API do Gemini (GEMINI_API_KEY) não está configurada como um 'Secret' no seu projeto Supabase.");
     }
 
-    const { text, model = 'gemini-2.5-flash-preview-tts' } = await req.json();
+    // Usando o modelo oficial 'latest' como padrão
+    const { text, model = 'gemini-1.5-flash-latest' } = await req.json();
 
     if (!text) {
       return new Response(JSON.stringify({ error: 'O parâmetro "text" é obrigatório.' }), {
@@ -27,8 +28,7 @@ serve(async (req) => {
 
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
-    // Re-adicionando o 'speechConfig' para que a API saiba que deve gerar áudio,
-    // mas sem especificar um 'voiceName' para que ela use o padrão para o idioma.
+    // Usando a estrutura de requisição correta com a voz que agora deve ser suportada pelo modelo 'latest'
     const requestBody = {
       contents: [{
         role: "user",
@@ -38,7 +38,7 @@ serve(async (req) => {
         responseModalities: ["AUDIO"],
         speechConfig: {
           voiceConfig: {
-            // Deixar vazio para a API escolher a melhor voz padrão para pt-BR
+            prebuiltVoiceConfig: { voiceName: "pt-BR-Standard-A" }
           }
         }
       }
@@ -71,13 +71,7 @@ serve(async (req) => {
 
     if (!audioContent) {
       console.error("Resposta da API do Google não continha 'audioContent':", JSON.stringify(data, null, 2));
-      return new Response(
-        JSON.stringify({ error: "A resposta da API do Google não continha o conteúdo de áudio esperado." }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+      throw new Error("A resposta da API do Google não continha o conteúdo de áudio esperado.");
     }
 
     return new Response(JSON.stringify({ audioContent }), {
