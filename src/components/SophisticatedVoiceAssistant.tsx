@@ -179,7 +179,11 @@ const SophisticatedVoiceAssistant = () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       setAudioIntensity(0);
       onEndCallback?.();
-      if (isOpenRef.current && !stopPermanentlyRef.current) startListening();
+      // Reinicia o ciclo de escuta de forma robusta
+      stopListening();
+      if (isOpenRef.current && !stopPermanentlyRef.current) {
+        setTimeout(() => startListening(), 100); // Pequeno delay para garantir que tudo foi encerrado
+      }
     };
     stopSpeaking();
     stopListening();
