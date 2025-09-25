@@ -373,8 +373,7 @@ const SophisticatedVoiceAssistant = () => {
       let fullResponse = "";
       let toolCalls: any[] = [];
       let sentenceBuffer = "";
-      let audioQueueEmptyCallback: (() => void) | null = null;
-
+      
       const onStreamEnd = () => {
         setIsSpeaking(false);
         if (isOpenRef.current && !stopPermanentlyRef.current) {
@@ -384,9 +383,8 @@ const SophisticatedVoiceAssistant = () => {
 
       const playGeminiAudioQueue = () => {
         if (isPlayingGeminiAudio.current || geminiAudioQueue.current.length === 0) {
-          if (!isPlayingGeminiAudio.current && isAiStreamingCompleteRef.current && audioQueueEmptyCallback) {
-            audioQueueEmptyCallback();
-            audioQueueEmptyCallback = null;
+          if (!isPlayingGeminiAudio.current && isAiStreamingCompleteRef.current) {
+            onStreamEnd();
           }
           return;
         }
@@ -481,7 +479,6 @@ const SophisticatedVoiceAssistant = () => {
         if (sentenceBuffer.trim().length > 0) {
           await processSentence(sentenceBuffer.trim());
         }
-        audioQueueEmptyCallback = onStreamEnd;
         playGeminiAudioQueue();
       }
 

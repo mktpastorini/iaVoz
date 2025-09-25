@@ -13,7 +13,6 @@ serve(async (req) => {
   try {
     const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
     if (!geminiApiKey) {
-      // Retorna uma mensagem de erro específica e útil.
       return new Response(
         JSON.stringify({ 
           error: 'A chave de API do Gemini não está configurada no servidor.',
@@ -46,9 +45,16 @@ serve(async (req) => {
     });
 
     if (!response.ok) {
-      const errorBody = await response.json();
-      console.error("Gemini TTS API Error:", errorBody);
-      throw new Error(`Erro na API do Gemini TTS: ${errorBody.error.message}`);
+      const errorText = await response.text();
+      let errorBody;
+      try {
+        errorBody = JSON.parse(errorText);
+        console.error("Gemini TTS API Error (JSON):", errorBody);
+        throw new Error(`Erro na API do Gemini TTS: ${errorBody.error.message}`);
+      } catch (e) {
+        console.error("Gemini TTS API Error (Text):", errorText);
+        throw new Error(`Erro na API do Gemini TTS: ${response.status} - ${errorText}`);
+      }
     }
 
     const data = await response.json();
