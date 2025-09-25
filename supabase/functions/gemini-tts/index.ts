@@ -39,7 +39,6 @@ serve(async (req) => {
       try {
         errorBody = JSON.parse(errorText);
         console.error("Gemini TTS API Error (JSON):", errorBody);
-        // Extrai a mensagem de erro específica da API do Google
         const errorMessage = errorBody?.error?.message || errorText;
         throw new Error(`Erro na API do Gemini TTS: ${errorMessage}`);
       } catch (e) {
@@ -57,7 +56,6 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('[gemini-tts] Erro fatal na Edge Function:', error);
-    // Garante que a resposta de erro seja sempre um JSON válido.
     return new Response(
       JSON.stringify({ error: error.message }),
       {
