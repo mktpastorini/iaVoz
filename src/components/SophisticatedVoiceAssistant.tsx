@@ -15,6 +15,7 @@ import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import Orb from "./Orb";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { createClient, LiveClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 
@@ -71,6 +72,11 @@ const SophisticatedVoiceAssistant = () => {
   const activationTriggerRef = useRef(0);
   const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Streaming Refs
+  const sttConnectionRef = useRef<LiveClient | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioQueueRef = useRef<Blob[]>([]);
+  const isPlayingAudioRef = useRef(false);
 
   // Web Audio API refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -95,54 +101,30 @@ const SophisticatedVoiceAssistant = () => {
     console.log("[ASSISTANT] Fetching all assistant data...");
     setIsLoading(true);
     try {
-      let settingsData = null;
-      const currentSession = sessionRef.current;
-
-      if (currentSession) {
-        const { data: workspaceMember } = await supabase
-          .from('workspace_members')
-          .select('workspace_id')
-          .eq('user_id', currentSession.user.id)
-          .limit(1)
-          .single();
-        
-        if (workspaceMember) {
-          const { data } = await supabase
-            .from("settings")
-            .select("*")
-            .eq('workspace_id', workspaceMember.workspace_id)
-            .limit(1)
-            .single();
-          settingsData = data;
-        }
-      }
+      const { data: settingsData, error: settingsError } = await supabaseAnon
+        .from("settings")
+        .select("*")
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
       
-      if (!settingsData) {
-        const { data } = await supabase
-          .from("settings")
-          .select("*")
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single();
-        settingsData = data;
-      }
-      
+      if (settingsError) throw settingsError;
       setSettings(settingsData);
       console.log("[ASSISTANT] Settings loaded:", settingsData);
 
-      const { data: powersData } = await supabase.from("powers").select("*");
+      const workspaceId = settingsData.workspace_id;
+
+      const { data: powersData } = await supabaseAnon.from("powers").select("*").eq('workspace_id', workspaceId);
       setPowers(powersData || []);
       console.log("[ASSISTANT] Powers loaded:", powersData);
 
-      const { data: actionsData } = await supabase.from("client_actions").select("*");
+      const { data: actionsData } = await supabaseAnon.from("client_actions").select("*").eq('workspace_id', workspaceId);
       setClientActions(actionsData || []);
       console.log("[ASSISTANT] Client Actions loaded:", actionsData);
 
-      return settingsData;
     } catch (error) {
       console.error("[ERROR] Failed to fetch assistant data:", error);
       showError("Erro ao carregar dados do assistente.");
-      return null;
     } finally {
       setIsLoading(false);
     }
@@ -256,13 +238,18 @@ const SophisticatedVoiceAssistant = () => {
     speechTimeoutRef.current = setTimeout(onSpeechEnd, estimatedSpeechTime);
 
     try {
+      let audioBlob;
       if (currentSettings.voice_model === "browser" && synthRef.current) {
         console.log("[SPEECH] Using browser Web Speech API for synthesis.");
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
-        utterance.onerror = (e) => { console.error("[ERROR] SpeechSynthesis Error:", e); onSpeechEnd(); };
+        utterance.onerror = (e) => { 
+          console.error("[ERROR] SpeechSynthesis Error:", e); 
+          onSpeechEnd(); 
+        };
         synthRef.current.speak(utterance);
+        return;
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         console.log("[SPEECH] Using OpenAI TTS API for synthesis.");
         const response = await fetch(OPENAI_TTS_API_URL, {
@@ -271,7 +258,28 @@ const SophisticatedVoiceAssistant = () => {
           body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }),
         });
         if (!response.ok) throw new Error("Falha na API OpenAI TTS");
-        const audioBlob = await response.blob();
+        audioBlob = await response.blob();
+      } else if (currentSettings.voice_model === "google-tts" && currentSettings.google_tts_api_key) {
+        console.log("[SPEECH] Using Google TTS API via proxy.");
+        const { data, error } = await supabaseAnon.functions.invoke('google-tts-proxy', {
+          body: { text },
+        });
+        if (error) throw new Error(`Google TTS proxy error: ${error.message}`);
+        audioBlob = data;
+      } else if (currentSettings.voice_model === "deepgram" && currentSettings.deepgram_api_key) {
+        console.log("[SPEECH] Using Deepgram TTS API via proxy.");
+        const { data, error } = await supabaseAnon.functions.invoke('deepgram-proxy', {
+          body: { action: 'tts', text },
+        });
+        if (error) throw new Error(`Deepgram TTS proxy error: ${error.message}`);
+        audioBlob = data;
+      } else {
+        console.warn("[SPEECH] No voice model configured or key is missing. Skipping speech.");
+        onSpeechEnd();
+        return;
+      }
+
+      if (audioBlob) {
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
         setupAudioAnalysis();
@@ -279,10 +287,8 @@ const SophisticatedVoiceAssistant = () => {
         audioRef.current.onerror = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
         runAudioAnalysis();
-      } else {
-        console.warn("[SPEECH] No voice model configured. Skipping speech.");
-        onSpeechEnd();
       }
+
     } catch (e: any) {
       console.error("[ERROR] Speech synthesis failed:", e);
       showError(`Erro na síntese de voz: ${e.message}`);
@@ -314,11 +320,18 @@ const SophisticatedVoiceAssistant = () => {
     setMessageHistory(currentHistory);
     
     const currentSettings = settingsRef.current;
-    if (!currentSettings || !currentSettings.openai_api_key) {
-      const errorMsg = "Desculpe, a chave da API OpenAI não está configurada.";
-      console.error("[ERROR] OpenAI API key is not configured.");
+    if (!currentSettings) {
+        showError("Configurações não carregadas.");
+        return;
+    }
+    const isGemini = currentSettings.ai_model.startsWith('gemini');
+    
+    const hasApiKey = isGemini ? !!currentSettings.gemini_api_key : !!currentSettings.openai_api_key;
+    if (!hasApiKey) {
+      const errorMsg = `Desculpe, a chave da API para ${isGemini ? 'Gemini' : 'OpenAI'} não está configurada.`;
+      console.error(`[ERROR] API key for ${isGemini ? 'Gemini' : 'OpenAI'} is not configured.`);
       speak(errorMsg);
-      showError("Chave da API OpenAI não configurada.");
+      showError(errorMsg);
       return;
     }
 
@@ -328,162 +341,80 @@ const SophisticatedVoiceAssistant = () => {
       function: { name: power.name, description: power.description, parameters: power.parameters_schema || { type: "object", properties: {} } },
     }));
 
-    const requestBody = {
-      model: currentSettings.ai_model,
-      messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
-      tools: tools.length > 0 ? tools : undefined,
-      tool_choice: tools.length > 0 ? "auto" : undefined,
-      stream: true,
-    };
-
-    console.log("[AI] Sending request to OpenAI with streaming:", requestBody);
-
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-        body: JSON.stringify(requestBody),
-      });
+      let response;
+      const messages = [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)];
+      const toolConfig = tools.length > 0 ? { tools, tool_choice: "auto" } : {};
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`);
+      console.log(`[AI] Calling ${isGemini ? 'Gemini' : 'OpenAI'} proxy...`);
+      if (isGemini) {
+        const { data, error } = await supabaseAnon.functions.invoke('gemini-proxy', {
+          body: { model: currentSettings.ai_model, messages, ...toolConfig }
+        });
+        if (error) throw new Error(`Gemini proxy error: ${error.message}`);
+        response = data;
+      } else {
+        const { data, error } = await supabaseAnon.functions.invoke('openai-proxy', {
+          body: { model: currentSettings.ai_model, messages, ...toolConfig, stream: true }
+        });
+        if (error) throw new Error(`OpenAI proxy error: ${error.message}`);
+        response = data;
       }
 
-      const reader = response.body!.getReader();
+      if (!response.body) {
+        throw new Error("A resposta da API não continha um corpo para streaming.");
+      }
+
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullResponse = "";
-      let toolCalls: any[] = [];
-
+      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const dataStr = line.substring(6);
-            if (dataStr === "[DONE]") break;
-            
+        const chunk = decoder.decode(value, { stream: true });
+        
+        if (isGemini) {
             try {
-              const data = JSON.parse(dataStr);
-              const delta = data.choices[0]?.delta;
-
-              if (delta?.content) {
-                fullResponse += delta.content;
-                setAiResponse(current => current + delta.content);
-              }
-              if (delta?.tool_calls) {
-                delta.tool_calls.forEach((toolCall: any) => {
-                  if (!toolCalls[toolCall.index]) {
-                    toolCalls[toolCall.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
-                  }
-                  if (toolCall.id) toolCalls[toolCall.index].id = toolCall.id;
-                  if (toolCall.function.name) toolCalls[toolCall.index].function.name = toolCall.function.name;
-                  if (toolCall.function.arguments) toolCalls[toolCall.index].function.arguments += toolCall.function.arguments;
-                });
-              }
-            } catch (e) {
-              console.error("[ERROR] Failed to parse stream chunk:", dataStr, e);
-            }
-          }
-        }
-      }
-
-      const aiMessage = { role: "assistant", content: fullResponse, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
-      const newHistoryWithAIMessage = [...currentHistory, aiMessage];
-      setMessageHistory(newHistoryWithAIMessage);
-
-      if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
-        console.log("[AI] Tool call requested:", aiMessage.tool_calls);
-        speak(`Ok, um momento enquanto eu acesso minhas ferramentas.`, async () => {
-            let toolResponses;
-            try {
-                const toolPromises = aiMessage.tool_calls!.map(async (toolCall) => {
-                    const functionName = toolCall.function.name;
-                    const functionArgs = JSON.parse(toolCall.function.arguments);
-                    
-                    const power = powersRef.current.find(p => p.name === functionName);
-                    if (!power) throw new Error(`Power "${functionName}" not found.`);
-
-                    console.log(`[TOOL] Executing power: ${functionName} via proxy-api with args:`, functionArgs);
-
-                    const allVariables = { ...systemVariablesRef.current, ...functionArgs };
-                    const processedUrl = replacePlaceholders(power.url, allVariables);
-                    const processedHeaders = JSON.parse(replacePlaceholders(JSON.stringify(power.headers || {}), allVariables));
-                    const templateBody = power.body || {};
-                    const finalBody = { ...templateBody, ...functionArgs };
-
-                    const payload = { url: processedUrl, method: power.method, headers: processedHeaders, body: finalBody };
-                    const { data: functionResult, error: functionError } = await supabaseAnon.functions.invoke('proxy-api', { body: payload });
-
-                    if (functionError) {
-                        console.error(`[ERROR] Error invoking tool ${functionName} via proxy:`, functionError);
-                        throw new Error(`Error invoking function ${functionName}: ${functionError.message}`);
-                    }
-                    console.log(`[TOOL] Tool ${functionName} returned:`, functionResult);
-                    return { tool_call_id: toolCall.id, role: "tool", name: functionName, content: JSON.stringify(functionResult.data || functionResult) };
-                });
-                toolResponses = await Promise.all(toolPromises);
-            } catch (e: any) {
-                console.error("[ERROR] A tool execution failed:", e);
-                toolResponses = aiMessage.tool_calls!.map(toolCall => ({
-                    tool_call_id: toolCall.id,
-                    role: "tool",
-                    name: toolCall.function.name,
-                    content: JSON.stringify({ error: "Failed to execute tool.", details: e.message }),
-                }));
-                speak(`Desculpe, houve um erro ao usar minhas ferramentas.`);
-            }
-
-            const historyForSecondCall = [...newHistoryWithAIMessage, ...toolResponses];
-            setMessageHistory(historyForSecondCall);
-
-            setAiResponse(""); 
-            
-            const secondRequestBody = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForSecondCall.slice(-currentSettings.conversation_memory_length)], stream: true };
-            console.log("[AI] Sending second request to OpenAI with tool results:", secondRequestBody);
-
-            const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` },
-                body: JSON.stringify(secondRequestBody),
-            });
-            if (!secondResponse.ok) { const errorData = await secondResponse.json(); throw new Error(`OpenAI API Error: ${errorData.error?.message || JSON.stringify(errorData)}`); }
-            
-            const secondReader = secondResponse.body!.getReader();
-            let finalResponseText = "";
-            while (true) {
-                const { done, value } = await secondReader.read();
-                if (done) break;
-                const chunk = decoder.decode(value);
-                const lines = chunk.split("\n");
+                const lines = chunk.split('\n');
                 for (const line of lines) {
-                    if (line.startsWith("data: ")) {
-                        const dataStr = line.substring(6);
-                        if (dataStr === "[DONE]") break;
-                        try {
-                            const data = JSON.parse(dataStr);
-                            const delta = data.choices[0]?.delta?.content;
-                            if (delta) {
-                                finalResponseText += delta;
-                                setAiResponse(current => current + delta);
-                            }
-                        } catch (e) {
-                            console.error("[ERROR] Failed to parse second stream chunk:", dataStr, e);
+                    if (line.startsWith('data: ')) {
+                        const jsonStr = line.substring(6);
+                        const parsed = JSON.parse(jsonStr);
+                        const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (text) {
+                            fullResponse += text;
+                            setAiResponse(current => current + text);
                         }
                     }
                 }
+            } catch (e) {
+                console.warn("Could not parse Gemini chunk:", chunk);
             }
-            setMessageHistory(prev => [...prev, { role: "assistant", content: finalResponseText }]);
-            speak(finalResponseText);
-        });
-      } else {
-        console.log("[AI] No tool call, speaking response directly.");
-        speak(fullResponse);
+        } else {
+            const lines = chunk.split("\n");
+            for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                    const dataStr = line.substring(6);
+                    if (dataStr === "[DONE]") break;
+                    try {
+                        const data = JSON.parse(dataStr);
+                        const delta = data.choices[0]?.delta?.content;
+                        if (delta) {
+                            fullResponse += delta;
+                            setAiResponse(current => current + delta);
+                        }
+                    } catch (e) {
+                        console.error("[ERROR] Failed to parse OpenAI stream chunk:", dataStr, e);
+                    }
+                }
+            }
+        }
       }
+
+      setMessageHistory(prev => [...prev, { role: "assistant", content: fullResponse }]);
+      speak(fullResponse);
+
     } catch (e: any) {
       console.error("[ERROR] Error in runConversation:", e);
       const errorMsg = `Desculpe, não consegui processar sua solicitação.`;
@@ -547,21 +478,25 @@ const SophisticatedVoiceAssistant = () => {
         const activationPhrases = currentSettings.activation_phrases || [];
         if (activationPhrases.some((phrase: string) => transcript.includes(phrase.toLowerCase()))) {
           console.log(`[USER] Activation phrase detected.`);
-          fetchAllAssistantData().then((latestSettings) => {
-            if (!latestSettings) return;
-            setIsOpen(true);
-            const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-            speak(messageToSpeak);
-            setHasBeenActivated(true);
-          });
+          setIsOpen(true);
+          const messageToSpeak = hasBeenActivatedRef.current && currentSettings.continuation_phrase ? currentSettings.continuation_phrase : currentSettings.welcome_message;
+          speak(messageToSpeak);
+          setHasBeenActivated(true);
         }
       }
     };
     if ("speechSynthesis" in window) {
       synthRef.current = window.speechSynthesis;
-      console.log("[ASSISTANT] Speech Synthesis initialized.");
+      // Warm-up call to prevent initial errors on some browsers
+      if (synthRef.current.getVoices().length === 0) {
+        synthRef.current.onvoiceschanged = () => {
+          console.log("[ASSISTANT] Speech Synthesis voices loaded.");
+        };
+      } else {
+         console.log("[ASSISTANT] Speech Synthesis initialized.");
+      }
     }
-  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking, fetchAllAssistantData]);
+  }, [executeClientAction, runConversation, speak, startListening, stopSpeaking]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     console.log("[ASSISTANT] Checking microphone permission...");
@@ -606,19 +541,20 @@ const SophisticatedVoiceAssistant = () => {
 
   const handleManualActivation = useCallback(() => {
     console.log("[USER] Manually activating assistant.");
+    // This is a user gesture, so we can safely resume the audio context.
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
     if (isOpenRef.current) return;
     if (micPermission !== "granted") {
       checkAndRequestMicPermission();
     } else {
-      fetchAllAssistantData().then((latestSettings) => {
-        if (!latestSettings) return;
-        setIsOpen(true);
-        const messageToSpeak = hasBeenActivatedRef.current && latestSettings.continuation_phrase ? latestSettings.continuation_phrase : latestSettings.welcome_message;
-        speak(messageToSpeak);
-        setHasBeenActivated(true);
-      });
+      setIsOpen(true);
+      const messageToSpeak = hasBeenActivatedRef.current && settingsRef.current.continuation_phrase ? settingsRef.current.continuation_phrase : settingsRef.current.welcome_message;
+      speak(messageToSpeak);
+      setHasBeenActivated(true);
     }
-  }, [micPermission, checkAndRequestMicPermission, speak, startListening, fetchAllAssistantData]);
+  }, [micPermission, checkAndRequestMicPermission, speak, startListening]);
 
   useEffect(() => {
     if (activationTrigger > activationTriggerRef.current) {
