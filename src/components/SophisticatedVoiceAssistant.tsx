@@ -258,14 +258,14 @@ const SophisticatedVoiceAssistant = () => {
         audioBlob = await response.blob();
       } else if (currentSettings.voice_model === "google-tts" && currentSettings.google_tts_api_key) {
         console.log("[SPEECH] Using Google TTS API via proxy.");
-        const { data, error } = await supabase.functions.invoke('google-tts-proxy', {
+        const { data, error } = await supabaseAnon.functions.invoke('google-tts-proxy', {
           body: { text },
         });
         if (error) throw new Error(`Google TTS proxy error: ${error.message}`);
         audioBlob = data;
       } else if (currentSettings.voice_model === "deepgram" && currentSettings.deepgram_api_key) {
         console.log("[SPEECH] Using Deepgram TTS API via proxy.");
-        const { data, error } = await supabase.functions.invoke('deepgram-proxy', {
+        const { data, error } = await supabaseAnon.functions.invoke('deepgram-proxy', {
           body: { action: 'tts', text },
         });
         if (error) throw new Error(`Deepgram TTS proxy error: ${error.message}`);
@@ -336,7 +336,7 @@ const SophisticatedVoiceAssistant = () => {
     try {
       let response;
       if (isGemini) {
-        const { data, error } = await supabase.functions.invoke('gemini-proxy', {
+        const { data, error } = await supabaseAnon.functions.invoke('gemini-proxy', {
           body: {
             model: currentSettings.ai_model,
             messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)],
