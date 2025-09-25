@@ -71,20 +71,23 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         lastUserIdRef.current = user.id;
 
         try {
-          // Usando .limit(1) para evitar erro se o perfil não existir
-          const { data: profileData, error: profileError } = await supabase
+          const { data: profileData, error: profileError, status } = await supabase
             .from('profiles')
-            .select('id, first_name, last_name, avatar_url')
+            .select('*')
             .eq('id', user.id)
-            .limit(1);
+            .single();
 
           if (profileError) {
-            console.error('Error fetching profile:', profileError);
-            showError('Erro ao carregar perfil.');
-            setProfile(null);
+            if (profileError.code === 'PGRST116') {
+              // Nenhum perfil encontrado, não é erro crítico
+              setProfile(null);
+            } else {
+              console.error('Error fetching profile:', profileError, 'Status:', status);
+              showError('Erro ao carregar perfil.');
+              setProfile(null);
+            }
           } else {
-            // Define o perfil se ele existir no array retornado, caso contrário, nulo.
-            setProfile(profileData && profileData.length > 0 ? profileData[0] : null);
+            setProfile(profileData);
           }
         } catch (err) {
           console.error('Unexpected error fetching profile:', err);

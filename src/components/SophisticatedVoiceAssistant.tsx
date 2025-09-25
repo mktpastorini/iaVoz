@@ -243,54 +243,6 @@ const SophisticatedVoiceAssistant = () => {
         };
         socket.onerror = (error) => { console.error("ElevenLabs WebSocket Error:", error); onSpeechEnd(); };
         socket.onclose = () => { if (audioQueueRef.current.length === 0 && !isPlayingAudioRef.current) onSpeechEnd(); };
-      } else if (currentSettings.voice_model === "google-cloud-tts") {
-        const { data, error } = await supabaseAnon.functions.invoke('google-tts', {
-          body: {
-            text,
-            voiceName: currentSettings.google_tts_voice_name,
-            speakingRate: currentSettings.google_tts_speaking_rate,
-            pitch: currentSettings.google_tts_pitch,
-          },
-        });
-        if (error) throw new Error(`Erro na Edge Function do Google TTS: ${error.message}`);
-        const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
-        audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = onSpeechEnd;
-        await audioRef.current.play();
-      } else if (currentSettings.voice_model === "gemini-tts") {
-        if (!currentSettings.gemini_api_key) {
-          showError("A chave de API do Gemini não está configurada nas Configurações.");
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.lang = "pt-BR";
-          utterance.onend = onSpeechEnd;
-          utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
-          synthRef.current.speak(utterance);
-          return;
-        }
-        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text, model: currentSettings.gemini_tts_model } });
-        if (error) {
-          let errorMessage = (error as any).message || 'Ocorreu um erro desconhecido.';
-          try {
-            const errorContext = (error as any).context;
-            if (errorContext && typeof errorContext.json === 'function') {
-              const errorJson = await errorContext.json();
-              if (errorJson.solution) {
-                errorMessage = `${errorJson.error} ${errorJson.solution}`;
-              } else if (errorJson.error) {
-                errorMessage = errorJson.error;
-              }
-            }
-          } catch (e) {
-            console.error("Não foi possível analisar a resposta de erro da Edge Function:", e);
-          }
-          showError(errorMessage);
-          onSpeechEnd();
-          return;
-        }
-        const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
-        audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = onSpeechEnd;
-        await audioRef.current.play();
       } else { onSpeechEnd(); }
     } catch (e: any) { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); }
   }, [stopSpeaking, stopListening, startListening]);
@@ -374,7 +326,6 @@ const SophisticatedVoiceAssistant = () => {
       const decoder = new TextDecoder();
       let fullResponse = "";
       let toolCalls: any[] = [];
-      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -403,7 +354,6 @@ const SophisticatedVoiceAssistant = () => {
           }
         }
       }
-      
       const aiMessage = { role: "assistant", content: fullResponse || null, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
       const newHistory = [...currentHistory, aiMessage];
       setMessageHistory(newHistory);
@@ -444,11 +394,9 @@ const SophisticatedVoiceAssistant = () => {
           setMessageHistory(p => [...p, { role: "assistant", content: finalResponseText }]);
           speak(finalResponseText);
         });
-      } else { 
-        speak(fullResponse); 
-      }
+      } else { speak(fullResponse); }
     } catch (e: any) { speak(`Desculpe, não consegui processar.`); showError(`Erro na conversa: ${e.message}`); }
-  }, [speak, stopListening, startListening]);
+  }, [speak, stopListening]);
 
   const handleDeepgramTranscript = (transcript: string) => {
     const currentSettings = settingsRef.current;

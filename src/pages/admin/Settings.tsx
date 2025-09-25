@@ -40,23 +40,18 @@ interface Power {
 const settingsSchema = z.object({
   system_prompt: z.string().min(10, "Prompt do sistema é obrigatório"),
   assistant_prompt: z.string().min(10, "Prompt do assistente é obrigatório"),
-  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o-mini", "gemini-1.5-pro-latest"]),
-  voice_model: z.enum(["browser", "openai-tts", "deepgram-tts", "elevenlabs-tts", "google-cloud-tts", "gemini-tts"]),
+  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o-mini", "gemini-2.5-pro", "gemini-2.5-flash"]),
+  voice_model: z.enum(["browser", "openai-tts", "gemini-tts", "deepgram-tts", "elevenlabs-tts"]),
   streaming_stt_provider: z.enum(["browser", "deepgram"]),
   openai_tts_voice: z.string().optional().nullable(),
   deepgram_stt_model: z.string().optional().nullable(),
   deepgram_tts_model: z.string().optional().nullable(),
   elevenlabs_voice_id: z.string().optional().nullable(),
-  google_tts_voice_name: z.string().optional().nullable(),
-  google_tts_speaking_rate: z.number().min(0.25).max(4.0).optional().nullable(),
-  google_tts_pitch: z.number().min(-20.0).max(20.0).optional().nullable(),
-  gemini_tts_model: z.string().optional().nullable(),
   voice_sensitivity: z.number().min(0).max(100),
   openai_api_key: z.string().optional().nullable(),
   gemini_api_key: z.string().optional().nullable(),
   deepgram_api_key: z.string().optional().nullable(),
   elevenlabs_api_key: z.string().optional().nullable(),
-  google_tts_api_key: z.string().optional().nullable(), // Apenas para referência do usuário
   conversation_memory_length: z.number().min(0).max(10),
   activation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de ativação."),
   deactivation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de desativação."),
@@ -75,17 +70,12 @@ const defaultValues: SettingsFormData = {
   openai_tts_voice: "alloy",
   deepgram_stt_model: "nova-2",
   deepgram_tts_model: "aura-asteria-en",
-  elevenlabs_voice_id: "21m00Tcm4TlvDq8ikWAM",
-  google_tts_voice_name: "pt-BR-Wavenet-A",
-  google_tts_speaking_rate: 1.0,
-  google_tts_pitch: 0.0,
-  gemini_tts_model: "gemini-2.5-flash-preview-tts",
+  elevenlabs_voice_id: "21m00Tcm4TlvDq8ikWAM", // Antoni (Padrão)
   voice_sensitivity: 50,
   openai_api_key: "",
   gemini_api_key: "",
   deepgram_api_key: "",
   elevenlabs_api_key: "",
-  google_tts_api_key: "",
   conversation_memory_length: 5,
   activation_phrases: ["ativar"],
   deactivation_phrases: ["fechar", "encerrar"],
@@ -133,20 +123,6 @@ const ELEVENLABS_VOICES = [
   { value: "zrHiDhphv9ZnVXBqCLjz", label: "James (Inglês, AU - Masculino)" },
 ];
 
-const GOOGLE_TTS_VOICES = [
-  { value: "pt-BR-Wavenet-A", label: "Português (Brasil, Feminino A)" },
-  { value: "pt-BR-Wavenet-B", label: "Português (Brasil, Masculino B)" },
-  { value: "pt-BR-Wavenet-C", label: "Português (Brasil, Feminino C)" },
-  { value: "pt-BR-Wavenet-D", label: "Português (Brasil, Masculino D)" },
-  { value: "en-US-Wavenet-A", label: "Inglês (EUA, Masculino A)" },
-  { value: "en-US-Wavenet-F", label: "Inglês (EUA, Feminino F)" },
-];
-
-const GEMINI_TTS_MODELS = [
-    { value: "gemini-2.5-flash-preview-tts", label: "Gemini 2.5 Flash Preview TTS (Rápido)" },
-    { value: "gemini-2.5-pro-preview-tts", label: "Gemini 2.5 Pro Preview TTS (Expressivo)" },
-];
-
 const SettingsPage: React.FC = () => {
   const { workspace, loading } = useSession();
   const [loadingSettings, setLoadingSettings] = useState(true);
@@ -178,7 +154,6 @@ const SettingsPage: React.FC = () => {
       deepgram_api_key: formData.deepgram_api_key || null,
       elevenlabs_api_key: formData.elevenlabs_api_key || null,
       elevenlabs_voice_id: formData.elevenlabs_voice_id || null,
-      google_tts_api_key: formData.google_tts_api_key || null,
       welcome_message: formData.welcome_message || null,
       continuation_phrase: formData.continuation_phrase || null,
     }, { onConflict: "workspace_id" });
@@ -258,7 +233,6 @@ const SettingsPage: React.FC = () => {
           <div><Label>Chave API Gemini</Label><Input {...register("gemini_api_key")} type="password" /></div>
           <div><Label>Chave API Deepgram</Label><Input {...register("deepgram_api_key")} type="password" /></div>
           <div><Label>Chave API ElevenLabs</Label><Input {...register("elevenlabs_api_key")} type="password" /></div>
-          <div><Label>Chave API Google Cloud</Label><Input {...register("google_tts_api_key")} type="password" /><p className="text-xs text-muted-foreground mt-1">Nota: Esta chave deve ser configurada como um "secret" na Supabase.</p></div>
         </CardContent>
       </Card>
 
@@ -266,15 +240,13 @@ const SettingsPage: React.FC = () => {
       <Card>
         <CardHeader><CardTitle>Modelos e Provedores</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><Label>Modelo de IA</Label><Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="gpt-4o-mini">OpenAI GPT-4o Mini</SelectItem><SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem><SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem><SelectItem value="gemini-1.5-pro-latest">Google Gemini 1.5 Pro</SelectItem></SelectContent></Select>)} /></div>
+          <div><Label>Modelo de IA</Label><Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="gpt-4o-mini">OpenAI GPT-4o Mini</SelectItem><SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem><SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem><SelectItem value="gemini-2.5-pro">Google Gemini 2.5 Pro</SelectItem><SelectItem value="gemini-2.5-flash">Google Gemini 2.5 Flash</SelectItem></SelectContent></Select>)} /></div>
           <div><Label>Provedor de Transcrição (STT)</Label><Controller control={control} name="streaming_stt_provider" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="browser">Navegador (Padrão)</SelectItem><SelectItem value="deepgram">Deepgram</SelectItem></SelectContent></Select>)} /></div>
           {sttProvider === 'deepgram' && <div><Label>Modelo STT Deepgram</Label><Controller control={control} name="deepgram_stt_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DEEPGRAM_STT_MODELS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent></Select>)} /></div>}
-          <div><Label>Provedor de Voz (TTS)</Label><Controller control={control} name="voice_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="browser">Navegador (Padrão)</SelectItem><SelectItem value="openai-tts">OpenAI TTS</SelectItem><SelectItem value="deepgram-tts">Deepgram TTS</SelectItem><SelectItem value="elevenlabs-tts">ElevenLabs TTS</SelectItem><SelectItem value="google-cloud-tts">Google Cloud TTS</SelectItem><SelectItem value="gemini-tts">Google Gemini TTS</SelectItem></SelectContent></Select>)} /></div>
+          <div><Label>Provedor de Voz (TTS)</Label><Controller control={control} name="voice_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="browser">Navegador (Padrão)</SelectItem><SelectItem value="openai-tts">OpenAI TTS</SelectItem><SelectItem value="deepgram-tts">Deepgram TTS</SelectItem><SelectItem value="elevenlabs-tts">ElevenLabs TTS</SelectItem></SelectContent></Select>)} /></div>
           {voiceModel === 'openai-tts' && <div><Label>Voz OpenAI TTS</Label><Controller control={control} name="openai_tts_voice" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value || "alloy"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{OPENAI_TTS_VOICES.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} /></div>}
           {voiceModel === 'deepgram-tts' && <div><Label>Voz Deepgram TTS</Label><Controller control={control} name="deepgram_tts_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DEEPGRAM_TTS_VOICES.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} /></div>}
           {voiceModel === 'elevenlabs-tts' && <div><Label>Voz ElevenLabs</Label><Controller control={control} name="elevenlabs_voice_id" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ELEVENLABS_VOICES.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} /></div>}
-          {voiceModel === 'google-cloud-tts' && <><div><Label>Voz Google Cloud</Label><Controller control={control} name="google_tts_voice_name" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{GOOGLE_TTS_VOICES.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} /></div><div><Label>Velocidade da Fala</Label><Controller control={control} name="google_tts_speaking_rate" render={({ field }) => <Slider value={[field.value ?? 1]} onValueChange={v => field.onChange(v[0])} min={0.25} max={4.0} step={0.05} />} /></div><div><Label>Tom da Voz</Label><Controller control={control} name="google_tts_pitch" render={({ field }) => <Slider value={[field.value ?? 0]} onValueChange={v => field.onChange(v[0])} min={-20.0} max={20.0} step={0.1} />} /></div></>}
-          {voiceModel === 'gemini-tts' && <div><Label>Modelo Gemini TTS</Label><Controller control={control} name="gemini_tts_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{GEMINI_TTS_MODELS.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent></Select>)} /></div>}
         </CardContent>
       </Card>
 
