@@ -346,8 +346,16 @@ const SophisticatedVoiceAssistant = () => {
       let fullResponse = "";
       let toolCalls: any[] = [];
       let sentenceBuffer = "";
+      let audioQueueEmptyCallback: (() => void) | null = null;
+
       const playGeminiAudioQueue = async () => {
-        if (isPlayingGeminiAudio.current || geminiAudioQueue.current.length === 0) return;
+        if (isPlayingGeminiAudio.current || geminiAudioQueue.current.length === 0) {
+          if (!isPlayingGeminiAudio.current && audioQueueEmptyCallback) {
+            audioQueueEmptyCallback();
+            audioQueueEmptyCallback = null;
+          }
+          return;
+        }
         isPlayingGeminiAudio.current = true;
         const audio = geminiAudioQueue.current.shift();
         if (audio) {
@@ -407,10 +415,22 @@ const SophisticatedVoiceAssistant = () => {
           }
         }
       }
-      if (sentenceBuffer.trim().length > 0 && currentSettings.voice_model === 'gemini-tts') {
-        processSentence(sentenceBuffer);
-        sentenceBuffer = "";
+      
+      const finalSpeakCallback = () => {
+        if (isOpenRef.current && !stopPermanentlyRef.current) {
+          setTimeout(() => startListening(), 100);
+        }
+      };
+
+      if (currentSettings.voice_model === 'gemini-tts') {
+        if (sentenceBuffer.trim().length > 0) {
+          processSentence(sentenceBuffer);
+          sentenceBuffer = "";
+        }
+        audioQueueEmptyCallback = finalSpeakCallback;
+        playGeminiAudioQueue();
       }
+
       const aiMessage = { role: "assistant", content: fullResponse || null, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
       const newHistory = [...currentHistory, aiMessage];
       setMessageHistory(newHistory);
@@ -451,9 +471,11 @@ const SophisticatedVoiceAssistant = () => {
           setMessageHistory(p => [...p, { role: "assistant", content: finalResponseText }]);
           speak(finalResponseText);
         });
-      } else if (currentSettings.voice_model !== 'gemini-tts') { speak(fullResponse); }
+      } else if (currentSettings.voice_model !== 'gemini-tts') { 
+        speak(fullResponse); 
+      }
     } catch (e: any) { speak(`Desculpe, não consegui processar.`); showError(`Erro na conversa: ${e.message}`); }
-  }, [speak, stopListening]);
+  }, [speak, stopListening, startListening]);
 
   const handleDeepgramTranscript = (transcript: string) => {
     const currentSettings = settingsRef.current;
