@@ -27,13 +27,14 @@ serve(async (req) => {
 
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
+    // Corrigindo o corpo da requisição para usar 'responseModalities' em vez de 'responseMimeType'
     const requestBody = {
       contents: [{
         role: "user",
         parts: [{ text }]
       }],
       generationConfig: {
-        responseMimeType: "audio/mpeg",
+        responseModalities: ["AUDIO"],
       }
     };
 
