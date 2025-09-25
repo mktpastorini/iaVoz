@@ -204,8 +204,11 @@ const SophisticatedVoiceAssistant = () => {
       } else if (currentSettings.voice_model === "deepgram-tts" && currentSettings.deepgram_api_key) {
         const response = await fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
         if (!response.ok) {
-          if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida.");
-          throw new Error(`Falha na API Deepgram TTS: ${response.statusText}`);
+          const errorBody = await response.json().catch(() => ({ err_msg: `Request failed with status ${response.status}` }));
+          const errorMessage = errorBody.err_msg || errorBody.reason || JSON.stringify(errorBody);
+          console.error("Deepgram TTS Error Response:", errorBody);
+          if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida ou incorreta.");
+          throw new Error(`Falha na API Deepgram TTS: ${errorMessage}`);
         }
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
