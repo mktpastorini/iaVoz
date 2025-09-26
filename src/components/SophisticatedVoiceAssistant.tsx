@@ -111,6 +111,7 @@ const SophisticatedVoiceAssistant = () => {
   const elevenlabsSocketRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingAudioRef = useRef(false);
+  const speechProcessingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
@@ -191,7 +192,6 @@ const SophisticatedVoiceAssistant = () => {
       }
     };
     stopSpeaking();
-    stopListening();
     setIsSpeaking(true);
     setAiResponse(text);
     speechTimeoutRef.current = setTimeout(onSpeechEnd, (text.length / 15) * 1000 + 5000);
@@ -399,6 +399,7 @@ const SophisticatedVoiceAssistant = () => {
   }, [speak, stopListening]);
 
   const handleDeepgramTranscript = (transcript: string) => {
+    stopSpeaking();
     const currentSettings = settingsRef.current;
     if (!currentSettings) return;
     if (isOpenRef.current) {
@@ -428,7 +429,7 @@ const SophisticatedVoiceAssistant = () => {
       return;
     }
     const deepgram = createClient(apiKey);
-    const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true });
+    const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true, endpointing: 750, utterance_end_ms: 1500 });
     
     connection.on(LiveTranscriptionEvents.Open, () => {
       navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
@@ -464,19 +465,36 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.onstart = () => setIsListening(true);
     recognitionRef.current.onend = () => { setIsListening(false); if (!isSpeakingRef.current && !stopPermanentlyRef.current) startListening(); };
     recognitionRef.current.onerror = (e: any) => { if (e.error === "not-allowed") { setMicPermission("denied"); setIsPermissionModalOpen(true); } };
+    
     recognitionRef.current.onresult = (event: any) => {
-      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      if (isOpenRef.current) {
-        if (settingsRef.current.deactivation_phrases?.some((p: string) => transcript.includes(p))) { setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return; }
-        const action = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
-        if (action) { executeClientAction(action); return; }
-        runConversation(transcript);
-      } else {
-        if (settingsRef.current.activation_phrases?.some((p: string) => transcript.includes(p))) {
-          fetchAllAssistantData().then(s => { if (!s) return; setIsOpen(true); speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message); setHasBeenActivated(true); });
-        }
+      if (speechProcessingTimeoutRef.current) {
+        clearTimeout(speechProcessingTimeoutRef.current);
       }
+      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      
+      speechProcessingTimeoutRef.current = setTimeout(() => {
+        if (!transcript) return;
+        stopSpeaking();
+        if (isOpenRef.current) {
+          if (settingsRef.current.deactivation_phrases?.some((p: string) => transcript.includes(p))) {
+            setIsOpen(false); setAiResponse(""); setTranscript(""); return;
+          }
+          const action = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
+          if (action) { executeClientAction(action); return; }
+          runConversation(transcript);
+        } else {
+          if (settingsRef.current.activation_phrases?.some((p: string) => transcript.includes(p))) {
+            fetchAllAssistantData().then(s => {
+              if (!s) return;
+              setIsOpen(true);
+              speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message);
+              setHasBeenActivated(true);
+            });
+          }
+        }
+      }, 1200); // Wait 1.2 seconds for a pause before processing
     };
+
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
   }, [runConversation, executeClientAction, speak, startListening, stopSpeaking, fetchAllAssistantData]);
 
