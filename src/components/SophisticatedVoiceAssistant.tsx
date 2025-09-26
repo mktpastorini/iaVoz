@@ -399,8 +399,8 @@ const SophisticatedVoiceAssistant = () => {
       let technicalError = `Erro na conversa: ${e.message}`;
 
       if (e.message && e.message.includes("403")) {
-        userFriendlyError = "Parece que ainda há um problema de permissão. Por favor, verifique as configurações no Google Cloud.";
-        technicalError = "Erro 403 (Proibido): A chave de API não tem permissão para usar a Vertex AI. Verifique o Faturamento e as permissões de IAM no seu projeto Google Cloud.";
+        userFriendlyError = "Erro de permissão. Por favor, verifique as configurações no Google Cloud.";
+        technicalError = "Erro 403 (Proibido): A chave de API não tem permissão para usar a Vertex AI. Verifique se o Faturamento está ativo no projeto e se a chave de API não tem restrições.";
       }
       
       speak(userFriendlyError);
