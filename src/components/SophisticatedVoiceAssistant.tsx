@@ -115,6 +115,7 @@ const SophisticatedVoiceAssistant = () => {
   const isPlayingAudioRef = useRef(false);
   const wasInterruptedRef = useRef(false);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const onSpeechEndCallbackRef = useRef<(() => void) | null>(null);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
@@ -147,6 +148,7 @@ const SophisticatedVoiceAssistant = () => {
   }, []);
 
   const stopSpeaking = useCallback(() => {
+    onSpeechEndCallbackRef.current = null;
     if (synthRef.current?.speaking) {
       if (currentUtteranceRef.current) {
         currentUtteranceRef.current.onend = null;
@@ -169,7 +171,7 @@ const SophisticatedVoiceAssistant = () => {
   }, []);
 
   const startListening = useCallback(() => {
-    if (isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
+    if (isListeningRef.current || isSpeakingRef.current || isProcessingRef.current || stopPermanentlyRef.current) return;
     if (settingsRef.current?.streaming_stt_provider === 'deepgram') {
       connectToDeepgram();
     } else {
@@ -191,7 +193,7 @@ const SophisticatedVoiceAssistant = () => {
     setIsListening(false);
   }, []);
 
-  const playAudioQueue = useCallback(async (onEnd: () => void) => {
+  const playAudioQueue = useCallback(async () => {
     if (isPlayingAudioRef.current || audioQueueRef.current.length === 0) return;
     isPlayingAudioRef.current = true;
     const audioData = audioQueueRef.current.shift();
@@ -204,9 +206,9 @@ const SophisticatedVoiceAssistant = () => {
       source.onended = () => {
         isPlayingAudioRef.current = false;
         if (audioQueueRef.current.length > 0) {
-          playAudioQueue(onEnd);
+          playAudioQueue();
         } else if (elevenlabsSocketRef.current?.readyState === WebSocket.CLOSED) {
-          onEnd();
+          if (onSpeechEndCallbackRef.current) onSpeechEndCallbackRef.current();
         }
       };
       source.start();
@@ -216,118 +218,117 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
-  const speak = useCallback((text: string): Promise<void> => {
-    return new Promise(async (resolve) => {
-      const onEndCallback = resolve;
-      const currentSettings = settingsRef.current;
+  const speak = useCallback((text: string, onEnd?: () => void) => {
+    onSpeechEndCallbackRef.current = onEnd || null;
+    const currentSettings = settingsRef.current;
 
-      const onSpeechEnd = () => {
-        if (wasInterruptedRef.current) {
-          wasInterruptedRef.current = false;
-          onEndCallback();
-          return;
-        }
-        if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-        setIsSpeaking(false);
-        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-        setAudioIntensity(0);
-        onEndCallback();
-      };
-
-      if (!text || !currentSettings) {
-        onEndCallback();
-        return;
+    const onSpeechEnd = () => {
+      if (onSpeechEndCallbackRef.current) {
+        onSpeechEndCallbackRef.current();
+        onSpeechEndCallbackRef.current = null;
       }
+      if (wasInterruptedRef.current) { wasInterruptedRef.current = false; return; }
+      if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
+      setIsSpeaking(false);
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      setAudioIntensity(0);
+    };
 
-      wasInterruptedRef.current = false;
-      stopSpeaking();
-      setIsSpeaking(true);
-      setAiResponse(text);
-      speechTimeoutRef.current = setTimeout(onSpeechEnd, (text.length / 15) * 1000 + 5000);
+    if (!text || !currentSettings) { onSpeechEnd(); return; }
 
-      try {
-        if (currentSettings.voice_model === "browser" && synthRef.current) {
-          const utterance = new SpeechSynthesisUtterance(text);
-          currentUtteranceRef.current = utterance;
-          utterance.lang = "pt-BR";
-          utterance.onend = () => { currentUtteranceRef.current = null; onSpeechEnd(); };
-          utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); currentUtteranceRef.current = null; onSpeechEnd(); };
-          synthRef.current.speak(utterance);
-        } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
-          const response = await fetch(OPENAI_TTS_API_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }) });
-          if (!response.ok) throw new Error("Falha na API OpenAI TTS");
-          const audioBlob = await response.blob();
-          const audioUrl = URL.createObjectURL(audioBlob);
-          audioRef.current = new Audio(audioUrl);
-          audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-          await audioRef.current.play();
-        } else if (currentSettings.voice_model === "deepgram-tts" && currentSettings.deepgram_api_key) {
-          const response = await fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
-          if (!response.ok) {
-            const errorBody = await response.json().catch(() => ({ err_msg: `Request failed with status ${response.status}` }));
-            const errorMessage = errorBody.err_msg || errorBody.reason || JSON.stringify(errorBody);
-            if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida ou incorreta.");
-            throw new Error(`Falha na API Deepgram TTS: ${errorMessage}`);
-          }
-          const audioBlob = await response.blob();
-          const audioUrl = URL.createObjectURL(audioBlob);
-          audioRef.current = new Audio(audioUrl);
-          audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-          await audioRef.current.play();
-        } else if (currentSettings.voice_model === "elevenlabs-tts" && currentSettings.elevenlabs_api_key) {
-          if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const voiceId = currentSettings.elevenlabs_voice_id || "21m00Tcm4TlvDq8ikWAM";
-          const socket = new WebSocket(`wss://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream-input?model_id=eleven_multilingual_v2`);
-          elevenlabsSocketRef.current = socket;
-          socket.binaryType = 'arraybuffer';
-          socket.onopen = () => {
-            socket.send(JSON.stringify({ text: " ", voice_settings: { stability: 0.5, similarity_boost: 0.8 }, xi_api_key: currentSettings.elevenlabs_api_key }));
-            socket.send(JSON.stringify({ text, try_trigger_generation: true }));
-            socket.send(JSON.stringify({ text: "" }));
-          };
-          socket.onmessage = (event) => {
-            const audioData = event.data;
-            if (audioData instanceof ArrayBuffer) {
-              audioQueueRef.current.push(audioData);
-              if (!isPlayingAudioRef.current) playAudioQueue(onSpeechEnd);
+    wasInterruptedRef.current = false;
+    stopSpeaking();
+    setIsSpeaking(true);
+    setAiResponse(text);
+    speechTimeoutRef.current = setTimeout(onSpeechEnd, (text.length / 15) * 1000 + 5000);
+
+    try {
+      if (currentSettings.voice_model === "browser" && synthRef.current) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        currentUtteranceRef.current = utterance;
+        utterance.lang = "pt-BR";
+        utterance.onend = () => { currentUtteranceRef.current = null; onSpeechEnd(); };
+        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); currentUtteranceRef.current = null; onSpeechEnd(); };
+        synthRef.current.speak(utterance);
+      } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
+        fetch(OPENAI_TTS_API_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }) })
+          .then(response => { if (!response.ok) throw new Error("Falha na API OpenAI TTS"); return response.blob(); })
+          .then(audioBlob => {
+            const audioUrl = URL.createObjectURL(audioBlob);
+            audioRef.current = new Audio(audioUrl);
+            audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+            audioRef.current.play();
+          }).catch(e => { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); });
+      } else if (currentSettings.voice_model === "deepgram-tts" && currentSettings.deepgram_api_key) {
+        fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) })
+          .then(async response => {
+            if (!response.ok) {
+              const errorBody = await response.json().catch(() => ({ err_msg: `Request failed with status ${response.status}` }));
+              const errorMessage = errorBody.err_msg || errorBody.reason || JSON.stringify(errorBody);
+              if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida ou incorreta.");
+              throw new Error(`Falha na API Deepgram TTS: ${errorMessage}`);
             }
-          };
-          socket.onerror = (error) => { console.error("ElevenLabs WebSocket Error:", error); onSpeechEnd(); };
-          socket.onclose = () => { if (audioQueueRef.current.length === 0 && !isPlayingAudioRef.current) onSpeechEnd(); };
-        } else {
-          onSpeechEnd();
-        }
-      } catch (e: any) {
-        showError(`Erro na síntese de voz: ${e.message}`);
+            return response.blob();
+          })
+          .then(audioBlob => {
+            const audioUrl = URL.createObjectURL(audioBlob);
+            audioRef.current = new Audio(audioUrl);
+            audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+            audioRef.current.play();
+          }).catch(e => { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); });
+      } else if (currentSettings.voice_model === "elevenlabs-tts" && currentSettings.elevenlabs_api_key) {
+        if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const voiceId = currentSettings.elevenlabs_voice_id || "21m00Tcm4TlvDq8ikWAM";
+        const socket = new WebSocket(`wss://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream-input?model_id=eleven_multilingual_v2`);
+        elevenlabsSocketRef.current = socket;
+        socket.binaryType = 'arraybuffer';
+        socket.onopen = () => {
+          socket.send(JSON.stringify({ text: " ", voice_settings: { stability: 0.5, similarity_boost: 0.8 }, xi_api_key: currentSettings.elevenlabs_api_key }));
+          socket.send(JSON.stringify({ text, try_trigger_generation: true }));
+          socket.send(JSON.stringify({ text: "" }));
+        };
+        socket.onmessage = (event) => {
+          const audioData = event.data;
+          if (audioData instanceof ArrayBuffer) {
+            audioQueueRef.current.push(audioData);
+            if (!isPlayingAudioRef.current) playAudioQueue();
+          }
+        };
+        socket.onerror = (error) => { console.error("ElevenLabs WebSocket Error:", error); onSpeechEnd(); };
+        socket.onclose = () => { if (audioQueueRef.current.length === 0 && !isPlayingAudioRef.current) onSpeechEnd(); };
+      } else {
         onSpeechEnd();
       }
-    });
+    } catch (e: any) {
+      showError(`Erro na síntese de voz: ${e.message}`);
+      onSpeechEnd();
+    }
   }, [stopSpeaking, playAudioQueue]);
 
-  const executeClientAction = useCallback(async (action: any) => {
+  const executeClientAction = useCallback((action: any) => {
     stopListening();
-    await speak("Ok, executando.");
-    switch (action.action_type) {
-      case 'OPEN_URL':
-        window.open(action.action_payload.url, '_blank', 'noopener,noreferrer');
-        startListening();
-        break;
-      case 'SHOW_IMAGE':
-        setImageToShow(action.action_payload);
-        break;
-      case 'OPEN_IFRAME_URL':
-        setUrlToOpenInIframe(action.action_payload.url);
-        break;
-    }
+    speak("Ok, executando.", () => {
+      switch (action.action_type) {
+        case 'OPEN_URL': window.open(action.action_payload.url, '_blank', 'noopener,noreferrer'); startListening(); break;
+        case 'SHOW_IMAGE': setImageToShow(action.action_payload); break;
+        case 'OPEN_IFRAME_URL': setUrlToOpenInIframe(action.action_payload.url); break;
+      }
+    });
   }, [speak, stopListening, startListening]);
 
   const runConversation = useCallback(async (userMessage: string) => {
     if (!userMessage || isProcessingRef.current) return;
     setIsProcessing(true);
+    stopListening();
+
+    const handleFinish = () => {
+      setIsProcessing(false);
+      startListening();
+    };
+
     try {
       setTranscript(userMessage);
       setAiResponse("");
-      stopListening();
       const currentHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
       setMessageHistory(currentHistory);
       const currentSettings = settingsRef.current;
@@ -396,50 +397,48 @@ const SophisticatedVoiceAssistant = () => {
       const newHistory = [...currentHistory, aiMessage];
       setMessageHistory(newHistory);
       if (aiMessage.tool_calls?.length) {
-        await speak(`Ok, um momento.`);
-        const toolResponses = await executeTools(aiMessage.tool_calls!);
-        const historyForNextCall = [...newHistory, ...toolResponses];
-        setMessageHistory(historyForNextCall);
-        setAiResponse("");
-        let secondResponse;
-        if (isGemini) {
-          const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
-          const body = { systemInstruction: { parts: [{ text: systemPrompt }] }, contents: mapToGeminiHistory(historyForNextCall.slice(-currentSettings.conversation_memory_length)), tools: geminiTools };
-          secondResponse = await fetch(`${GEMINI_API_BASE_URL}${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.gemini_api_key}&alt=sse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        } else {
-          const body = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForNextCall.slice(-currentSettings.conversation_memory_length)], stream: true };
-          secondResponse = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(body) });
-        }
-        if (!secondResponse.ok) { const err = await secondResponse.json(); throw new Error(`API Error: ${err.error?.message || JSON.stringify(err)}`); }
-        const secondReader = secondResponse.body!.getReader();
-        let finalResponseText = "";
-        while (true) {
-          const { done, value } = await secondReader.read();
-          if (done) break;
-          const chunk = decoder.decode(value);
-          for (const line of chunk.split("\n")) {
-            if (line.startsWith("data: ")) {
-              const dataStr = line.substring(6);
-              if (dataStr === "[DONE]") break;
-              try {
-                const data = JSON.parse(dataStr);
-                const delta = isGemini ? data.candidates?.[0]?.content?.parts?.[0]?.text || "" : data.choices[0]?.delta?.content || "";
-                if (delta) { finalResponseText += delta; setAiResponse(c => c + delta); }
-              } catch (e) { console.error("Failed to parse second stream chunk:", dataStr, e); }
+        speak(`Ok, um momento.`, async () => {
+          const toolResponses = await executeTools(aiMessage.tool_calls!);
+          const historyForNextCall = [...newHistory, ...toolResponses];
+          setMessageHistory(historyForNextCall);
+          setAiResponse("");
+          let secondResponse;
+          if (isGemini) {
+            const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
+            const body = { systemInstruction: { parts: [{ text: systemPrompt }] }, contents: mapToGeminiHistory(historyForNextCall.slice(-currentSettings.conversation_memory_length)), tools: geminiTools };
+            secondResponse = await fetch(`${GEMINI_API_BASE_URL}${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.gemini_api_key}&alt=sse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+          } else {
+            const body = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForNextCall.slice(-currentSettings.conversation_memory_length)], stream: true };
+            secondResponse = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(body) });
+          }
+          if (!secondResponse.ok) { const err = await secondResponse.json(); throw new Error(`API Error: ${err.error?.message || JSON.stringify(err)}`); }
+          const secondReader = secondResponse.body!.getReader();
+          let finalResponseText = "";
+          while (true) {
+            const { done, value } = await secondReader.read();
+            if (done) break;
+            const chunk = decoder.decode(value);
+            for (const line of chunk.split("\n")) {
+              if (line.startsWith("data: ")) {
+                const dataStr = line.substring(6);
+                if (dataStr === "[DONE]") break;
+                try {
+                  const data = JSON.parse(dataStr);
+                  const delta = isGemini ? data.candidates?.[0]?.content?.parts?.[0]?.text || "" : data.choices[0]?.delta?.content || "";
+                  if (delta) { finalResponseText += delta; setAiResponse(c => c + delta); }
+                } catch (e) { console.error("Failed to parse second stream chunk:", dataStr, e); }
+              }
             }
           }
-        }
-        setMessageHistory(p => [...p, { role: "assistant", content: finalResponseText }]);
-        await speak(finalResponseText);
+          setMessageHistory(p => [...p, { role: "assistant", content: finalResponseText }]);
+          speak(finalResponseText, handleFinish);
+        });
       } else {
-        await speak(fullResponse);
+        speak(fullResponse, handleFinish);
       }
     } catch (e: any) {
-      await speak(`Desculpe, não consegui processar.`);
+      speak(`Desculpe, não consegui processar.`, handleFinish);
       showError(`Erro na conversa: ${e.message}`);
-    } finally {
-      setIsProcessing(false);
-      startListening();
     }
   }, [speak, stopListening, startListening, executeClientAction]);
 
@@ -470,11 +469,13 @@ const SophisticatedVoiceAssistant = () => {
         const s = await fetchAllAssistantData();
         if (!s) return;
         setIsOpen(true);
-        await speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message);
-        setHasBeenActivated(true);
+        speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message, () => {
+          setHasBeenActivated(true);
+          startListening();
+        });
       }
     }
-  }, [runConversation, stopSpeaking, executeClientAction, speak, fetchAllAssistantData]);
+  }, [runConversation, stopSpeaking, executeClientAction, speak, fetchAllAssistantData, startListening]);
 
   const connectToDeepgram = useCallback(async () => {
     const apiKey = settingsRef.current?.deepgram_api_key;
@@ -551,7 +552,7 @@ const SophisticatedVoiceAssistant = () => {
         runConversation(transcript);
       } else {
         if (settingsRef.current.activation_phrases?.some((p: string) => transcript.includes(p))) {
-          fetchAllAssistantData().then(async s => { if (!s) return; setIsOpen(true); await speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message); setHasBeenActivated(true); });
+          fetchAllAssistantData().then(s => { if (!s) return; setIsOpen(true); speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message, () => { setHasBeenActivated(true); startListening(); }); });
         }
       }
     };
@@ -586,10 +587,12 @@ const SophisticatedVoiceAssistant = () => {
       const s = await fetchAllAssistantData();
       if (!s) return;
       setIsOpen(true);
-      await speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message);
-      setHasBeenActivated(true);
+      speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message, () => {
+        setHasBeenActivated(true);
+        startListening();
+      });
     }
-  }, [micPermission, checkAndRequestMicPermission, speak, fetchAllAssistantData]);
+  }, [micPermission, checkAndRequestMicPermission, speak, fetchAllAssistantData, startListening]);
 
   useEffect(() => { if (activationTrigger > activationTriggerRef.current) { activationTriggerRef.current = activationTrigger; handleManualActivation(); } }, [activationTrigger, handleManualActivation]);
   useEffect(() => { fetchAllAssistantData().then(() => checkAndRequestMicPermission()); return () => { stopPermanentlyRef.current = true; stopListening(); stopSpeaking(); }; }, [fetchAllAssistantData, checkAndRequestMicPermission]);
