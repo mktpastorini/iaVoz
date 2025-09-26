@@ -103,12 +103,17 @@ export default {
             transform: "translate(0px, 0px) scale(1)",
           },
         },
+        "rotate": {
+          '0%': { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "wave": "wave 1.5s infinite ease-in-out",
         "blob": "blob 7s infinite cubic-bezier(0.6, -0.28, 0.735, 0.045)",
+        "rotate": "rotate 6s linear infinite",
       },
     },
   },
