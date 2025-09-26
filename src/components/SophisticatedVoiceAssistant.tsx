@@ -212,13 +212,17 @@ const SophisticatedVoiceAssistant = () => {
         await audioRef.current.play();
       } else if (currentSettings.voice_model === "deepgram-tts" && currentSettings.deepgram_api_key) {
         const response = await fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
-        if (!response.ok) {
-          const errorBody = await response.json().catch(() => ({ err_msg: `Request failed with status ${response.status}` }));
-          const errorMessage = errorBody.err_msg || errorBody.reason || JSON.stringify(errorBody);
-          if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida ou incorreta.");
-          throw new Error(`Falha na API Deepgram TTS: ${errorMessage}`);
-        }
+        if (!response.ok) throw new Error(`Falha na API Deepgram TTS: ${await response.text()}`);
         const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioRef.current = new Audio(audioUrl);
+        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        await audioRef.current.play();
+      } else if (currentSettings.voice_model === "gemini-tts" && currentSettings.gemini_api_key) {
+        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text, model: currentSettings.gemini_tts_model, voiceName: currentSettings.gemini_tts_voice_name } });
+        if (error) throw new Error(`Erro na Edge Function Gemini TTS: ${error.message}`);
+        const audioBytes = Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0));
+        const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
