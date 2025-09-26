@@ -40,7 +40,7 @@ interface Power {
 const settingsSchema = z.object({
   system_prompt: z.string().min(10, "Prompt do sistema é obrigatório"),
   assistant_prompt: z.string().min(10, "Prompt do assistente é obrigatório"),
-  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o-mini", "gemini-1.5-pro-latest"]),
+  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o-mini", "gemini-pro"]),
   voice_model: z.enum(["browser", "openai-tts", "deepgram-tts", "elevenlabs-tts", "google-cloud-tts", "gemini-tts"]),
   streaming_stt_provider: z.enum(["browser", "deepgram"]),
   openai_tts_voice: z.string().optional().nullable(),
@@ -245,7 +245,7 @@ const SettingsPage: React.FC = () => {
       <Card>
         <CardHeader><CardTitle>Modelos e Provedores</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><Label>Modelo de IA</Label><Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="gpt-4o-mini">OpenAI GPT-4o Mini</SelectItem><SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem><SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem><SelectItem value="gemini-1.5-pro-latest">Google Gemini 1.5 Pro</SelectItem></SelectContent></Select>)} /></div>
+          <div><Label>Modelo de IA</Label><Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="gpt-4o-mini">OpenAI GPT-4o Mini</SelectItem><SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem><SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem><SelectItem value="gemini-pro">Google Gemini Pro</SelectItem></SelectContent></Select>)} /></div>
           <div><Label>Provedor de Transcrição (STT)</Label><Controller control={control} name="streaming_stt_provider" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="browser">Navegador (Padrão)</SelectItem><SelectItem value="deepgram">Deepgram</SelectItem></SelectContent></Select>)} /></div>
           {sttProvider === 'deepgram' && <div><Label>Modelo STT Deepgram</Label><Controller control={control} name="deepgram_stt_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DEEPGRAM_STT_MODELS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent></Select>)} /></div>}
           <div><Label>Provedor de Voz (TTS)</Label><Controller control={control} name="voice_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="browser">Navegador (Padrão)</SelectItem><SelectItem value="openai-tts">OpenAI TTS</SelectItem><SelectItem value="deepgram-tts">Deepgram TTS</SelectItem><SelectItem value="elevenlabs-tts">ElevenLabs TTS</SelectItem><SelectItem value="google-cloud-tts">Google Cloud TTS</SelectItem><SelectItem value="gemini-tts">Google Gemini TTS</SelectItem></SelectContent></Select>)} /></div>
