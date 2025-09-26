@@ -40,7 +40,7 @@ interface Power {
 const settingsSchema = z.object({
   system_prompt: z.string().min(10, "Prompt do sistema é obrigatório"),
   assistant_prompt: z.string().min(10, "Prompt do assistente é obrigatório"),
-  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o-mini", "gemini-1.0-pro"]),
+  ai_model: z.enum(["gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o-mini", "gemini-1.5-pro-001", "gemini-1.5-flash-001"]),
   voice_model: z.enum(["browser", "openai-tts", "deepgram-tts", "elevenlabs-tts", "google-cloud-tts", "gemini-tts"]),
   streaming_stt_provider: z.enum(["browser", "deepgram"]),
   openai_tts_voice: z.string().optional().nullable(),
@@ -55,6 +55,7 @@ const settingsSchema = z.object({
   voice_sensitivity: z.number().min(0).max(100),
   openai_api_key: z.string().optional().nullable(),
   gemini_api_key: z.string().optional().nullable(),
+  google_vertex_api_key: z.string().optional().nullable(),
   deepgram_api_key: z.string().optional().nullable(),
   elevenlabs_api_key: z.string().optional().nullable(),
   google_tts_api_key: z.string().optional().nullable(),
@@ -85,6 +86,7 @@ const defaultValues: SettingsFormData = {
   voice_sensitivity: 50,
   openai_api_key: "",
   gemini_api_key: "",
+  google_vertex_api_key: "",
   deepgram_api_key: "",
   elevenlabs_api_key: "",
   google_tts_api_key: "",
@@ -235,17 +237,18 @@ const SettingsPage: React.FC = () => {
         <CardHeader><CardTitle>Chaves de API</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div><Label>Chave API OpenAI</Label><Input {...register("openai_api_key")} type="password" /></div>
-          <div><Label>Chave API Gemini</Label><Input {...register("gemini_api_key")} type="password" /></div>
+          <div><Label>Chave API Google Vertex AI</Label><Input {...register("google_vertex_api_key")} type="password" /></div>
           <div><Label>Chave API Deepgram</Label><Input {...register("deepgram_api_key")} type="password" /></div>
           <div><Label>Chave API ElevenLabs</Label><Input {...register("elevenlabs_api_key")} type="password" /></div>
-          <div><Label>Chave API Google Cloud</Label><Input {...register("google_tts_api_key")} type="password" /></div>
+          <div><Label>Chave API Google Cloud (TTS)</Label><Input {...register("google_tts_api_key")} type="password" /></div>
+          <div><Label>Chave API Gemini (Legado)</Label><Input {...register("gemini_api_key")} type="password" /></div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader><CardTitle>Modelos e Provedores</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><Label>Modelo de IA</Label><Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="gpt-4o-mini">OpenAI GPT-4o Mini</SelectItem><SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem><SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem><SelectItem value="gemini-1.0-pro">Google Gemini 1.0 Pro</SelectItem></SelectContent></Select>)} /></div>
+          <div><Label>Modelo de IA</Label><Controller control={control} name="ai_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="gpt-4o-mini">OpenAI GPT-4o Mini</SelectItem><SelectItem value="gpt-4-turbo">OpenAI GPT-4 Turbo</SelectItem><SelectItem value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</SelectItem><SelectItem value="gemini-1.5-pro-001">Vertex AI Gemini 1.5 Pro</SelectItem><SelectItem value="gemini-1.5-flash-001">Vertex AI Gemini 1.5 Flash</SelectItem></SelectContent></Select>)} /></div>
           <div><Label>Provedor de Transcrição (STT)</Label><Controller control={control} name="streaming_stt_provider" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="browser">Navegador (Padrão)</SelectItem><SelectItem value="deepgram">Deepgram</SelectItem></SelectContent></Select>)} /></div>
           {sttProvider === 'deepgram' && <div><Label>Modelo STT Deepgram</Label><Controller control={control} name="deepgram_stt_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DEEPGRAM_STT_MODELS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent></Select>)} /></div>}
           <div><Label>Provedor de Voz (TTS)</Label><Controller control={control} name="voice_model" render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="browser">Navegador (Padrão)</SelectItem><SelectItem value="openai-tts">OpenAI TTS</SelectItem><SelectItem value="deepgram-tts">Deepgram TTS</SelectItem><SelectItem value="elevenlabs-tts">ElevenLabs TTS</SelectItem><SelectItem value="google-cloud-tts">Google Cloud TTS</SelectItem><SelectItem value="gemini-tts">Google Gemini TTS</SelectItem></SelectContent></Select>)} /></div>
