@@ -1,11 +1,28 @@
 "use client";
 
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { supabase } from "@/integrations/supabase/client";
+import { useSession } from "@/contexts/SessionContext";
 import { KeyRound } from "lucide-react";
 
 const LoginPage = () => {
+  const { session, loading } = useSession();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && session) {
+      navigate("/admin", { replace: true });
+    }
+  }, [session, loading, navigate]);
+
+  // Se a sessão já estiver carregada e existir, não renderiza nada para evitar um flash da UI de login
+  if (loading || session) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#0B022D] to-[#20053D] p-4">
       <div className="relative w-full max-w-md rounded-2xl bg-indigo-950/40 p-8 shadow-2xl border border-blue-500/30 shadow-blue-500/20">
