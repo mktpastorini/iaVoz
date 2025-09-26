@@ -112,6 +112,7 @@ const SophisticatedVoiceAssistant = () => {
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingAudioRef = useRef(false);
   const speechProcessingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finalTranscriptRef = useRef('');
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
@@ -460,7 +461,7 @@ const SophisticatedVoiceAssistant = () => {
     if (!SpeechRecognition) { setMicPermission("denied"); return; }
     recognitionRef.current = new SpeechRecognition();
     recognitionRef.current.continuous = true;
-    recognitionRef.current.interimResults = false;
+    recognitionRef.current.interimResults = true; // Changed to true for barge-in
     recognitionRef.current.lang = "pt-BR";
     recognitionRef.current.onstart = () => setIsListening(true);
     recognitionRef.current.onend = () => { setIsListening(false); if (!isSpeakingRef.current && !stopPermanentlyRef.current) startListening(); };
@@ -470,26 +471,41 @@ const SophisticatedVoiceAssistant = () => {
       if (speechProcessingTimeoutRef.current) {
         clearTimeout(speechProcessingTimeoutRef.current);
       }
-      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+
+      let interimTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscriptRef.current += event.results[i][0].transcript;
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
+      }
+
+      // Barge-in: If user speaks while assistant is speaking, interrupt the assistant.
+      if (isSpeakingRef.current && (interimTranscript.length > 0 || finalTranscriptRef.current.length > 0)) {
+        stopSpeaking();
+      }
       
       speechProcessingTimeoutRef.current = setTimeout(() => {
-        if (!transcript) return;
-        stopSpeaking();
-        if (isOpenRef.current) {
-          if (settingsRef.current.deactivation_phrases?.some((p: string) => transcript.includes(p))) {
-            setIsOpen(false); setAiResponse(""); setTranscript(""); return;
-          }
-          const action = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
-          if (action) { executeClientAction(action); return; }
-          runConversation(transcript);
-        } else {
-          if (settingsRef.current.activation_phrases?.some((p: string) => transcript.includes(p))) {
-            fetchAllAssistantData().then(s => {
-              if (!s) return;
-              setIsOpen(true);
-              speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message);
-              setHasBeenActivated(true);
-            });
+        const command = finalTranscriptRef.current.trim().toLowerCase();
+        finalTranscriptRef.current = '';
+        if (command) {
+          if (isOpenRef.current) {
+            if (settingsRef.current.deactivation_phrases?.some((p: string) => command.includes(p))) {
+              setIsOpen(false); setAiResponse(""); setTranscript(""); return;
+            }
+            const action = clientActionsRef.current.find(a => command.includes(a.trigger_phrase.toLowerCase()));
+            if (action) { executeClientAction(action); return; }
+            runConversation(command);
+          } else {
+            if (settingsRef.current.activation_phrases?.some((p: string) => command.includes(p))) {
+              fetchAllAssistantData().then(s => {
+                if (!s) return;
+                setIsOpen(true);
+                speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message);
+                setHasBeenActivated(true);
+              });
+            }
           }
         }
       }, 1200); // Wait 1.2 seconds for a pause before processing
