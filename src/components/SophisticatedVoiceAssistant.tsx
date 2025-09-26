@@ -217,15 +217,6 @@ const SophisticatedVoiceAssistant = () => {
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
-      } else if (currentSettings.voice_model === "gemini-tts" && currentSettings.gemini_api_key) {
-        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text, model: currentSettings.gemini_tts_model, voiceName: currentSettings.gemini_tts_voice_name } });
-        if (error) throw new Error(`Erro na Edge Function Gemini TTS: ${error.message}`);
-        const audioBytes = Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0));
-        const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        await audioRef.current.play();
       } else if (currentSettings.voice_model === "elevenlabs-tts" && currentSettings.elevenlabs_api_key) {
         if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         const voiceId = currentSettings.elevenlabs_voice_id || "21m00Tcm4TlvDq8ikWAM";
@@ -296,7 +287,7 @@ const SophisticatedVoiceAssistant = () => {
     const currentSettings = settingsRef.current;
     
     const isVertexAI = currentSettings?.ai_model?.includes('-001');
-    const isLegacyGemini = currentSettings?.ai_model === 'gemini-pro' || currentSettings?.ai_model === 'gemini-flash';
+    const isLegacyGemini = currentSettings?.ai_model === 'gemini-pro';
 
     if (!currentSettings || 
         (isVertexAI && !currentSettings.google_vertex_api_key) || 
@@ -335,8 +326,8 @@ const SophisticatedVoiceAssistant = () => {
         };
         response = await fetch(VERTEX_API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       } else if (isLegacyGemini) {
-        // Lógica para a API Gemini Legado (generativelanguage.googleapis.com)
-        const LEGACY_GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.gemini_api_key}`;
+        const modelToUse = 'gemini-pro'; // Corrigido para usar o nome de modelo correto
+        const LEGACY_GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:streamGenerateContent?key=${currentSettings.gemini_api_key}`;
         const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
         const body = {
           systemInstruction: { parts: [{ text: systemPrompt }] },
