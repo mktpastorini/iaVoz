@@ -113,7 +113,7 @@ export default {
         "accordion-up": "accordion-up 0.2s ease-out",
         "wave": "wave 1.5s infinite ease-in-out",
         "blob": "blob 7s infinite cubic-bezier(0.6, -0.28, 0.735, 0.045)",
-        "rotate": "rotate 6s linear infinite",
+        "rotate": "rotate 4s linear infinite",
       },
     },
   },
