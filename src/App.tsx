@@ -33,7 +33,6 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 const AppContent = () => {
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
-  const isLoginRoute = location.pathname === '/login';
 
   return (
     <>
@@ -55,7 +54,7 @@ const AppContent = () => {
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
-      {!isAdminRoute && !isLoginRoute && <SophisticatedVoiceAssistant />}
+      {!isAdminRoute && <SophisticatedVoiceAssistant />}
     </>
   );
 };

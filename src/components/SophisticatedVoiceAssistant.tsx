@@ -74,7 +74,6 @@ const SophisticatedVoiceAssistant = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<any[]>([]);
@@ -91,7 +90,6 @@ const SophisticatedVoiceAssistant = () => {
   const isOpenRef = useRef(isOpen);
   const isListeningRef = useRef(isListening);
   const isSpeakingRef = useRef(isSpeaking);
-  const isProcessingRef = useRef(isProcessing);
   const hasBeenActivatedRef = useRef(hasBeenActivated);
   const powersRef = useRef(powers);
   const clientActionsRef = useRef(clientActions);
@@ -113,15 +111,11 @@ const SophisticatedVoiceAssistant = () => {
   const elevenlabsSocketRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingAudioRef = useRef(false);
-  const wasInterruptedRef = useRef(false);
-  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const onSpeechEndCallbackRef = useRef<(() => void) | null>(null);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
-  useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
   useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
   useEffect(() => { powersRef.current = powers; }, [powers]);
   useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
@@ -147,39 +141,6 @@ const SophisticatedVoiceAssistant = () => {
     }
   }, []);
 
-  const stopSpeaking = useCallback(() => {
-    onSpeechEndCallbackRef.current = null;
-    if (synthRef.current?.speaking) {
-      if (currentUtteranceRef.current) {
-        currentUtteranceRef.current.onend = null;
-        currentUtteranceRef.current.onerror = null;
-      }
-      synthRef.current.cancel();
-    }
-    if (audioRef.current && !audioRef.current.paused) {
-      audioRef.current.onended = null;
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-    if (elevenlabsSocketRef.current) { elevenlabsSocketRef.current.close(); elevenlabsSocketRef.current = null; }
-    audioQueueRef.current = [];
-    isPlayingAudioRef.current = false;
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-    setAudioIntensity(0);
-    setIsSpeaking(false);
-    if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-  }, []);
-
-  const startListening = useCallback(() => {
-    if (isListeningRef.current || isSpeakingRef.current || isProcessingRef.current || stopPermanentlyRef.current) return;
-    if (settingsRef.current?.streaming_stt_provider === 'deepgram') {
-      connectToDeepgram();
-    } else {
-      if (recognitionRef.current) recognitionRef.current.start();
-    }
-    setIsListening(true);
-  }, []);
-
   const stopListening = useCallback(() => {
     if (settingsRef.current?.streaming_stt_provider === 'deepgram') {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') mediaRecorderRef.current.stop();
@@ -193,89 +154,75 @@ const SophisticatedVoiceAssistant = () => {
     setIsListening(false);
   }, []);
 
-  const playAudioQueue = useCallback(async () => {
-    if (isPlayingAudioRef.current || audioQueueRef.current.length === 0) return;
-    isPlayingAudioRef.current = true;
-    const audioData = audioQueueRef.current.shift();
-    if (!audioData || !audioContextRef.current) { isPlayingAudioRef.current = false; return; }
-    try {
-      const audioBuffer = await audioContextRef.current.decodeAudioData(audioData);
-      const source = audioContextRef.current.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContextRef.current.destination);
-      source.onended = () => {
-        isPlayingAudioRef.current = false;
-        if (audioQueueRef.current.length > 0) {
-          playAudioQueue();
-        } else if (elevenlabsSocketRef.current?.readyState === WebSocket.CLOSED) {
-          if (onSpeechEndCallbackRef.current) onSpeechEndCallbackRef.current();
-        }
-      };
-      source.start();
-    } catch (error) {
-      console.error("Error decoding audio data:", error);
-      isPlayingAudioRef.current = false;
+  const startListening = useCallback(() => {
+    if (isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
+    if (settingsRef.current?.streaming_stt_provider === 'deepgram') {
+      connectToDeepgram();
+    } else {
+      if (recognitionRef.current) recognitionRef.current.start();
     }
+    setIsListening(true);
   }, []);
 
-  const speak = useCallback((text: string, onEnd?: () => void) => {
-    onSpeechEndCallbackRef.current = onEnd || null;
-    const currentSettings = settingsRef.current;
+  const stopSpeaking = useCallback(() => {
+    if (synthRef.current?.speaking) synthRef.current.cancel();
+    if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
+    if (elevenlabsSocketRef.current) { elevenlabsSocketRef.current.close(); elevenlabsSocketRef.current = null; }
+    audioQueueRef.current = [];
+    isPlayingAudioRef.current = false;
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    setAudioIntensity(0);
+    setIsSpeaking(false);
+    if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
+  }, []);
 
+  const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
+    const currentSettings = settingsRef.current;
+    if (!text || !currentSettings) { onEndCallback?.(); return; }
     const onSpeechEnd = () => {
-      if (onSpeechEndCallbackRef.current) {
-        onSpeechEndCallbackRef.current();
-        onSpeechEndCallbackRef.current = null;
-      }
-      if (wasInterruptedRef.current) { wasInterruptedRef.current = false; return; }
       if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
       setIsSpeaking(false);
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       setAudioIntensity(0);
+      onEndCallback?.();
+      stopListening();
+      if (isOpenRef.current && !stopPermanentlyRef.current) {
+        setTimeout(() => startListening(), 100);
+      }
     };
-
-    if (!text || !currentSettings) { onSpeechEnd(); return; }
-
-    wasInterruptedRef.current = false;
     stopSpeaking();
+    stopListening();
     setIsSpeaking(true);
     setAiResponse(text);
     speechTimeoutRef.current = setTimeout(onSpeechEnd, (text.length / 15) * 1000 + 5000);
-
     try {
       if (currentSettings.voice_model === "browser" && synthRef.current) {
         const utterance = new SpeechSynthesisUtterance(text);
-        currentUtteranceRef.current = utterance;
         utterance.lang = "pt-BR";
-        utterance.onend = () => { currentUtteranceRef.current = null; onSpeechEnd(); };
-        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); currentUtteranceRef.current = null; onSpeechEnd(); };
+        utterance.onend = onSpeechEnd;
+        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
-        fetch(OPENAI_TTS_API_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }) })
-          .then(response => { if (!response.ok) throw new Error("Falha na API OpenAI TTS"); return response.blob(); })
-          .then(audioBlob => {
-            const audioUrl = URL.createObjectURL(audioBlob);
-            audioRef.current = new Audio(audioUrl);
-            audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-            audioRef.current.play();
-          }).catch(e => { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); });
+        const response = await fetch(OPENAI_TTS_API_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }) });
+        if (!response.ok) throw new Error("Falha na API OpenAI TTS");
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioRef.current = new Audio(audioUrl);
+        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        await audioRef.current.play();
       } else if (currentSettings.voice_model === "deepgram-tts" && currentSettings.deepgram_api_key) {
-        fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) })
-          .then(async response => {
-            if (!response.ok) {
-              const errorBody = await response.json().catch(() => ({ err_msg: `Request failed with status ${response.status}` }));
-              const errorMessage = errorBody.err_msg || errorBody.reason || JSON.stringify(errorBody);
-              if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida ou incorreta.");
-              throw new Error(`Falha na API Deepgram TTS: ${errorMessage}`);
-            }
-            return response.blob();
-          })
-          .then(audioBlob => {
-            const audioUrl = URL.createObjectURL(audioBlob);
-            audioRef.current = new Audio(audioUrl);
-            audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-            audioRef.current.play();
-          }).catch(e => { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); });
+        const response = await fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => ({ err_msg: `Request failed with status ${response.status}` }));
+          const errorMessage = errorBody.err_msg || errorBody.reason || JSON.stringify(errorBody);
+          if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida ou incorreta.");
+          throw new Error(`Falha na API Deepgram TTS: ${errorMessage}`);
+        }
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioRef.current = new Audio(audioUrl);
+        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
+        await audioRef.current.play();
       } else if (currentSettings.voice_model === "elevenlabs-tts" && currentSettings.elevenlabs_api_key) {
         if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         const voiceId = currentSettings.elevenlabs_voice_id || "21m00Tcm4TlvDq8ikWAM";
@@ -291,66 +238,80 @@ const SophisticatedVoiceAssistant = () => {
           const audioData = event.data;
           if (audioData instanceof ArrayBuffer) {
             audioQueueRef.current.push(audioData);
-            if (!isPlayingAudioRef.current) playAudioQueue();
+            if (!isPlayingAudioRef.current) playAudioQueue(onSpeechEnd);
           }
         };
         socket.onerror = (error) => { console.error("ElevenLabs WebSocket Error:", error); onSpeechEnd(); };
         socket.onclose = () => { if (audioQueueRef.current.length === 0 && !isPlayingAudioRef.current) onSpeechEnd(); };
-      } else {
-        onSpeechEnd();
-      }
-    } catch (e: any) {
-      showError(`Erro na síntese de voz: ${e.message}`);
-      onSpeechEnd();
+      } else { onSpeechEnd(); }
+    } catch (e: any) { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); }
+  }, [stopSpeaking, stopListening, startListening]);
+
+  const playAudioQueue = useCallback(async (onEnd: () => void) => {
+    if (isPlayingAudioRef.current || audioQueueRef.current.length === 0) return;
+    isPlayingAudioRef.current = true;
+    const audioData = audioQueueRef.current.shift();
+    if (!audioData || !audioContextRef.current) { isPlayingAudioRef.current = false; return; }
+    try {
+      const audioBuffer = await audioContextRef.current.decodeAudioData(audioData);
+      const source = audioContextRef.current.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContextRef.current.destination);
+      source.onended = () => {
+        isPlayingAudioRef.current = false;
+        if (audioQueueRef.current.length > 0) {
+          playAudioQueue(onEnd);
+        } else if (elevenlabsSocketRef.current?.readyState === WebSocket.CLOSED) {
+          onEnd();
+        }
+      };
+      source.start();
+    } catch (error) {
+      console.error("Error decoding audio data:", error);
+      isPlayingAudioRef.current = false;
     }
-  }, [stopSpeaking, playAudioQueue]);
+  }, []);
 
   const executeClientAction = useCallback((action: any) => {
     stopListening();
     speak("Ok, executando.", () => {
       switch (action.action_type) {
-        case 'OPEN_URL': window.open(action.action_payload.url, '_blank', 'noopener,noreferrer'); startListening(); break;
+        case 'OPEN_URL': window.open(action.action_payload.url, '_blank', 'noopener,noreferrer'); break;
         case 'SHOW_IMAGE': setImageToShow(action.action_payload); break;
         case 'OPEN_IFRAME_URL': setUrlToOpenInIframe(action.action_payload.url); break;
       }
     });
-  }, [speak, stopListening, startListening]);
+  }, [speak, stopListening]);
 
   const runConversation = useCallback(async (userMessage: string) => {
-    if (!userMessage || isProcessingRef.current) return;
-    setIsProcessing(true);
+    if (!userMessage) return;
+    setTranscript(userMessage);
+    setAiResponse("");
     stopListening();
-
-    const handleFinish = () => {
-      setIsProcessing(false);
-      startListening();
+    const currentHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
+    setMessageHistory(currentHistory);
+    const currentSettings = settingsRef.current;
+    const isGemini = currentSettings?.ai_model?.startsWith('gemini');
+    if (!currentSettings || (isGemini && !currentSettings.gemini_api_key) || (!isGemini && !currentSettings.openai_api_key)) {
+      const errorMsg = `Chave da API para ${isGemini ? 'Gemini' : 'OpenAI'} não configurada.`;
+      speak(errorMsg); showError(errorMsg); return;
+    }
+    const systemPrompt = replacePlaceholders(currentSettings.system_prompt, systemVariablesRef.current);
+    const tools = powersRef.current.map(p => ({ type: "function", function: { name: p.name, description: p.description, parameters: p.parameters_schema || { type: "object", properties: {} } } }));
+    const executeTools = async (toolCalls: any[]) => {
+      return Promise.all(toolCalls.map(async (toolCall) => {
+        const { name, arguments: args } = toolCall.function;
+        const functionArgs = JSON.parse(args);
+        const power = powersRef.current.find(p => p.name === name);
+        if (!power) throw new Error(`Power "${name}" not found.`);
+        const allVars = { ...systemVariablesRef.current, ...functionArgs };
+        const payload = { url: replacePlaceholders(power.url, allVars), method: power.method, headers: JSON.parse(replacePlaceholders(JSON.stringify(power.headers || {}), allVars)), body: { ...(power.body || {}), ...functionArgs } };
+        const { data, error } = await supabaseAnon.functions.invoke('proxy-api', { body: payload });
+        if (error) throw new Error(`Error invoking function ${name}: ${error.message}`);
+        return { tool_call_id: toolCall.id, role: "tool", name, content: JSON.stringify(data.data || data) };
+      }));
     };
-
     try {
-      setTranscript(userMessage);
-      setAiResponse("");
-      const currentHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
-      setMessageHistory(currentHistory);
-      const currentSettings = settingsRef.current;
-      const isGemini = currentSettings?.ai_model?.startsWith('gemini');
-      if (!currentSettings || (isGemini && !currentSettings.gemini_api_key) || (!isGemini && !currentSettings.openai_api_key)) {
-        throw new Error(`Chave da API para ${isGemini ? 'Gemini' : 'OpenAI'} não configurada.`);
-      }
-      const systemPrompt = replacePlaceholders(currentSettings.system_prompt, systemVariablesRef.current);
-      const tools = powersRef.current.map(p => ({ type: "function", function: { name: p.name, description: p.description, parameters: p.parameters_schema || { type: "object", properties: {} } } }));
-      const executeTools = async (toolCalls: any[]) => {
-        return Promise.all(toolCalls.map(async (toolCall) => {
-          const { name, arguments: args } = toolCall.function;
-          const functionArgs = JSON.parse(args);
-          const power = powersRef.current.find(p => p.name === name);
-          if (!power) throw new Error(`Power "${name}" not found.`);
-          const allVars = { ...systemVariablesRef.current, ...functionArgs };
-          const payload = { url: replacePlaceholders(power.url, allVars), method: power.method, headers: JSON.parse(replacePlaceholders(JSON.stringify(power.headers || {}), allVars)), body: { ...(power.body || {}), ...functionArgs } };
-          const { data, error } = await supabaseAnon.functions.invoke('proxy-api', { body: payload });
-          if (error) throw new Error(`Error invoking function ${name}: ${error.message}`);
-          return { tool_call_id: toolCall.id, role: "tool", name, content: JSON.stringify(data.data || data) };
-        }));
-      };
       let response;
       if (isGemini) {
         const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
@@ -431,30 +392,13 @@ const SophisticatedVoiceAssistant = () => {
             }
           }
           setMessageHistory(p => [...p, { role: "assistant", content: finalResponseText }]);
-          speak(finalResponseText, handleFinish);
+          speak(finalResponseText);
         });
-      } else {
-        speak(fullResponse, handleFinish);
-      }
-    } catch (e: any) {
-      speak(`Desculpe, não consegui processar.`, handleFinish);
-      showError(`Erro na conversa: ${e.message}`);
-    }
-  }, [speak, stopListening, startListening, executeClientAction]);
+      } else { speak(fullResponse); }
+    } catch (e: any) { speak(`Desculpe, não consegui processar.`); showError(`Erro na conversa: ${e.message}`); }
+  }, [speak, stopListening]);
 
-  const handleDeepgramTranscript = useCallback(async (transcript: string) => {
-    if (isProcessingRef.current) return;
-    if (isSpeakingRef.current) {
-      const interruptPhrase = settingsRef.current?.interrupt_phrase?.toLowerCase();
-      if (interruptPhrase && transcript.includes(interruptPhrase)) {
-        wasInterruptedRef.current = true;
-        stopSpeaking();
-        const commandIndex = transcript.indexOf(interruptPhrase) + interruptPhrase.length;
-        const newCommand = transcript.substring(commandIndex).trim();
-        if (newCommand) setTimeout(() => runConversation(newCommand), 100);
-      }
-      return;
-    }
+  const handleDeepgramTranscript = (transcript: string) => {
     const currentSettings = settingsRef.current;
     if (!currentSettings) return;
     if (isOpenRef.current) {
@@ -462,20 +406,19 @@ const SophisticatedVoiceAssistant = () => {
         setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return;
       }
       const action = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
-      if (action) { await executeClientAction(action); return; }
-      await runConversation(transcript);
+      if (action) { executeClientAction(action); return; }
+      runConversation(transcript);
     } else {
       if (currentSettings.activation_phrases?.some((p: string) => transcript.includes(p))) {
-        const s = await fetchAllAssistantData();
-        if (!s) return;
-        setIsOpen(true);
-        speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message, () => {
+        fetchAllAssistantData().then(s => {
+          if (!s) return;
+          setIsOpen(true);
+          speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message);
           setHasBeenActivated(true);
-          startListening();
         });
       }
     }
-  }, [runConversation, stopSpeaking, executeClientAction, speak, fetchAllAssistantData, startListening]);
+  };
 
   const connectToDeepgram = useCallback(async () => {
     const apiKey = settingsRef.current?.deepgram_api_key;
@@ -519,40 +462,18 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
     recognitionRef.current.onstart = () => setIsListening(true);
-    recognitionRef.current.onend = () => {
-      setIsListening(false);
-      if (!isSpeakingRef.current && !isProcessingRef.current && !stopPermanentlyRef.current) {
-        startListening();
-      }
-    };
+    recognitionRef.current.onend = () => { setIsListening(false); if (!isSpeakingRef.current && !stopPermanentlyRef.current) startListening(); };
     recognitionRef.current.onerror = (e: any) => { if (e.error === "not-allowed") { setMicPermission("denied"); setIsPermissionModalOpen(true); } };
     recognitionRef.current.onresult = (event: any) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      if (isProcessingRef.current) return;
-      if (isSpeakingRef.current) {
-        const interruptPhrase = settingsRef.current?.interrupt_phrase?.toLowerCase();
-        if (interruptPhrase && transcript.includes(interruptPhrase)) {
-          wasInterruptedRef.current = true;
-          stopSpeaking();
-          const commandIndex = transcript.indexOf(interruptPhrase) + interruptPhrase.length;
-          const newCommand = transcript.substring(commandIndex).trim();
-          if (newCommand) setTimeout(() => runConversation(newCommand), 100);
-        }
-        return;
-      }
       if (isOpenRef.current) {
-        if (settingsRef.current.deactivation_phrases?.some((p: string) => transcript.includes(p))) {
-          setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return;
-        }
+        if (settingsRef.current.deactivation_phrases?.some((p: string) => transcript.includes(p))) { setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return; }
         const action = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
-        if (action) {
-          executeClientAction(action);
-          return;
-        }
+        if (action) { executeClientAction(action); return; }
         runConversation(transcript);
       } else {
         if (settingsRef.current.activation_phrases?.some((p: string) => transcript.includes(p))) {
-          fetchAllAssistantData().then(s => { if (!s) return; setIsOpen(true); speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message, () => { setHasBeenActivated(true); startListening(); }); });
+          fetchAllAssistantData().then(s => { if (!s) return; setIsOpen(true); speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message); setHasBeenActivated(true); });
         }
       }
     };
@@ -579,20 +500,11 @@ const SophisticatedVoiceAssistant = () => {
     } catch (e) { setMicPermission("denied"); setIsPermissionModalOpen(true); }
   }, [initializeAssistant, startListening]);
 
-  const handleManualActivation = useCallback(async () => {
+  const handleManualActivation = useCallback(() => {
     if (isOpenRef.current) return;
-    if (micPermission !== "granted") {
-      await checkAndRequestMicPermission();
-    } else {
-      const s = await fetchAllAssistantData();
-      if (!s) return;
-      setIsOpen(true);
-      speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message, () => {
-        setHasBeenActivated(true);
-        startListening();
-      });
-    }
-  }, [micPermission, checkAndRequestMicPermission, speak, fetchAllAssistantData, startListening]);
+    if (micPermission !== "granted") checkAndRequestMicPermission();
+    else fetchAllAssistantData().then(s => { if (!s) return; setIsOpen(true); speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message); setHasBeenActivated(true); });
+  }, [micPermission, checkAndRequestMicPermission, speak, fetchAllAssistantData]);
 
   useEffect(() => { if (activationTrigger > activationTriggerRef.current) { activationTriggerRef.current = activationTrigger; handleManualActivation(); } }, [activationTrigger, handleManualActivation]);
   useEffect(() => { fetchAllAssistantData().then(() => checkAndRequestMicPermission()); return () => { stopPermanentlyRef.current = true; stopListening(); stopSpeaking(); }; }, [fetchAllAssistantData, checkAndRequestMicPermission]);
