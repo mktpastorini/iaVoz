@@ -2,72 +2,68 @@
 
 import React from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
+import Orb from "@/components/Orb";
 
 const Index = () => {
   const { activateAssistant } = useVoiceAssistant();
 
-  const features = [
-    {
-      title: "Controle Total",
-      description:
-        "Navegue, preencha formulários e execute ações complexas usando apenas a sua voz.",
-    },
-    {
-      title: "Integração Fácil",
-      description:
-        "Conecte-se a qualquer API ou sistema interno para criar fluxos de trabalho personalizados.",
-    },
-    {
-      title: "Respostas Instantâneas",
-      description:
-        "Obtenha dados e insights de suas ferramentas de negócios em tempo real, sem sair da tela.",
-    },
-  ];
-
   return (
-    <div className="min-h-screen w-full bg-gradient-to-br from-[#0B022D] to-[#20053D] text-white flex flex-col items-center justify-center p-4 sm:p-8">
-      <div className="text-center max-w-4xl mx-auto">
-        <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-violet-400 bg-clip-text text-transparent pb-4">
+    <div className="min-h-screen bg-gradient-to-br from-[#20053D] to-[#0B022D] text-white flex flex-col items-center justify-center p-4 select-text">
+      <header className="text-center mb-12 z-10 relative">
+        <h1 className="text-5xl md:text-7xl font-extrabold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-purple-600">
           Inteligência Artificial por Voz
         </h1>
-        <p className="mt-4 text-lg sm:text-xl text-gray-300 max-w-2xl mx-auto">
-          Automatize tarefas, interaja com sistemas e obtenha informações em
-          tempo real, tudo através de comandos de voz simples e intuitivos.
+        <p className="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto">
+          Automatize tarefas, interaja com sistemas e obtenha informações em tempo real, tudo através de comandos de voz simples e intuitivos.
         </p>
-        <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Button
-            onClick={activateAssistant}
-            className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-semibold px-8 py-6 text-lg rounded-full transition-all duration-300 shadow-lg hover:shadow-xl"
-          >
-            Abrir Assistente
-          </Button>
-          <Button
-            variant="outline"
-            className="border-2 border-purple-400 text-purple-300 hover:bg-purple-400/10 hover:text-white font-semibold px-8 py-6 text-lg rounded-full transition-all duration-300"
-          >
-            Ver Documentação
-          </Button>
-        </div>
-      </div>
+      </header>
 
-      <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl">
-        {features.map((feature) => (
-          <Card
-            key={feature.title}
-            className="bg-white/5 border border-white/10 backdrop-blur-sm rounded-2xl shadow-lg"
-          >
-            <CardHeader>
-              <CardTitle className="text-2xl font-bold text-cyan-300">
-                {feature.title}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-300">{feature.description}</p>
-            </CardContent>
-          </Card>
-        ))}
+      <main className="text-center z-10 relative">
+        <div className="mb-12">
+          <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
+            <Button
+              size="lg"
+              className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-all duration-300"
+              onClick={activateAssistant}
+            >
+              Abrir Assistente
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              className="bg-transparent border-purple-500 text-purple-400 hover:bg-purple-500 hover:text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-all duration-300"
+            >
+              Ver Documentação
+            </Button>
+          </div>
+        </div>
+
+        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 select-text">
+          <div className="bg-gray-800 bg-opacity-60 p-6 rounded-lg shadow-lg">
+            <h3 className="text-2xl font-bold mb-2 text-cyan-400">Controle Total</h3>
+            <p className="text-gray-300">
+              Navegue, preencha formulários e execute ações complexas usando apenas a sua voz.
+            </p>
+          </div>
+          <div className="bg-gray-800 bg-opacity-60 p-6 rounded-lg shadow-lg">
+            <h3 className="text-2xl font-bold mb-2 text-magenta-400">Integração Fácil</h3>
+            <p className="text-gray-300">
+              Conecte-se a qualquer API ou sistema interno para criar fluxos de trabalho personalizados.
+            </p>
+          </div>
+          <div className="bg-gray-800 bg-opacity-60 p-6 rounded-lg shadow-lg">
+            <h3 className="text-2xl font-bold mb-2 text-white">Respostas Instantâneas</h3>
+            <p className="text-gray-300">
+              Obtenha dados e insights de suas ferramentas de negócios em tempo real, sem sair da tela.
+            </p>
+          </div>
+        </div>
+      </main>
+
+      {/* Background scene behind UI */}
+      <div className="fixed inset-0 -z-10 pointer-events-none">
+        <Orb audioIntensity={0} />
       </div>
     </div>
   );
