@@ -334,7 +334,7 @@ const SophisticatedVoiceAssistant = () => {
         response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(body) });
       }
 
-      if (!response.ok) { const errText = await response.text(); throw new Error(`API Error: ${errText}`); }
+      if (!response.ok) { const errText = await response.text(); throw new Error(`API Error ${response.status}: ${errText}`); }
       
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
@@ -395,8 +395,16 @@ const SophisticatedVoiceAssistant = () => {
         speak(fullResponse);
       }
     } catch (e: any) {
-      speak(`Desculpe, não consegui processar.`);
-      showError(`Erro na conversa: ${e.message}`);
+      let userFriendlyError = "Desculpe, não consegui processar.";
+      let technicalError = `Erro na conversa: ${e.message}`;
+
+      if (e.message && e.message.includes("403")) {
+        userFriendlyError = "Parece que ainda há um problema de permissão. Por favor, verifique as configurações no Google Cloud.";
+        technicalError = "Erro 403 (Proibido): A chave de API não tem permissão para usar a Vertex AI. Verifique o Faturamento e as permissões de IAM no seu projeto Google Cloud.";
+      }
+      
+      speak(userFriendlyError);
+      showError(technicalError);
     }
   }, [speak, stopListening]);
 
