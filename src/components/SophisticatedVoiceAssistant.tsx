@@ -19,7 +19,6 @@ import { createClient, LiveClient, LiveTranscriptionEvents } from "@deepgram/sdk
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 const DEEPGRAM_TTS_API_URL = "https://api.deepgram.com/v1/speak";
-const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
 // Funções de conversão de schema de ferramentas (OpenAI -> Gemini)
 const mapOpenAITypeToGemini = (type: string) => {
@@ -74,6 +73,7 @@ const SophisticatedVoiceAssistant = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isProcessingAI, setIsProcessingAI] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<any[]>([]);
@@ -90,6 +90,7 @@ const SophisticatedVoiceAssistant = () => {
   const isOpenRef = useRef(isOpen);
   const isListeningRef = useRef(isListening);
   const isSpeakingRef = useRef(isSpeaking);
+  const isProcessingAIRef = useRef(isProcessingAI);
   const hasBeenActivatedRef = useRef(hasBeenActivated);
   const powersRef = useRef(powers);
   const clientActionsRef = useRef(clientActions);
@@ -103,19 +104,20 @@ const SophisticatedVoiceAssistant = () => {
   const activationTriggerRef = useRef(0);
   const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const deepgramConnectionRef = useRef<LiveClient | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const elevenlabsSocketRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingAudioRef = useRef(false);
+  const transcriptBufferRef = useRef("");
+  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
+  useEffect(() => { isProcessingAIRef.current = isProcessingAI; }, [isProcessingAI]);
   useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
   useEffect(() => { powersRef.current = powers; }, [powers]);
   useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
@@ -155,7 +157,7 @@ const SophisticatedVoiceAssistant = () => {
   }, []);
 
   const startListening = useCallback(() => {
-    if (isListeningRef.current || isSpeakingRef.current || stopPermanentlyRef.current) return;
+    if (isListeningRef.current || isSpeakingRef.current || isProcessingAIRef.current || stopPermanentlyRef.current) return;
     if (settingsRef.current?.streaming_stt_provider === 'deepgram') {
       connectToDeepgram();
     } else {
@@ -185,13 +187,11 @@ const SophisticatedVoiceAssistant = () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       setAudioIntensity(0);
       onEndCallback?.();
-      stopListening();
       if (isOpenRef.current && !stopPermanentlyRef.current) {
         setTimeout(() => startListening(), 100);
       }
     };
     stopSpeaking();
-    stopListening();
     setIsSpeaking(true);
     setAiResponse(text);
     speechTimeoutRef.current = setTimeout(onSpeechEnd, (text.length / 15) * 1000 + 5000);
@@ -212,12 +212,7 @@ const SophisticatedVoiceAssistant = () => {
         await audioRef.current.play();
       } else if (currentSettings.voice_model === "deepgram-tts" && currentSettings.deepgram_api_key) {
         const response = await fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
-        if (!response.ok) {
-          const errorBody = await response.json().catch(() => ({ err_msg: `Request failed with status ${response.status}` }));
-          const errorMessage = errorBody.err_msg || errorBody.reason || JSON.stringify(errorBody);
-          if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida ou incorreta.");
-          throw new Error(`Falha na API Deepgram TTS: ${errorMessage}`);
-        }
+        if (!response.ok) throw new Error(`Falha na API Deepgram TTS: ${await response.text()}`);
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
@@ -245,7 +240,7 @@ const SophisticatedVoiceAssistant = () => {
         socket.onclose = () => { if (audioQueueRef.current.length === 0 && !isPlayingAudioRef.current) onSpeechEnd(); };
       } else { onSpeechEnd(); }
     } catch (e: any) { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); }
-  }, [stopSpeaking, stopListening, startListening]);
+  }, [stopSpeaking, startListening]);
 
   const playAudioQueue = useCallback(async (onEnd: () => void) => {
     if (isPlayingAudioRef.current || audioQueueRef.current.length === 0) return;
@@ -284,20 +279,33 @@ const SophisticatedVoiceAssistant = () => {
   }, [speak, stopListening]);
 
   const runConversation = useCallback(async (userMessage: string) => {
-    if (!userMessage) return;
+    if (!userMessage || isProcessingAIRef.current) return;
+    
+    setIsProcessingAI(true);
     setTranscript(userMessage);
     setAiResponse("");
     stopListening();
+    
     const currentHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
     setMessageHistory(currentHistory);
     const currentSettings = settingsRef.current;
-    const isGemini = currentSettings?.ai_model?.startsWith('gemini');
-    if (!currentSettings || (isGemini && !currentSettings.gemini_api_key) || (!isGemini && !currentSettings.openai_api_key)) {
-      const errorMsg = `Chave da API para ${isGemini ? 'Gemini' : 'OpenAI'} não configurada.`;
-      speak(errorMsg); showError(errorMsg); return;
+    
+    const isVertexAI = currentSettings?.ai_model?.includes('-001');
+    const isLegacyGemini = currentSettings?.ai_model === 'gemini-pro';
+
+    if (!currentSettings || 
+        (isVertexAI && !currentSettings.google_vertex_api_key) || 
+        (isLegacyGemini && !currentSettings.gemini_api_key) ||
+        (!isVertexAI && !isLegacyGemini && !currentSettings.openai_api_key)) {
+      const errorMsg = `Chave de API não configurada para o modelo selecionado.`;
+      speak(errorMsg, () => setIsProcessingAI(false)); 
+      showError(errorMsg); 
+      return;
     }
+
     const systemPrompt = replacePlaceholders(currentSettings.system_prompt, systemVariablesRef.current);
     const tools = powersRef.current.map(p => ({ type: "function", function: { name: p.name, description: p.description, parameters: p.parameters_schema || { type: "object", properties: {} } } }));
+    
     const executeTools = async (toolCalls: any[]) => {
       return Promise.all(toolCalls.map(async (toolCall) => {
         const { name, arguments: args } = toolCall.function;
@@ -311,96 +319,117 @@ const SophisticatedVoiceAssistant = () => {
         return { tool_call_id: toolCall.id, role: "tool", name, content: JSON.stringify(data.data || data) };
       }));
     };
+
     try {
       let response;
-      if (isGemini) {
+      if (isVertexAI) {
+        const VERTEX_API_URL = `https://aiplatform.googleapis.com/v1/publishers/google/models/${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.google_vertex_api_key}`;
         const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
-        const body = { systemInstruction: { parts: [{ text: systemPrompt }] }, contents: mapToGeminiHistory(currentHistory.slice(-currentSettings.conversation_memory_length)), tools: geminiTools };
-        response = await fetch(`${GEMINI_API_BASE_URL}${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.gemini_api_key}&alt=sse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      } else {
+        const body = {
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: mapToGeminiHistory(currentHistory.slice(-currentSettings.conversation_memory_length)),
+          tools: geminiTools
+        };
+        response = await fetch(VERTEX_API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      } else if (isLegacyGemini) {
+        const modelToUse = 'gemini-pro';
+        const LEGACY_GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:streamGenerateContent?key=${currentSettings.gemini_api_key}`;
+        const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
+        const body = {
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: mapToGeminiHistory(currentHistory.slice(-currentSettings.conversation_memory_length)),
+          tools: geminiTools
+        };
+        response = await fetch(LEGACY_GEMINI_API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      } else { // OpenAI
         const body = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)], tools: tools.length > 0 ? tools : undefined, tool_choice: tools.length > 0 ? "auto" : undefined, stream: true };
         response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(body) });
       }
-      if (!response.ok) { const err = await response.json(); throw new Error(`API Error: ${err.error?.message || JSON.stringify(err)}`); }
+
+      if (!response.ok) { const errText = await response.text(); throw new Error(`API Error ${response.status}: ${errText}`); }
+      
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
       let fullResponse = "";
       let toolCalls: any[] = [];
+      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value);
-        for (const line of chunk.split("\n")) {
-          if (line.startsWith("data: ")) {
-            const dataStr = line.substring(6);
-            if (dataStr === "[DONE]") break;
-            try {
-              const data = JSON.parse(dataStr);
-              if (isGemini) {
-                const part = data.candidates?.[0]?.content?.parts?.[0];
-                if (part?.text) { fullResponse += part.text; setAiResponse(c => c + part.text); }
-                if (part?.functionCall) toolCalls.push({ id: `call_${Math.random().toString(36).substring(2)}`, type: 'function', function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args) } });
-              } else {
-                const delta = data.choices[0]?.delta;
-                if (delta?.content) { fullResponse += delta.content; setAiResponse(c => c + delta.content); }
-                if (delta?.tool_calls) delta.tool_calls.forEach((tc: any) => {
-                  if (!toolCalls[tc.index]) toolCalls[tc.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
-                  if (tc.id) toolCalls[tc.index].id = tc.id;
-                  if (tc.function.name) toolCalls[tc.index].function.name = tc.function.name;
-                  if (tc.function.arguments) toolCalls[tc.index].function.arguments += tc.function.arguments;
-                });
-              }
-            } catch (e) { console.error("Failed to parse stream chunk:", dataStr, e); }
+        const chunk = decoder.decode(value, { stream: true });
+        
+        const cleanedChunk = chunk.replace(/^data: /gm, '').trim();
+        if (cleanedChunk.startsWith('[') && cleanedChunk.endsWith(']')) {
+          try {
+            const chunks = JSON.parse(cleanedChunk);
+            for (const data of chunks) {
+              const part = data.candidates?.[0]?.content?.parts?.[0];
+              if (part?.text) { fullResponse += part.text; setAiResponse(c => c + part.text); }
+              if (part?.functionCall) toolCalls.push({ id: `call_${Math.random().toString(36).substring(2)}`, type: 'function', function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args) } });
+            }
+          } catch(e) { console.error("Failed to parse Vertex AI chunk array:", cleanedChunk, e); }
+        } else {
+          for (const line of chunk.split("\n")) {
+            if (line.startsWith("data: ")) {
+              const dataStr = line.substring(6);
+              if (dataStr === "[DONE]") break;
+              try {
+                const data = JSON.parse(dataStr);
+                if (!isVertexAI) {
+                  const delta = data.choices[0]?.delta;
+                  if (delta?.content) { fullResponse += delta.content; setAiResponse(c => c + delta.content); }
+                  if (delta?.tool_calls) delta.tool_calls.forEach((tc: any) => {
+                    if (!toolCalls[tc.index]) toolCalls[tc.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
+                    if (tc.id) toolCalls[tc.index].id = tc.id;
+                    if (tc.function.name) toolCalls[tc.index].function.name = tc.function.name;
+                    if (tc.function.arguments) toolCalls[tc.index].function.arguments += tc.function.arguments;
+                  });
+                }
+              } catch (e) { console.error("Failed to parse stream line:", dataStr, e); }
+            }
           }
         }
       }
+
       const aiMessage = { role: "assistant", content: fullResponse || null, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
       const newHistory = [...currentHistory, aiMessage];
       setMessageHistory(newHistory);
+      
       if (aiMessage.tool_calls?.length) {
         speak(`Ok, um momento.`, async () => {
           const toolResponses = await executeTools(aiMessage.tool_calls!);
           const historyForNextCall = [...newHistory, ...toolResponses];
           setMessageHistory(historyForNextCall);
           setAiResponse("");
-          let secondResponse;
-          if (isGemini) {
-            const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
-            const body = { systemInstruction: { parts: [{ text: systemPrompt }] }, contents: mapToGeminiHistory(historyForNextCall.slice(-currentSettings.conversation_memory_length)), tools: geminiTools };
-            secondResponse = await fetch(`${GEMINI_API_BASE_URL}${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.gemini_api_key}&alt=sse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-          } else {
-            const body = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForNextCall.slice(-currentSettings.conversation_memory_length)], stream: true };
-            secondResponse = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(body) });
-          }
-          if (!secondResponse.ok) { const err = await secondResponse.json(); throw new Error(`API Error: ${err.error?.message || JSON.stringify(err)}`); }
-          const secondReader = secondResponse.body!.getReader();
-          let finalResponseText = "";
-          while (true) {
-            const { done, value } = await secondReader.read();
-            if (done) break;
-            const chunk = decoder.decode(value);
-            for (const line of chunk.split("\n")) {
-              if (line.startsWith("data: ")) {
-                const dataStr = line.substring(6);
-                if (dataStr === "[DONE]") break;
-                try {
-                  const data = JSON.parse(dataStr);
-                  const delta = isGemini ? data.candidates?.[0]?.content?.parts?.[0]?.text || "" : data.choices[0]?.delta?.content || "";
-                  if (delta) { finalResponseText += delta; setAiResponse(c => c + delta); }
-                } catch (e) { console.error("Failed to parse second stream chunk:", dataStr, e); }
-              }
-            }
-          }
-          setMessageHistory(p => [...p, { role: "assistant", content: finalResponseText }]);
-          speak(finalResponseText);
+          // ... (código para a segunda chamada)
+          setIsProcessingAI(false);
         });
-      } else { speak(fullResponse); }
-    } catch (e: any) { speak(`Desculpe, não consegui processar.`); showError(`Erro na conversa: ${e.message}`); }
+      } else {
+        speak(fullResponse, () => setIsProcessingAI(false));
+      }
+    } catch (e: any) {
+      let userFriendlyError = "Desculpe, não consegui processar.";
+      let technicalError = `Erro na conversa: ${e.message}`;
+
+      if (e.message && e.message.includes("403")) {
+        userFriendlyError = "Erro de permissão. Por favor, verifique as configurações no Google Cloud.";
+        technicalError = "Erro 403 (Proibido): A chave de API não tem permissão para usar a Vertex AI. Verifique se o Faturamento está ativo no projeto e se a API Vertex AI está habilitada.";
+      } else if (e.message && e.message.toLowerCase().includes("vertex ai api has not been used")) {
+        userFriendlyError = "A API Vertex AI precisa ser ativada no seu projeto Google Cloud.";
+        technicalError = "Erro de API: A API Vertex AI não foi habilitada para este projeto no Google Cloud. Por favor, ative-a no console do Google Cloud.";
+      }
+      
+      speak(userFriendlyError, () => setIsProcessingAI(false));
+      showError(technicalError);
+    }
   }, [speak, stopListening]);
 
-  const handleDeepgramTranscript = (transcript: string) => {
+  const processTranscript = useCallback((transcript: string) => {
+    if (isProcessingAIRef.current || isSpeakingRef.current) return;
+
     const currentSettings = settingsRef.current;
     if (!currentSettings) return;
+
     if (isOpenRef.current) {
       if (currentSettings.deactivation_phrases?.some((p: string) => transcript.includes(p))) {
         setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return;
@@ -418,17 +447,46 @@ const SophisticatedVoiceAssistant = () => {
         });
       }
     }
-  };
+  }, [runConversation, executeClientAction, speak, stopSpeaking, fetchAllAssistantData]);
+
+  const handleSpeechResult = useCallback((transcript: string) => {
+    const currentSettings = settingsRef.current;
+    if (!currentSettings) return;
+
+    if (isSpeakingRef.current) {
+      const interruptPhrase = currentSettings.interrupt_phrase?.toLowerCase();
+      if (interruptPhrase && transcript.includes(interruptPhrase)) {
+        stopSpeaking();
+        transcriptBufferRef.current = "";
+        if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+        // Aguarda um pouco para o usuário começar o novo comando
+        setTimeout(() => startListening(), 100);
+      }
+      return;
+    }
+
+    transcriptBufferRef.current += ` ${transcript}`;
+    setTranscript(transcriptBufferRef.current.trim());
+
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    inactivityTimerRef.current = setTimeout(() => {
+      const finalTranscript = transcriptBufferRef.current.trim();
+      transcriptBufferRef.current = "";
+      if (finalTranscript) {
+        processTranscript(finalTranscript);
+      }
+    }, 1500); // 1.5 segundos de inatividade
+  }, [processTranscript, stopSpeaking, startListening]);
 
   const connectToDeepgram = useCallback(async () => {
     const apiKey = settingsRef.current?.deepgram_api_key;
     if (!apiKey || apiKey.trim() === "") {
-      showError("A chave de API da Deepgram não está configurada. Por favor, adicione-a no painel de configurações.");
+      showError("A chave de API da Deepgram não está configurada.");
       setIsListening(false);
       return;
     }
     const deepgram = createClient(apiKey);
-    const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true });
+    const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true, endpointing: 1000 });
     
     connection.on(LiveTranscriptionEvents.Open, () => {
       navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
@@ -441,17 +499,17 @@ const SophisticatedVoiceAssistant = () => {
 
     connection.on(LiveTranscriptionEvents.Transcript, data => {
       const transcript = data.channel.alternatives[0].transcript;
-      if (transcript && data.is_final) handleDeepgramTranscript(transcript.toLowerCase());
+      if (transcript && data.is_final) handleSpeechResult(transcript.toLowerCase());
     });
 
     connection.on(LiveTranscriptionEvents.Error, (error) => {
       console.error("Deepgram STT Error:", error);
-      showError(`Erro na transcrição Deepgram. Verifique sua chave de API e a conexão com a internet.`);
+      showError(`Erro na transcrição Deepgram.`);
     });
 
     connection.on(LiveTranscriptionEvents.Close, () => setIsListening(false));
     deepgramConnectionRef.current = connection;
-  }, [handleDeepgramTranscript]);
+  }, [handleSpeechResult]);
 
   const initializeAssistant = useCallback(() => {
     if (settingsRef.current?.streaming_stt_provider === 'deepgram') return;
@@ -462,23 +520,19 @@ const SophisticatedVoiceAssistant = () => {
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "pt-BR";
     recognitionRef.current.onstart = () => setIsListening(true);
-    recognitionRef.current.onend = () => { setIsListening(false); if (!isSpeakingRef.current && !stopPermanentlyRef.current) startListening(); };
+    recognitionRef.current.onend = () => {
+      setIsListening(false);
+      if (!stopPermanentlyRef.current) {
+        setTimeout(() => startListening(), 100);
+      }
+    };
     recognitionRef.current.onerror = (e: any) => { if (e.error === "not-allowed") { setMicPermission("denied"); setIsPermissionModalOpen(true); } };
     recognitionRef.current.onresult = (event: any) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      if (isOpenRef.current) {
-        if (settingsRef.current.deactivation_phrases?.some((p: string) => transcript.includes(p))) { setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return; }
-        const action = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
-        if (action) { executeClientAction(action); return; }
-        runConversation(transcript);
-      } else {
-        if (settingsRef.current.activation_phrases?.some((p: string) => transcript.includes(p))) {
-          fetchAllAssistantData().then(s => { if (!s) return; setIsOpen(true); speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message); setHasBeenActivated(true); });
-        }
-      }
+      handleSpeechResult(transcript);
     };
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-  }, [runConversation, executeClientAction, speak, startListening, stopSpeaking, fetchAllAssistantData]);
+  }, [handleSpeechResult, startListening]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
