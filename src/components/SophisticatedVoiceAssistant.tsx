@@ -85,6 +85,7 @@ const SophisticatedVoiceAssistant = () => {
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [hasBeenActivated, setHasBeenActivated] = useState(false);
   const [audioIntensity, setAudioIntensity] = useState(0);
+  const [accumulatedTranscript, setAccumulatedTranscript] = useState("");
 
   const settingsRef = useRef(settings);
   const isOpenRef = useRef(isOpen);
@@ -111,6 +112,8 @@ const SophisticatedVoiceAssistant = () => {
   const elevenlabsSocketRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingAudioRef = useRef(false);
+  const processingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const accumulatedTranscriptRef = useRef("");
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
@@ -122,6 +125,7 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
+  useEffect(() => { accumulatedTranscriptRef.current = accumulatedTranscript; }, [accumulatedTranscript]);
 
   const fetchAllAssistantData = useCallback(async () => {
     setIsLoading(true);
@@ -398,18 +402,19 @@ const SophisticatedVoiceAssistant = () => {
     } catch (e: any) { speak(`Desculpe, não consegui processar.`); showError(`Erro na conversa: ${e.message}`); }
   }, [speak, stopListening]);
 
-  const handleDeepgramTranscript = (transcript: string) => {
+  const processFinalTranscript = useCallback((finalTranscript: string) => {
+    if (!finalTranscript) return;
     const currentSettings = settingsRef.current;
     if (!currentSettings) return;
     if (isOpenRef.current) {
-      if (currentSettings.deactivation_phrases?.some((p: string) => transcript.includes(p))) {
+      if (currentSettings.deactivation_phrases?.some((p: string) => finalTranscript.includes(p))) {
         setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return;
       }
-      const action = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
+      const action = clientActionsRef.current.find(a => finalTranscript.includes(a.trigger_phrase.toLowerCase()));
       if (action) { executeClientAction(action); return; }
-      runConversation(transcript);
+      runConversation(finalTranscript);
     } else {
-      if (currentSettings.activation_phrases?.some((p: string) => transcript.includes(p))) {
+      if (currentSettings.activation_phrases?.some((p: string) => finalTranscript.includes(p))) {
         fetchAllAssistantData().then(s => {
           if (!s) return;
           setIsOpen(true);
@@ -417,6 +422,24 @@ const SophisticatedVoiceAssistant = () => {
           setHasBeenActivated(true);
         });
       }
+    }
+  }, [executeClientAction, runConversation, fetchAllAssistantData, speak, stopSpeaking]);
+
+  const handleDeepgramTranscript = (transcript: string, isFinal: boolean) => {
+    if (isFinal) {
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
+      }
+      const newAccumulated = (accumulatedTranscriptRef.current + " " + transcript).trim();
+      setAccumulatedTranscript(newAccumulated);
+      setTranscript(newAccumulated);
+      processingTimeoutRef.current = setTimeout(() => {
+        processFinalTranscript(accumulatedTranscriptRef.current);
+        setAccumulatedTranscript("");
+      }, 1500);
+    } else {
+      const interimText = (accumulatedTranscriptRef.current + " " + transcript).trim();
+      setTranscript(interimText);
     }
   };
 
@@ -428,8 +451,7 @@ const SophisticatedVoiceAssistant = () => {
       return;
     }
     const deepgram = createClient(apiKey);
-    const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true });
-    
+    const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true, interim_results: true });
     connection.on(LiveTranscriptionEvents.Open, () => {
       navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
         const recorder = new MediaRecorder(stream);
@@ -438,17 +460,16 @@ const SophisticatedVoiceAssistant = () => {
         mediaRecorderRef.current = recorder;
       });
     });
-
     connection.on(LiveTranscriptionEvents.Transcript, data => {
       const transcript = data.channel.alternatives[0].transcript;
-      if (transcript && data.is_final) handleDeepgramTranscript(transcript.toLowerCase());
+      if (transcript) {
+        handleDeepgramTranscript(transcript.toLowerCase(), data.is_final);
+      }
     });
-
     connection.on(LiveTranscriptionEvents.Error, (error) => {
       console.error("Deepgram STT Error:", error);
       showError(`Erro na transcrição Deepgram. Verifique sua chave de API e a conexão com a internet.`);
     });
-
     connection.on(LiveTranscriptionEvents.Close, () => setIsListening(false));
     deepgramConnectionRef.current = connection;
   }, [handleDeepgramTranscript]);
@@ -459,26 +480,27 @@ const SophisticatedVoiceAssistant = () => {
     if (!SpeechRecognition) { setMicPermission("denied"); return; }
     recognitionRef.current = new SpeechRecognition();
     recognitionRef.current.continuous = true;
-    recognitionRef.current.interimResults = false;
+    recognitionRef.current.interimResults = true;
     recognitionRef.current.lang = "pt-BR";
     recognitionRef.current.onstart = () => setIsListening(true);
     recognitionRef.current.onend = () => { setIsListening(false); if (!isSpeakingRef.current && !stopPermanentlyRef.current) startListening(); };
     recognitionRef.current.onerror = (e: any) => { if (e.error === "not-allowed") { setMicPermission("denied"); setIsPermissionModalOpen(true); } };
     recognitionRef.current.onresult = (event: any) => {
-      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      if (isOpenRef.current) {
-        if (settingsRef.current.deactivation_phrases?.some((p: string) => transcript.includes(p))) { setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return; }
-        const action = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
-        if (action) { executeClientAction(action); return; }
-        runConversation(transcript);
-      } else {
-        if (settingsRef.current.activation_phrases?.some((p: string) => transcript.includes(p))) {
-          fetchAllAssistantData().then(s => { if (!s) return; setIsOpen(true); speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message); setHasBeenActivated(true); });
-        }
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
       }
+      let fullTranscript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        fullTranscript += event.results[i][0].transcript;
+      }
+      fullTranscript = fullTranscript.trim().toLowerCase();
+      setTranscript(fullTranscript);
+      processingTimeoutRef.current = setTimeout(() => {
+        processFinalTranscript(fullTranscript);
+      }, 1500);
     };
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-  }, [runConversation, executeClientAction, speak, startListening, stopSpeaking, fetchAllAssistantData]);
+  }, [processFinalTranscript, startListening]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
