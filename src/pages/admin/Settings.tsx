@@ -57,6 +57,7 @@ const settingsSchema = z.object({
   deactivation_phrases: z.array(z.string()).min(1, "É necessária pelo menos uma frase de desativação."),
   welcome_message: z.string().optional().nullable(),
   continuation_phrase: z.string().optional().nullable(),
+  interrupt_phrase: z.string().optional().nullable(),
 });
 
 type SettingsFormData = z.infer<typeof settingsSchema>;
@@ -81,6 +82,7 @@ const defaultValues: SettingsFormData = {
   deactivation_phrases: ["fechar", "encerrar"],
   welcome_message: "Bem-vindo ao site! Diga 'ativar' para começar a conversar.",
   continuation_phrase: "Pode falar.",
+  interrupt_phrase: "intra",
 };
 
 const OPENAI_TTS_VOICES = [
@@ -156,6 +158,7 @@ const SettingsPage: React.FC = () => {
       elevenlabs_voice_id: formData.elevenlabs_voice_id || null,
       welcome_message: formData.welcome_message || null,
       continuation_phrase: formData.continuation_phrase || null,
+      interrupt_phrase: formData.interrupt_phrase || null,
     }, { onConflict: "workspace_id" });
     if (error) { showError("Erro ao salvar configurações."); console.error(error); }
     else { showSuccess("Configurações salvas com sucesso!"); }
@@ -256,6 +259,7 @@ const SettingsPage: React.FC = () => {
         <CardContent className="space-y-4">
           <div><Label>Mensagem de Boas-Vindas</Label><Input {...register("welcome_message")} /></div>
           <div><Label>Frase de Continuação</Label><Input {...register("continuation_phrase")} /></div>
+          <div><Label>Frase de Interrupção</Label><Input {...register("interrupt_phrase")} placeholder="Ex: intra, ei, computador" /><p className="text-sm text-muted-foreground mt-1">Palavra que, se dita enquanto o assistente fala, o interrompe para ouvir um novo comando.</p></div>
           <div><Label>Frases de Ativação</Label><div className="flex gap-2"><Input value={activationInput} onChange={e => setActivationInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddPhrase('activation'); } }} /><Button type="button" onClick={() => handleAddPhrase('activation')}>Add</Button></div><div className="flex flex-wrap gap-2 mt-2">{activationPhrases?.map(p => <Badge key={p}>{p}<button type="button" onClick={() => handleRemovePhrase('activation', p)} className="ml-2"><X size={12} /></button></Badge>)}</div></div>
           <div><Label>Frases de Desativação</Label><div className="flex gap-2"><Input value={deactivationInput} onChange={e => setDeactivationInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddPhrase('deactivation'); } }} /><Button type="button" onClick={() => handleAddPhrase('deactivation')}>Add</Button></div><div className="flex flex-wrap gap-2 mt-2">{deactivationPhrases?.map(p => <Badge key={p}>{p}<button type="button" onClick={() => handleRemovePhrase('deactivation', p)} className="ml-2"><X size={12} /></button></Badge>)}</div></div>
           <div><Label>Memória da Conversa (mensagens)</Label><Input {...register("conversation_memory_length", { valueAsNumber: true })} type="number" min={0} max={10} /></div>

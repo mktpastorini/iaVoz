@@ -98,6 +98,7 @@ const SophisticatedVoiceAssistant = () => {
   const sessionRef = useRef(session);
   const messageHistoryRef = useRef(messageHistory);
   const recognitionRef = useRef<any>(null);
+  const interruptRecognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopPermanentlyRef = useRef(false);
@@ -172,6 +173,7 @@ const SophisticatedVoiceAssistant = () => {
     if (synthRef.current?.speaking) synthRef.current.cancel();
     if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
     if (elevenlabsSocketRef.current) { elevenlabsSocketRef.current.close(); elevenlabsSocketRef.current = null; }
+    if (interruptRecognitionRef.current) interruptRecognitionRef.current.stop();
     audioQueueRef.current = [];
     isPlayingAudioRef.current = false;
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -185,6 +187,7 @@ const SophisticatedVoiceAssistant = () => {
     if (!text || !currentSettings) { onEndCallback?.(); return; }
     const onSpeechEnd = () => {
       if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
+      if (interruptRecognitionRef.current) interruptRecognitionRef.current.stop();
       setIsSpeaking(false);
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       setAudioIntensity(0);
@@ -198,6 +201,9 @@ const SophisticatedVoiceAssistant = () => {
     stopListening();
     setIsSpeaking(true);
     setAiResponse(text);
+    if (currentSettings.interrupt_phrase && interruptRecognitionRef.current) {
+      interruptRecognitionRef.current.start();
+    }
     speechTimeoutRef.current = setTimeout(onSpeechEnd, (text.length / 15) * 1000 + 5000);
     try {
       if (currentSettings.voice_model === "browser" && synthRef.current) {
@@ -474,6 +480,24 @@ const SophisticatedVoiceAssistant = () => {
     deepgramConnectionRef.current = connection;
   }, [handleDeepgramTranscript]);
 
+  const initializeInterruptRecognizer = useCallback(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "pt-BR";
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+      const interruptPhrase = settingsRef.current?.interrupt_phrase?.toLowerCase();
+      if (interruptPhrase && transcript.includes(interruptPhrase)) {
+        stopSpeaking();
+        speak(settingsRef.current.continuation_phrase || "Pois não?");
+      }
+    };
+    interruptRecognitionRef.current = recognition;
+  }, [speak, stopSpeaking]);
+
   const initializeAssistant = useCallback(() => {
     if (settingsRef.current?.streaming_stt_provider === 'deepgram') return;
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -500,7 +524,8 @@ const SophisticatedVoiceAssistant = () => {
       }, 1500);
     };
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
-  }, [processFinalTranscript, startListening]);
+    initializeInterruptRecognizer();
+  }, [processFinalTranscript, startListening, initializeInterruptRecognizer]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
