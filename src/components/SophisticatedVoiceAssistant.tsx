@@ -113,8 +113,6 @@ const SophisticatedVoiceAssistant = () => {
   const elevenlabsSocketRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingAudioRef = useRef(false);
-  const transcriptBufferRef = useRef("");
-  const processingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasInterruptedRef = useRef(false);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
@@ -542,20 +540,15 @@ const SophisticatedVoiceAssistant = () => {
         return;
       }
       if (isOpenRef.current) {
-        transcriptBufferRef.current += transcript + " ";
-        if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
-        processingTimeoutRef.current = setTimeout(() => {
-          const fullTranscript = transcriptBufferRef.current.trim();
-          transcriptBufferRef.current = "";
-          if (fullTranscript) {
-            if (settingsRef.current.deactivation_phrases?.some((p: string) => fullTranscript.includes(p))) {
-              setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return;
-            }
-            const action = clientActionsRef.current.find(a => fullTranscript.includes(a.trigger_phrase.toLowerCase()));
-            if (action) { executeClientAction(action); return; }
-            runConversation(fullTranscript);
-          }
-        }, 1000);
+        if (settingsRef.current.deactivation_phrases?.some((p: string) => transcript.includes(p))) {
+          setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return;
+        }
+        const action = clientActionsRef.current.find(a => transcript.includes(a.trigger_phrase.toLowerCase()));
+        if (action) {
+          executeClientAction(action);
+          return;
+        }
+        runConversation(transcript);
       } else {
         if (settingsRef.current.activation_phrases?.some((p: string) => transcript.includes(p))) {
           fetchAllAssistantData().then(async s => { if (!s) return; setIsOpen(true); await speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message); setHasBeenActivated(true); });
