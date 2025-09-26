@@ -19,6 +19,7 @@ import { createClient, LiveClient, LiveTranscriptionEvents } from "@deepgram/sdk
 
 const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 const DEEPGRAM_TTS_API_URL = "https://api.deepgram.com/v1/speak";
+const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
 // Funções de conversão de schema de ferramentas (OpenAI -> Gemini)
 const mapOpenAITypeToGemini = (type: string) => {
@@ -211,17 +212,13 @@ const SophisticatedVoiceAssistant = () => {
         await audioRef.current.play();
       } else if (currentSettings.voice_model === "deepgram-tts" && currentSettings.deepgram_api_key) {
         const response = await fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
-        if (!response.ok) throw new Error(`Falha na API Deepgram TTS: ${await response.text()}`);
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => ({ err_msg: `Request failed with status ${response.status}` }));
+          const errorMessage = errorBody.err_msg || errorBody.reason || JSON.stringify(errorBody);
+          if (response.status === 401) throw new Error("Falha na API Deepgram TTS: Chave de API inválida ou incorreta.");
+          throw new Error(`Falha na API Deepgram TTS: ${errorMessage}`);
+        }
         const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
-        audioRef.current = new Audio(audioUrl);
-        audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
-        await audioRef.current.play();
-      } else if (currentSettings.voice_model === "gemini-tts" && currentSettings.gemini_api_key) {
-        const { data, error } = await supabaseAnon.functions.invoke('gemini-tts', { body: { text, model: currentSettings.gemini_tts_model, voiceName: currentSettings.gemini_tts_voice_name } });
-        if (error) throw new Error(`Erro na Edge Function Gemini TTS: ${error.message}`);
-        const audioBytes = Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0));
-        const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
         const audioUrl = URL.createObjectURL(audioBlob);
         audioRef.current = new Audio(audioUrl);
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
@@ -294,16 +291,13 @@ const SophisticatedVoiceAssistant = () => {
     const currentHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
     setMessageHistory(currentHistory);
     const currentSettings = settingsRef.current;
-    const isVertexAI = currentSettings?.ai_model?.startsWith('gemini-');
-    
-    if (!currentSettings || (isVertexAI && !currentSettings.google_vertex_api_key) || (!isVertexAI && !currentSettings.openai_api_key)) {
-      const errorMsg = `Chave da API para ${isVertexAI ? 'Google Vertex AI' : 'OpenAI'} não configurada.`;
+    const isGemini = currentSettings?.ai_model?.startsWith('gemini');
+    if (!currentSettings || (isGemini && !currentSettings.gemini_api_key) || (!isGemini && !currentSettings.openai_api_key)) {
+      const errorMsg = `Chave da API para ${isGemini ? 'Gemini' : 'OpenAI'} não configurada.`;
       speak(errorMsg); showError(errorMsg); return;
     }
-
     const systemPrompt = replacePlaceholders(currentSettings.system_prompt, systemVariablesRef.current);
     const tools = powersRef.current.map(p => ({ type: "function", function: { name: p.name, description: p.description, parameters: p.parameters_schema || { type: "object", properties: {} } } }));
-    
     const executeTools = async (toolCalls: any[]) => {
       return Promise.all(toolCalls.map(async (toolCall) => {
         const { name, arguments: args } = toolCall.function;
@@ -317,90 +311,91 @@ const SophisticatedVoiceAssistant = () => {
         return { tool_call_id: toolCall.id, role: "tool", name, content: JSON.stringify(data.data || data) };
       }));
     };
-
     try {
       let response;
-      if (isVertexAI) {
-        const VERTEX_API_URL = `https://aiplatform.googleapis.com/v1/publishers/google/models/${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.google_vertex_api_key}`;
+      if (isGemini) {
         const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
-        const body = {
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: mapToGeminiHistory(currentHistory.slice(-currentSettings.conversation_memory_length)),
-          tools: geminiTools
-        };
-        response = await fetch(VERTEX_API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const body = { systemInstruction: { parts: [{ text: systemPrompt }] }, contents: mapToGeminiHistory(currentHistory.slice(-currentSettings.conversation_memory_length)), tools: geminiTools };
+        response = await fetch(`${GEMINI_API_BASE_URL}${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.gemini_api_key}&alt=sse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       } else {
         const body = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)], tools: tools.length > 0 ? tools : undefined, tool_choice: tools.length > 0 ? "auto" : undefined, stream: true };
         response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(body) });
       }
-
-      if (!response.ok) { const errText = await response.text(); throw new Error(`API Error: ${errText}`); }
-      
+      if (!response.ok) { const err = await response.json(); throw new Error(`API Error: ${err.error?.message || JSON.stringify(err)}`); }
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
       let fullResponse = "";
       let toolCalls: any[] = [];
-      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        
-        // Vertex AI SSE streams can be tricky, sometimes sending multiple JSON objects
-        const cleanedChunk = chunk.replace(/^data: /gm, '').trim();
-        if (cleanedChunk.startsWith('[') && cleanedChunk.endsWith(']')) {
-          const chunks = JSON.parse(cleanedChunk);
-          for (const data of chunks) {
-            const part = data.candidates?.[0]?.content?.parts?.[0];
-            if (part?.text) { fullResponse += part.text; setAiResponse(c => c + part.text); }
-            if (part?.functionCall) toolCalls.push({ id: `call_${Math.random().toString(36).substring(2)}`, type: 'function', function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args) } });
-          }
-        } else {
-          for (const line of chunk.split("\n")) {
-            if (line.startsWith("data: ")) {
-              const dataStr = line.substring(6);
-              if (dataStr === "[DONE]") break;
-              try {
-                const data = JSON.parse(dataStr);
-                if (isVertexAI) {
-                  const part = data.candidates?.[0]?.content?.parts?.[0];
-                  if (part?.text) { fullResponse += part.text; setAiResponse(c => c + part.text); }
-                  if (part?.functionCall) toolCalls.push({ id: `call_${Math.random().toString(36).substring(2)}`, type: 'function', function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args) } });
-                } else {
-                  const delta = data.choices[0]?.delta;
-                  if (delta?.content) { fullResponse += delta.content; setAiResponse(c => c + delta.content); }
-                  if (delta?.tool_calls) delta.tool_calls.forEach((tc: any) => {
-                    if (!toolCalls[tc.index]) toolCalls[tc.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
-                    if (tc.id) toolCalls[tc.index].id = tc.id;
-                    if (tc.function.name) toolCalls[tc.index].function.name = tc.function.name;
-                    if (tc.function.arguments) toolCalls[tc.index].function.arguments += tc.function.arguments;
-                  });
-                }
-              } catch (e) { console.error("Failed to parse stream chunk:", dataStr, e); }
-            }
+        const chunk = decoder.decode(value);
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("data: ")) {
+            const dataStr = line.substring(6);
+            if (dataStr === "[DONE]") break;
+            try {
+              const data = JSON.parse(dataStr);
+              if (isGemini) {
+                const part = data.candidates?.[0]?.content?.parts?.[0];
+                if (part?.text) { fullResponse += part.text; setAiResponse(c => c + part.text); }
+                if (part?.functionCall) toolCalls.push({ id: `call_${Math.random().toString(36).substring(2)}`, type: 'function', function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args) } });
+              } else {
+                const delta = data.choices[0]?.delta;
+                if (delta?.content) { fullResponse += delta.content; setAiResponse(c => c + delta.content); }
+                if (delta?.tool_calls) delta.tool_calls.forEach((tc: any) => {
+                  if (!toolCalls[tc.index]) toolCalls[tc.index] = { id: "", type: "function", function: { name: "", arguments: "" } };
+                  if (tc.id) toolCalls[tc.index].id = tc.id;
+                  if (tc.function.name) toolCalls[tc.index].function.name = tc.function.name;
+                  if (tc.function.arguments) toolCalls[tc.index].function.arguments += tc.function.arguments;
+                });
+              }
+            } catch (e) { console.error("Failed to parse stream chunk:", dataStr, e); }
           }
         }
       }
-
       const aiMessage = { role: "assistant", content: fullResponse || null, tool_calls: toolCalls.length > 0 ? toolCalls : undefined };
       const newHistory = [...currentHistory, aiMessage];
       setMessageHistory(newHistory);
-      
       if (aiMessage.tool_calls?.length) {
         speak(`Ok, um momento.`, async () => {
           const toolResponses = await executeTools(aiMessage.tool_calls!);
           const historyForNextCall = [...newHistory, ...toolResponses];
           setMessageHistory(historyForNextCall);
           setAiResponse("");
-          // ... (código para a segunda chamada, que também precisaria ser adaptado para Vertex)
+          let secondResponse;
+          if (isGemini) {
+            const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
+            const body = { systemInstruction: { parts: [{ text: systemPrompt }] }, contents: mapToGeminiHistory(historyForNextCall.slice(-currentSettings.conversation_memory_length)), tools: geminiTools };
+            secondResponse = await fetch(`${GEMINI_API_BASE_URL}${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.gemini_api_key}&alt=sse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+          } else {
+            const body = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...historyForNextCall.slice(-currentSettings.conversation_memory_length)], stream: true };
+            secondResponse = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(body) });
+          }
+          if (!secondResponse.ok) { const err = await secondResponse.json(); throw new Error(`API Error: ${err.error?.message || JSON.stringify(err)}`); }
+          const secondReader = secondResponse.body!.getReader();
+          let finalResponseText = "";
+          while (true) {
+            const { done, value } = await secondReader.read();
+            if (done) break;
+            const chunk = decoder.decode(value);
+            for (const line of chunk.split("\n")) {
+              if (line.startsWith("data: ")) {
+                const dataStr = line.substring(6);
+                if (dataStr === "[DONE]") break;
+                try {
+                  const data = JSON.parse(dataStr);
+                  const delta = isGemini ? data.candidates?.[0]?.content?.parts?.[0]?.text || "" : data.choices[0]?.delta?.content || "";
+                  if (delta) { finalResponseText += delta; setAiResponse(c => c + delta); }
+                } catch (e) { console.error("Failed to parse second stream chunk:", dataStr, e); }
+              }
+            }
+          }
+          setMessageHistory(p => [...p, { role: "assistant", content: finalResponseText }]);
+          speak(finalResponseText);
         });
-      } else {
-        speak(fullResponse);
-      }
-    } catch (e: any) {
-      speak(`Desculpe, não consegui processar.`);
-      showError(`Erro na conversa: ${e.message}`);
-    }
+      } else { speak(fullResponse); }
+    } catch (e: any) { speak(`Desculpe, não consegui processar.`); showError(`Erro na conversa: ${e.message}`); }
   }, [speak, stopListening]);
 
   const handleDeepgramTranscript = (transcript: string) => {
