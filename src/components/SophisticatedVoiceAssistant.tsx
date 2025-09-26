@@ -294,10 +294,15 @@ const SophisticatedVoiceAssistant = () => {
     const currentHistory = [...messageHistoryRef.current, { role: "user", content: userMessage }];
     setMessageHistory(currentHistory);
     const currentSettings = settingsRef.current;
-    const isVertexAI = currentSettings?.ai_model?.startsWith('gemini-');
     
-    if (!currentSettings || (isVertexAI && !currentSettings.google_vertex_api_key) || (!isVertexAI && !currentSettings.openai_api_key)) {
-      const errorMsg = `Chave da API para ${isVertexAI ? 'Google Vertex AI' : 'OpenAI'} não configurada.`;
+    const isVertexAI = currentSettings?.ai_model?.includes('-001');
+    const isLegacyGemini = currentSettings?.ai_model === 'gemini-pro' || currentSettings?.ai_model === 'gemini-flash';
+
+    if (!currentSettings || 
+        (isVertexAI && !currentSettings.google_vertex_api_key) || 
+        (isLegacyGemini && !currentSettings.gemini_api_key) ||
+        (!isVertexAI && !isLegacyGemini && !currentSettings.openai_api_key)) {
+      const errorMsg = `Chave de API não configurada para o modelo selecionado.`;
       speak(errorMsg); showError(errorMsg); return;
     }
 
@@ -329,7 +334,17 @@ const SophisticatedVoiceAssistant = () => {
           tools: geminiTools
         };
         response = await fetch(VERTEX_API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      } else {
+      } else if (isLegacyGemini) {
+        // Lógica para a API Gemini Legado (generativelanguage.googleapis.com)
+        const LEGACY_GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${currentSettings.ai_model}:streamGenerateContent?key=${currentSettings.gemini_api_key}`;
+        const geminiTools = tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: mapOpenAIToGeminiSchema(t.function.parameters) })) }] : undefined;
+        const body = {
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: mapToGeminiHistory(currentHistory.slice(-currentSettings.conversation_memory_length)),
+          tools: geminiTools
+        };
+        response = await fetch(LEGACY_GEMINI_API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      } else { // OpenAI
         const body = { model: currentSettings.ai_model, messages: [{ role: "system", content: systemPrompt }, ...currentHistory.slice(-currentSettings.conversation_memory_length)], tools: tools.length > 0 ? tools : undefined, tool_choice: tools.length > 0 ? "auto" : undefined, stream: true };
         response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify(body) });
       }
@@ -363,7 +378,7 @@ const SophisticatedVoiceAssistant = () => {
               if (dataStr === "[DONE]") break;
               try {
                 const data = JSON.parse(dataStr);
-                if (!isVertexAI) { // OpenAI parsing
+                if (!isVertexAI && !isLegacyGemini) { // OpenAI parsing
                   const delta = data.choices[0]?.delta;
                   if (delta?.content) { fullResponse += delta.content; setAiResponse(c => c + delta.content); }
                   if (delta?.tool_calls) delta.tool_calls.forEach((tc: any) => {
