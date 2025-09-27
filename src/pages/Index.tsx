@@ -12,7 +12,7 @@ const Index = () => {
     <div className="min-h-screen bg-gradient-to-br from-[#20053D] to-[#0B022D] text-white flex flex-col items-center justify-center p-4 select-text">
       <header className="text-center mb-12 z-10 relative">
         <h1 className="text-5xl md:text-8xl font-extrabold mb-4 text-white">
-          Jarbes
+          IAM
         </h1>
         <h2 className="text-3xl md:text-4xl font-bold mb-4 text-cyan-400">
           a solução que você precisa em um só lugar
@@ -78,7 +78,7 @@ const Index = () => {
           <Orb audioIntensity={0} />
         </div>
         <p className="mt-2 text-sm text-cyan-300 transition-all duration-300 group-hover:text-cyan-100 group-hover:scale-105">
-          Clique para falar com Jarbes
+          Clique para falar com IAM
         </p>
       </div>
     </div>
