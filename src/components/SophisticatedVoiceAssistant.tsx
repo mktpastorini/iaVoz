@@ -568,7 +568,7 @@ const SophisticatedVoiceAssistant = () => {
         <div className="absolute inset-0 -z-10 pointer-events-none"><Orb audioIntensity={audioIntensity} /></div>
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
-          {aiResponse && <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)]"><p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">{aiResponse}</p></div>}
+          {aiResponse && <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)]"><p className="text-white text-xl md:text-3xl font-bold leading-tight drop-shadow-lg">{aiResponse}</p></div>}
           {transcript && <p className="text-gray-200 text-lg mt-4 drop-shadow-md">{transcript}</p>}
         </div>
         <div className="flex items-center justify-center gap-4 p-4 bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-2xl shadow-[0_0_20px_rgba(0,255,255,0.1)] pointer-events-auto">
