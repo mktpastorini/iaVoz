@@ -51,10 +51,27 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
     loadSessionAndUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
       setSession(currentSession);
       if (currentSession?.user?.id !== lastUserIdRef.current) {
         setUser(currentSession?.user || null);
+      }
+
+      // Handle saving Google tokens after OAuth sign-in
+      if (event === 'SIGNED_IN' && currentSession?.provider_token && currentSession?.provider_refresh_token) {
+        const { error: upsertError } = await supabase
+          .from('user_google_tokens')
+          .upsert({
+            user_id: currentSession.user.id,
+            access_token: currentSession.provider_token,
+            refresh_token: currentSession.provider_refresh_token,
+            expires_at: new Date(currentSession.expires_at! * 1000).toISOString(),
+          });
+
+        if (upsertError) {
+          console.error("Error saving Google tokens:", upsertError);
+          showError("Não foi possível salvar a conexão com o Google.");
+        }
       }
     });
 
@@ -79,7 +96,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
           if (profileError) {
             if (profileError.code === 'PGRST116') {
-              // Nenhum perfil encontrado, não é erro crítico
               setProfile(null);
             } else {
               console.error('Error fetching profile:', profileError, 'Status:', status);
