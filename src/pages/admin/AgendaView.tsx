@@ -95,7 +95,7 @@ const AgendaView: React.FC = () => {
     }
   }, [workspace, sessionLoading, currentDate, fetchClients, fetchEvents]);
 
-  const { control, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<EventFormData>({
+  const { control, register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<EventFormData>({
     resolver: zodResolver(eventSchema),
     defaultValues: { event_type: 'meet' }
   });
