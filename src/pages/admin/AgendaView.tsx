@@ -9,7 +9,7 @@ import { ptBR } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, Plus, Clock, User, Copy, Video, Building } from 'lucide-react';
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,13 +19,14 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSession } from '@/contexts/SessionContext';
 import { supabase } from '@/integrations/supabase/client';
-import { showError, showSuccess } from '@/utils/toast';
+import { showError, showSuccess, showLoading, dismissToast } from '@/utils/toast';
 import { cn } from '@/lib/utils';
 
 // Tipos
 interface Client {
   id: string;
   name: string;
+  email: string | null;
 }
 
 interface Event {
@@ -64,7 +65,7 @@ const AgendaView: React.FC = () => {
 
   const fetchClients = useCallback(async () => {
     if (!workspace?.id) return;
-    const { data, error } = await supabase.from('clients').select('id, name').eq('workspace_id', workspace.id);
+    const { data, error } = await supabase.from('clients').select('id, name, email').eq('workspace_id', workspace.id);
     if (error) showError("Erro ao carregar clientes.");
     else setClients(data || []);
   }, [workspace]);
@@ -106,22 +107,55 @@ const AgendaView: React.FC = () => {
     const [startHours, startMinutes] = start_time_str.split(':').map(Number);
     const [endHours, endMinutes] = end_time_str.split(':').map(Number);
 
-    const start_time = setMinutes(setHours(date, startHours), startMinutes).toISOString();
-    const end_time = setMinutes(setHours(date, endHours), endMinutes).toISOString();
+    const start_time = setMinutes(setHours(date, startHours), startMinutes);
+    const end_time = setMinutes(setHours(date, endHours), endMinutes);
+
+    let meet_link = null;
+    let google_event_id = null;
+
+    if (formData.event_type === 'meet') {
+      const toastId = showLoading("Gerando link da reunião no Google Calendar...");
+      try {
+        const selectedClient = clients.find(c => c.id === formData.client_id);
+        const { data: googleEventData, error: functionError } = await supabase.functions.invoke('create-google-event', {
+          body: {
+            title: formData.title,
+            description: formData.description,
+            startTime: start_time.toISOString(),
+            endTime: end_time.toISOString(),
+            clientEmail: selectedClient?.email,
+          }
+        });
+
+        if (functionError) throw functionError;
+
+        meet_link = googleEventData.meetLink;
+        google_event_id = googleEventData.googleEventId;
+        dismissToast(toastId);
+        showSuccess("Reunião criada no Google Calendar!");
+      } catch (error: any) {
+        dismissToast(toastId);
+        showError(error.data?.error || "Falha ao criar evento no Google. Verifique se sua conta Google está conectada nas configurações.");
+        console.error(error);
+        return;
+      }
+    }
 
     const { error } = await supabase.from('events').insert({
       ...rest,
-      start_time,
-      end_time,
+      start_time: start_time.toISOString(),
+      end_time: end_time.toISOString(),
+      meet_link,
+      google_event_id,
       workspace_id: workspace.id,
       user_id: user.id,
     });
 
     if (error) {
-      showError("Erro ao criar evento.");
+      showError("Erro ao salvar evento no sistema.");
       console.error(error);
     } else {
-      showSuccess("Evento criado com sucesso!");
+      showSuccess("Evento salvo com sucesso!");
       setIsModalOpen(false);
       reset();
       fetchEvents(currentDate);
@@ -129,7 +163,7 @@ const AgendaView: React.FC = () => {
   };
 
   const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(startOfWeek(currentDate, { locale: ptBR }), i));
-  const timeSlots = Array.from({ length: 11 }).map((_, i) => `${String(i + 8).padStart(2, '0')}:00`); // 8 AM to 6 PM
+  const timeSlots = Array.from({ length: 11 }).map((_, i) => `${String(i + 8).padStart(2, '0')}:00`);
 
   const handleCopyLink = (link: string) => {
     navigator.clipboard.writeText(link);
@@ -172,7 +206,7 @@ const AgendaView: React.FC = () => {
                 {events.filter(e => isSameDay(parse(e.start_time, "yyyy-MM-dd'T'HH:mm:ss.SSSxxx", new Date()), day)).map(event => {
                   const startHour = getHours(new Date(event.start_time));
                   const duration = (new Date(event.end_time).getTime() - new Date(event.start_time).getTime()) / (1000 * 60 * 60);
-                  const top = (startHour - 8) * 4; // 4rem (h-16) per hour
+                  const top = (startHour - 8) * 4;
                   const height = duration * 4;
 
                   const eventTypeIcons = {
@@ -182,11 +216,7 @@ const AgendaView: React.FC = () => {
                   };
 
                   return (
-                    <div
-                      key={event.id}
-                      className="absolute w-full p-2"
-                      style={{ top: `${top}rem`, height: `${height}rem` }}
-                    >
+                    <div key={event.id} className="absolute w-full p-2" style={{ top: `${top}rem`, height: `${height}rem` }}>
                       <div className="bg-blue-100 dark:bg-blue-900/50 border border-blue-300 dark:border-blue-700 rounded-lg p-2 h-full overflow-hidden text-xs">
                         <p className="font-bold truncate">{event.title}</p>
                         <p className="flex items-center gap-1"><User className="h-3 w-3" /> {event.clients.name}</p>
