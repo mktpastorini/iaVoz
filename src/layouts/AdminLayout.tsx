@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Settings, Zap, MessageSquare, SlidersHorizontal, MousePointerClick, UserSquare, Users, LogOut } from 'lucide-react';
+import { Settings, Zap, MessageSquare, SlidersHorizontal, MousePointerClick, UserSquare, Users, LogOut, Code } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -18,8 +18,9 @@ const AdminLayout: React.FC = () => {
     { name: 'Poderes', path: '/admin/powers', icon: Zap },
     { name: 'Poderes do Sistema', path: '/admin/system-powers', icon: SlidersHorizontal },
     { name: 'Ações do Cliente', path: '/admin/client-actions', icon: MousePointerClick },
-    { name: 'Campos de Dados do Usuário', path: '/admin/user-data-fields', icon: UserSquare },
+    { name: 'Campos de Dados', path: '/admin/user-data-fields', icon: UserSquare },
     { name: 'Conversas', path: '/admin/conversations', icon: MessageSquare },
+    { name: 'Instalação', path: '/admin/installation', icon: Code },
   ];
 
   const handleLogout = async () => {
