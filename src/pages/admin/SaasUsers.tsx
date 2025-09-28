@@ -16,12 +16,12 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from '@/components/ui/badge';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select';
 
 interface SaasUser {
   id: string;
@@ -30,6 +30,7 @@ interface SaasUser {
   first_name: string | null;
   last_name: string | null;
   created_at: string;
+  workspace_id: string;
 }
 
 const userSchema = z.object({
@@ -40,7 +41,7 @@ const userSchema = z.object({
 type UserFormData = z.infer<typeof userSchema>;
 
 const SaasUsersPage: React.FC = () => {
-  const { workspace, user: adminUser, role } = useSession(); // Adicionando role
+  const { user: adminUser, role } = useSession();
   const [users, setUsers] = useState<SaasUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -52,12 +53,10 @@ const SaasUsersPage: React.FC = () => {
   });
 
   const fetchUsers = useCallback(async () => {
-    if (!workspace?.id) return;
+    if (role !== 'admin') return; // Apenas admins podem buscar todos os usuários
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('list-workspace-users', {
-        body: { workspace_id: workspace.id },
-      });
+      const { data, error } = await supabase.functions.invoke('list-all-saas-users');
       if (error) throw error;
       setUsers(data);
     } catch (error: any) {
@@ -65,7 +64,7 @@ const SaasUsersPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [workspace]);
+  }, [role]);
 
   useEffect(() => {
     fetchUsers();
@@ -78,24 +77,13 @@ const SaasUsersPage: React.FC = () => {
   };
 
   const onSubmit = async (formData: UserFormData) => {
-    if (!workspace?.id) return;
+    if (!editingUser) return; // Apenas edição de função é suportada aqui
     try {
-      let error;
-      if (editingUser) {
-        // Lógica de Edição
-        const { error: updateError } = await supabase.functions.invoke('update-user-role', {
-          body: { user_id: editingUser.id, workspace_id: workspace.id, role: formData.role },
-        });
-        error = updateError;
-      } else {
-        // Lógica de Adição (Convite)
-        const { error: inviteError } = await supabase.functions.invoke('invite-user', {
-          body: { email: formData.email, workspace_id: workspace.id, role: formData.role },
-        });
-        error = inviteError;
-      }
+      const { error } = await supabase.functions.invoke('update-user-role', {
+        body: { user_id: editingUser.id, workspace_id: editingUser.workspace_id, role: formData.role },
+      });
       if (error) throw error;
-      showSuccess(`Usuário ${editingUser ? 'atualizado' : 'convidado'} com sucesso!`);
+      showSuccess(`Função do usuário atualizada com sucesso!`);
       setIsFormOpen(false);
       fetchUsers();
     } catch (error: any) {
@@ -118,19 +106,27 @@ const SaasUsersPage: React.FC = () => {
     }
   };
 
+  const handleSendPasswordReset = async (email: string) => {
+    try {
+      const { error } = await supabase.functions.invoke('send-password-reset', {
+        body: { email: email },
+      });
+      if (error) throw error;
+      showSuccess(`E-mail de redefinição de senha enviado para ${email}.`);
+    } catch (error: any) {
+      showError(`Erro ao enviar e-mail: ${error.message}`);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Gerenciamento de Usuários</h1>
-        {role === 'admin' && ( // Apenas admin pode adicionar
-          <Button onClick={() => handleOpenForm(null)}>
-            <UserPlus className="mr-2 h-4 w-4" /> Adicionar Usuário
-          </Button>
-        )}
+        {/* O botão de adicionar agora é o formulário de cadastro na página de login */}
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Usuários do Workspace</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Todos os Usuários da Plataforma</CardTitle></CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
@@ -138,13 +134,13 @@ const SaasUsersPage: React.FC = () => {
                 <TableHead>Nome</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Função</TableHead>
-                <TableHead>Data de Entrada</TableHead>
-                {role === 'admin' && <TableHead><span className="sr-only">Ações</span></TableHead>}
+                <TableHead>Data de Cadastro</TableHead>
+                <TableHead><span className="sr-only">Ações</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={role === 'admin' ? 5 : 4} className="text-center">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center">Carregando...</TableCell></TableRow>
               ) : users.length > 0 ? (
                 users.map((user) => (
                   <TableRow key={user.id}>
@@ -152,48 +148,43 @@ const SaasUsersPage: React.FC = () => {
                     <TableCell>{user.email}</TableCell>
                     <TableCell><Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>{user.role}</Badge></TableCell>
                     <TableCell>{format(new Date(user.created_at), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
-                    {role === 'admin' && (
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0" disabled={user.id === adminUser?.id}>
-                              <span className="sr-only">Abrir menu</span>
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Ações</DropdownMenuLabel>
-                            <DropdownMenuItem onClick={() => handleOpenForm(user)}>Editar</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive" onClick={() => setDeletingUser(user)}>Excluir</DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    )}
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0" disabled={user.id === adminUser?.id}>
+                            <span className="sr-only">Abrir menu</span>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Ações</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => handleOpenForm(user)}>Editar Função</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleSendPasswordReset(user.email)}>Redefinir Senha</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive" onClick={() => setDeletingUser(user)}>Excluir Usuário</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
                   </TableRow>
                 ))
               ) : (
-                <TableRow><TableCell colSpan={role === 'admin' ? 5 : 4} className="text-center">Nenhum usuário encontrado.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center">Nenhum usuário encontrado.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      {/* Modal de Adicionar/Editar Usuário */}
+      {/* Modal de Editar Função */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingUser ? 'Editar Usuário' : 'Convidar Novo Usuário'}</DialogTitle>
+            <DialogTitle>Editar Função do Usuário</DialogTitle>
             <DialogDescription>
-              {editingUser ? 'Altere a função do usuário.' : 'Envie um convite por e-mail para um novo membro se juntar ao seu workspace.'}
+              Altere a função de <strong>{editingUser?.email}</strong> no workspace dele.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-4">
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" {...register("email")} disabled={!!editingUser} />
-              {errors.email && <p className="text-destructive text-sm mt-1">{errors.email.message}</p>}
-            </div>
             <div>
               <Label htmlFor="role">Função</Label>
               <Controller
@@ -213,7 +204,7 @@ const SaasUsersPage: React.FC = () => {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsFormOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Salvando...' : 'Salvar'}</Button>
+              <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Salvando...' : 'Salvar Alterações'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -225,7 +216,7 @@ const SaasUsersPage: React.FC = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação não pode ser desfeita. Isso irá remover permanentemente o usuário <strong>{deletingUser?.email}</strong> do seu workspace e de todo o sistema.
+              Esta ação não pode ser desfeita. Isso irá remover permanentemente o usuário <strong>{deletingUser?.email}</strong> de todo o sistema.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
