@@ -42,7 +42,7 @@ export const useAssistantState = (embedWorkspaceId?: string) => {
   }, []);
 
   useEffect(() => {
-    const determineWorkspace = async () => {
+    const determineWorkspace = () => {
       // Se for um script embedado, use o ID fornecido.
       if (embedWorkspaceId) {
         setCurrentWorkspaceId(embedWorkspaceId);
@@ -53,19 +53,10 @@ export const useAssistantState = (embedWorkspaceId?: string) => {
         setCurrentWorkspaceId(sessionWorkspace.id);
         return;
       }
-      // Se for público/anônimo, busque o workspace padrão (o primeiro criado).
-      const { data, error } = await supabase
-        .from('workspaces')
-        .select('id')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .single();
-      
-      if (error) {
-        showError("Não foi possível encontrar um workspace padrão.");
-      } else {
-        setCurrentWorkspaceId(data.id);
-      }
+      // Se for público/anônimo e sem ID de embed, não faz nada.
+      // Isso corrige o erro que ocorria na página de login.
+      setCurrentWorkspaceId(null);
+      setIsLoading(false);
     };
 
     determineWorkspace();
