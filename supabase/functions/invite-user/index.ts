@@ -22,7 +22,13 @@ serve(async (req) => {
       throw new Error("Email, workspace ID, and role are required.");
     }
 
-    const { data, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email);
+    // Define a URL de redirecionamento para a página de criação de senha
+    const redirectTo = 'https://assistenteia.intrategica.com.br/update-password';
+
+    const { data, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      email,
+      { redirectTo: redirectTo } // Adiciona a opção de redirecionamento aqui
+    );
     if (inviteError) throw inviteError;
 
     const { error: memberError } = await supabaseAdmin
