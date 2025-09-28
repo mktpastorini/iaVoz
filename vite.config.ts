@@ -29,11 +29,16 @@ export default defineConfig(() => ({
         widget: resolve(__dirname, 'src/widget.tsx'),
       },
       output: {
+        // Garante que o entry point 'widget' sempre seja gerado como 'assets/widget.js'
         entryFileNames: (chunkInfo) => {
-          return chunkInfo.name === 'widget' ? 'assets/widget.js' : 'assets/[name]-[hash].js';
+          if (chunkInfo.name === 'widget') {
+            return 'assets/widget.js';
+          }
+          // Outros entry points (como o 'main') continuarão com hash para cache busting
+          return 'assets/[name].[hash].js';
         },
-        assetFileNames: 'assets/[name]-[hash][extname]',
-        chunkFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name].[hash].js',
+        assetFileNames: 'assets/[name].[hash].[extname]',
       }
     }
   }

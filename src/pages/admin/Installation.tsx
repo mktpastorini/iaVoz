@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Copy } from 'lucide-react';
+import { Copy, Info } from 'lucide-react';
 import { showSuccess } from '@/utils/toast';
 
 const InstallationPage: React.FC = () => {
@@ -16,9 +16,7 @@ const InstallationPage: React.FC = () => {
     return <div>Carregando informações do workspace...</div>;
   }
 
-  // ATENÇÃO: Substitua 'https://SUA_URL_AQUI' pela URL real da sua aplicação em produção.
   const appUrl = "https://assistenteia.intrategica.com.br"; 
-  
   const widgetScriptUrl = `${appUrl}/assets/widget.js`;
 
   const embedCode = `<!-- Container para o Assistente IAM -->
@@ -63,9 +61,12 @@ const InstallationPage: React.FC = () => {
               </Button>
             </div>
           </div>
-          <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-md text-yellow-800">
-            <p className="font-semibold">Importante:</p>
-            <p>Este código é único para o seu workspace. Não o compartilhe.</p>
+          <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md text-blue-800 dark:text-blue-300 flex items-start gap-3">
+            <Info className="h-5 w-5 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">Nota:</p>
+              <p>Após instalar o script, pode ser necessário limpar o cache do seu navegador ou aguardar alguns minutos para que as alterações no assistente apareçam no seu site.</p>
+            </div>
           </div>
         </CardContent>
       </Card>
