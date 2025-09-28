@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { showError } from '@/utils/toast';
@@ -37,72 +37,72 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [profile, setProfile] = useState<Profile | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [role, setRole] = useState<'admin' | 'member' | null>(null);
-  const [loading, setLoading] = useState(true); // Inicia como true
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  const lastUserIdRef = useRef<string | null>(null);
+  const fetchUserData = useCallback(async (currentUser: User | null) => {
+    if (!currentUser) {
+      setProfile(null);
+      setWorkspace(null);
+      setRole(null);
+      return;
+    }
+
+    const { data: profileData, error: profileError } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
+    if (profileError && profileError.code !== 'PGRST116') {
+      console.error("Profile fetch error:", profileError);
+    }
+    setProfile(profileData);
+
+    const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', { p_user_id: currentUser.id });
+    if (workspaceError) {
+      showError('Erro ao garantir workspace.');
+      setWorkspace(null);
+    } else {
+      setWorkspace(workspaceData);
+      if (workspaceData) {
+        const { data: memberData } = await supabase
+          .from('workspace_members')
+          .select('role')
+          .eq('user_id', currentUser.id)
+          .eq('workspace_id', workspaceData.id)
+          .single();
+        setRole(memberData?.role as 'admin' | 'member' || null);
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    // 1. Pega a sessão inicial para saber o estado de carregamento
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      setSession(initialSession);
-      setUser(initialSession?.user ?? null);
-      setLoading(false); // O carregamento inicial está completo
-    });
+    const handleAuthChange = async (_event: string, currentSession: Session | null) => {
+      setSession(currentSession);
+      const currentUser = currentSession?.user ?? null;
+      setUser(currentUser);
 
-    // 2. Ouve por mudanças na autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (_event === 'PASSWORD_RECOVERY') {
         navigate('/update-password', { replace: true });
       }
-      setSession(session);
-      setUser(session?.user ?? null);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [navigate]);
-
-  useEffect(() => {
-    // 3. Busca os dados do usuário APENAS quando a sessão for válida
-    const fetchUserData = async () => {
-      if (session?.user) {
-        // Evita buscas repetidas para o mesmo usuário
-        if (session.user.id === lastUserIdRef.current) return;
-        lastUserIdRef.current = session.user.id;
-
-        const { data: profileData } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-        setProfile(profileData);
-
-        const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', { p_user_id: session.user.id });
-        if (workspaceError) {
-          showError('Erro ao garantir workspace.');
-          setWorkspace(null);
-        } else {
-          setWorkspace(workspaceData);
-          if (workspaceData) {
-            const { data: memberData } = await supabase
-              .from('workspace_members')
-              .select('role')
-              .eq('user_id', session.user.id)
-              .eq('workspace_id', workspaceData.id)
-              .single();
-            setRole(memberData?.role as 'admin' | 'member' || null);
-          }
-        }
-      } else {
-        // Limpa os dados se não houver sessão
-        lastUserIdRef.current = null;
-        setProfile(null);
-        setWorkspace(null);
-        setRole(null);
-      }
+      
+      // Busca os dados sempre que a autenticação mudar
+      await fetchUserData(currentUser);
     };
 
-    // Não executa a busca se ainda estiver no carregamento inicial
-    if (!loading) {
-      fetchUserData();
-    }
-  }, [session, loading]); // Depende da sessão e do estado de carregamento
+    // Configura o listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthChange);
+
+    // Busca a sessão inicial e os dados do usuário
+    const initializeSession = async () => {
+      const { data: { session: initialSession } } = await supabase.auth.getSession();
+      setSession(initialSession);
+      const initialUser = initialSession?.user ?? null;
+      setUser(initialUser);
+      await fetchUserData(initialUser);
+      setLoading(false); // Marca o fim do carregamento inicial
+    };
+
+    initializeSession();
+
+    return () => subscription.unsubscribe();
+  }, [navigate, fetchUserData]);
 
   return (
     <SessionContext.Provider value={{ session, user, profile, workspace, role, loading }}>
