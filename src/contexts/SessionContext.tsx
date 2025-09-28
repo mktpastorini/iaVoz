@@ -41,7 +41,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const navigate = useNavigate();
 
   const fetchUserData = useCallback(async (currentUser: User) => {
-    // Busca os dados em paralelo para otimizar
     const [profileResult, workspaceResult] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', currentUser.id).single(),
       supabase.rpc('create_workspace_for_user', { p_user_id: currentUser.id })
@@ -73,31 +72,30 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   useEffect(() => {
     setLoading(true);
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false); // Mark loading as false once session is determined
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+
+      if (currentUser) {
+        await fetchUserData(currentUser);
+      } else {
+        setProfile(null);
+        setWorkspace(null);
+        setRole(null);
+      }
 
       if (event === 'PASSWORD_RECOVERY') {
         navigate('/update-password', { replace: true });
       }
+      
+      setLoading(false);
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [navigate]);
-
-  useEffect(() => {
-    if (user && !loading) {
-      fetchUserData(user);
-    } else if (!user && !loading) {
-      // Clear user data if user logs out
-      setProfile(null);
-      setWorkspace(null);
-      setRole(null);
-    }
-  }, [user, loading, fetchUserData]);
+  }, [navigate, fetchUserData]);
 
   return (
     <SessionContext.Provider value={{ session, user, profile, workspace, role, loading }}>
