@@ -6,7 +6,7 @@ import { useSession } from '@/contexts/SessionContext';
 import { showError } from '@/utils/toast';
 
 export const useAssistantState = (embedWorkspaceId?: string) => {
-  const { workspace: sessionWorkspace } = useSession();
+  const { workspace: sessionWorkspace, loading: sessionLoading } = useSession();
   const [settings, setSettings] = useState<any>(null);
   const [powers, setPowers] = useState<any[]>([]);
   const [clientActions, setClientActions] = useState<any[]>([]);
@@ -42,31 +42,21 @@ export const useAssistantState = (embedWorkspaceId?: string) => {
   }, []);
 
   useEffect(() => {
-    const determineWorkspace = () => {
-      // Se for um script embedado, use o ID fornecido.
-      if (embedWorkspaceId) {
-        setCurrentWorkspaceId(embedWorkspaceId);
-        return;
-      }
-      // Se o usuário estiver logado, use o workspace da sessão.
-      if (sessionWorkspace) {
-        setCurrentWorkspaceId(sessionWorkspace.id);
-        return;
-      }
-      // Se for público/anônimo e sem ID de embed, não faz nada.
-      // Isso corrige o erro que ocorria na página de login.
-      setCurrentWorkspaceId(null);
-      setIsLoading(false);
-    };
-
-    determineWorkspace();
-  }, [embedWorkspaceId, sessionWorkspace]);
+    // Só toma uma decisão quando a sessão não estiver mais carregando
+    if (!sessionLoading) {
+      const workspaceIdToUse = embedWorkspaceId || sessionWorkspace?.id || null;
+      setCurrentWorkspaceId(workspaceIdToUse);
+    }
+  }, [embedWorkspaceId, sessionWorkspace, sessionLoading]);
 
   useEffect(() => {
     if (currentWorkspaceId) {
       fetchAllAssistantData(currentWorkspaceId);
+    } else if (!sessionLoading) {
+      // Se não houver workspaceId e a sessão já foi verificada, para de carregar.
+      setIsLoading(false);
     }
-  }, [currentWorkspaceId, fetchAllAssistantData]);
+  }, [currentWorkspaceId, fetchAllAssistantData, sessionLoading]);
 
   return {
     settings,
