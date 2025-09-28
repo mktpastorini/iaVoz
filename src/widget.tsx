@@ -23,7 +23,7 @@ const App = ({ workspaceId }: { workspaceId: string }) => (
 
 function renderWidget() {
   const widgetDiv = document.getElementById('iam-assistant-widget');
-  const scriptTag = document.currentScript;
+  const scriptTag = document.getElementById('iam-assistant-script');
   
   if (widgetDiv && scriptTag) {
     const workspaceId = scriptTag.getAttribute('data-workspace-id');
@@ -39,7 +39,7 @@ function renderWidget() {
     }
   } else {
     if (!widgetDiv) console.error("IAM Assistant: Could not find the div with id 'iam-assistant-widget'.");
-    if (!scriptTag) console.error("IAM Assistant: Could not find the script tag to read configuration.");
+    if (!scriptTag) console.error("IAM Assistant: Could not find the script tag with id 'iam-assistant-script' to read configuration.");
   }
 }
 

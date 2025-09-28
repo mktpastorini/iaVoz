@@ -23,7 +23,7 @@ const InstallationPage: React.FC = () => {
 <div id="iam-assistant-widget"></div>
 
 <!-- Script para carregar o Assistente IAM -->
-<script type="module" src="${widgetScriptUrl}" data-workspace-id="${workspace.id}"></script>`;
+<script id="iam-assistant-script" type="module" src="${widgetScriptUrl}" data-workspace-id="${workspace.id}"></script>`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(embedCode);
