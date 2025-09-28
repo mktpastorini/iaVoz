@@ -52,9 +52,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     loadSessionAndUser();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-      console.log('[DEBUG] Auth event:', event);
-      console.log('[DEBUG] Current session object:', currentSession);
-      
       setSession(currentSession);
       if (currentSession?.user?.id !== lastUserIdRef.current) {
         setUser(currentSession?.user || null);
@@ -62,7 +59,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
       // Handle saving Google tokens after OAuth sign-in
       if (event === 'SIGNED_IN' && currentSession?.provider_token) {
-        console.log('[DEBUG] SIGNED_IN event detected with provider token. Attempting to save tokens...');
         const { error: upsertError } = await supabase
           .from('user_google_tokens')
           .upsert({
@@ -73,13 +69,9 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
           });
 
         if (upsertError) {
-          console.error("[DEBUG] Error saving Google tokens:", upsertError);
+          console.error("Error saving Google tokens:", upsertError);
           showError("Não foi possível salvar a conexão com o Google.");
-        } else {
-          console.log('[DEBUG] Google tokens saved successfully!');
         }
-      } else if (event === 'SIGNED_IN') {
-        console.warn('[DEBUG] SIGNED_IN event detected, but provider_token is missing. Session:', currentSession);
       }
     });
 
