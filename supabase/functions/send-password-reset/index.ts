@@ -24,12 +24,9 @@ serve(async (req) => {
 
     const redirectTo = 'https://assistenteia.intrategica.com.br/update-password';
 
-    const { error } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'recovery',
-      email: email,
-      options: {
-        redirectTo: redirectTo
-      }
+    // CORREÇÃO: Usando a função correta que envia o e-mail.
+    const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
+      redirectTo: redirectTo,
     });
 
     if (error) throw error;
