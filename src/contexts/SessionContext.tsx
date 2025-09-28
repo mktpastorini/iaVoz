@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { showError } from '@/utils/toast';
+import { useNavigate } from 'react-router-dom'; // Importar useNavigate
 
 interface Profile {
   id: string;
@@ -24,8 +25,8 @@ interface SessionContextType {
   user: User | null;
   profile: Profile | null;
   workspace: Workspace | null;
-  role: 'admin' | 'member' | null; // Adicionando a role
-  loading: boolean; // Overall loading for the session context
+  role: 'admin' | 'member' | null;
+  loading: boolean;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -35,8 +36,9 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [role, setRole] = useState<'admin' | 'member' | null>(null); // Estado para a role
+  const [role, setRole] = useState<'admin' | 'member' | null>(null);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const navigate = useNavigate(); // Hook para navegação
 
   const lastUserIdRef = useRef<string | null>(null);
 
@@ -54,6 +56,12 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     loadSessionAndUser();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      // Se o evento for de recuperação de senha (que inclui convites),
+      // navega para a página de atualização de senha.
+      if (event === 'PASSWORD_RECOVERY') {
+        navigate('/update-password', { replace: true });
+      }
+
       setSession(currentSession);
       if (currentSession?.user?.id !== lastUserIdRef.current) {
         setUser(currentSession?.user || null);
@@ -77,7 +85,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -88,18 +96,15 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         }
         lastUserIdRef.current = user.id;
 
-        // Fetch Profile
         const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single();
         setProfile(profileData);
 
-        // Fetch Workspace
         const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', { p_user_id: user.id });
         if (workspaceError) {
           showError('Erro ao garantir workspace.');
           setWorkspace(null);
         } else {
           setWorkspace(workspaceData);
-          // Fetch Role after getting workspace
           if (workspaceData) {
             const { data: memberData, error: memberError } = await supabase
               .from('workspace_members')

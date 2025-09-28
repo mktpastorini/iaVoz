@@ -15,7 +15,7 @@ import UserDataFieldsPage from "./pages/admin/UserDataFields";
 import ClientsPage from "./pages/admin/Clients";
 import InstallationPage from "./pages/admin/Installation";
 import Login from "./pages/login";
-import UpdatePasswordPage from "./pages/UpdatePassword"; // Importando a nova página
+import UpdatePasswordPage from "./pages/UpdatePassword";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
 import React from "react";
@@ -35,7 +35,6 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 const AppContent = () => {
   const location = useLocation();
-  const { session } = useSession();
   const isAdminRoute = location.pathname.startsWith('/admin');
 
   return (
@@ -43,7 +42,7 @@ const AppContent = () => {
       <Routes>
         <Route path="/" element={<Index />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/update-password" element={<UpdatePasswordPage />} /> {/* Nova rota */}
+        <Route path="/update-password" element={<UpdatePasswordPage />} />
         <Route
           path="/admin"
           element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
@@ -62,7 +61,6 @@ const AppContent = () => {
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
-      {/* O assistente na home agora usará o workspace padrão ou o do admin logado */}
       {!isAdminRoute && <SophisticatedVoiceAssistant />}
     </>
   );
