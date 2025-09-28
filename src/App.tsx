@@ -13,13 +13,15 @@ import SystemPowersPage from "./pages/admin/SystemPowers";
 import ClientActionsPage from "./pages/admin/ClientActions";
 import UserDataFieldsPage from "./pages/admin/UserDataFields";
 import ClientsPage from "./pages/admin/Clients";
-import InstallationPage from "./pages/admin/Installation"; // Importar a nova página
+import InstallationPage from "./pages/admin/Installation";
 import Login from "./pages/login";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
 import React from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
+import SaasUsersPage from "./pages/admin/SaasUsers";
+import SaasFinancialPage from "./pages/admin/SaasFinancial";
 
 const queryClient = new QueryClient();
 
@@ -52,7 +54,9 @@ const AppContent = () => {
           <Route path="client-actions" element={<ClientActionsPage />} />
           <Route path="user-data-fields" element={<UserDataFieldsPage />} />
           <Route path="clients" element={<ClientsPage />} />
-          <Route path="installation" element={<InstallationPage />} /> {/* Adicionar a nova rota */}
+          <Route path="installation" element={<InstallationPage />} />
+          <Route path="saas/users" element={<SaasUsersPage />} />
+          <Route path="saas/financial" element={<SaasFinancialPage />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
