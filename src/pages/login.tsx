@@ -11,14 +11,11 @@ const LoginPage = () => {
   const { session, loading } = useSession();
   const navigate = useNavigate();
 
-  // Se a sessão já estiver carregada e existir, redireciona para o admin.
-  // Esta é a lógica correta para um usuário já logado que tenta acessar a página de login.
   if (!loading && session) {
     navigate("/admin", { replace: true });
-    return null; // Retorna null para evitar renderização enquanto redireciona
+    return null;
   }
 
-  // Se estiver carregando, não renderiza nada para evitar um flash da UI de login
   if (loading) {
     return null;
   }
@@ -36,14 +33,14 @@ const LoginPage = () => {
         <Auth
           supabaseClient={supabase}
           view="sign_in"
-          showLinks={false}
           providers={[]}
+          redirectTo="https://assistenteia.intrategica.com.br/admin"
           appearance={{
             theme: ThemeSupa,
             variables: {
               default: {
                 colors: {
-                  brand: "hsl(217, 91%, 60%)", // Azul brilhante para o botão
+                  brand: "hsl(217, 91%, 60%)",
                   brandAccent: "hsl(217, 91%, 70%)",
                   inputBackground: "rgba(0, 0, 0, 0.2)",
                   inputBorder: "hsl(240, 4%, 30%)",
@@ -81,6 +78,15 @@ const LoginPage = () => {
                 email_input_placeholder: "email@exemplo.com",
                 password_input_placeholder: "••••••••",
                 button_label: "Entrar",
+                link_text: "Não tem uma conta? Cadastre-se",
+              },
+              sign_up: {
+                email_label: "Seu E-mail",
+                password_label: "Crie uma Senha",
+                email_input_placeholder: "email@exemplo.com",
+                password_input_placeholder: "••••••••",
+                button_label: "Cadastrar",
+                link_text: "Já tem uma conta? Entre",
               },
             },
           }}
