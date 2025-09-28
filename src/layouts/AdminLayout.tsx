@@ -119,23 +119,23 @@ const AdminLayout: React.FC = () => {
             </ul>
           </nav>
         </div>
-        <div className="mt-auto">
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-sidebar-foreground dark:text-sidebar-foreground hover:bg-sidebar-accent dark:hover:bg-sidebar-accent hover:text-sidebar-accent-foreground dark:hover:text-sidebar-accent-foreground"
-            onClick={handleLogout}
-          >
-            <LogOut className="mr-3 h-5 w-5" />
-            Sair
-          </Button>
-        </div>
       </aside>
       <main className="flex-1 flex flex-col">
         <header className="flex items-center justify-end p-4 border-b bg-white dark:bg-gray-900">
           {user && (
-            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
-              <User className="h-4 w-4" />
-              <span>{user.email}</span>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
+                <User className="h-4 w-4" />
+                <span>{user.email}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLogout}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Sair
+              </Button>
             </div>
           )}
         </header>
