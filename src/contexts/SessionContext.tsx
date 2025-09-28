@@ -40,14 +40,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  const fetchUserData = useCallback(async (currentUser: User | null) => {
-    if (!currentUser) {
-      setProfile(null);
-      setWorkspace(null);
-      setRole(null);
-      return;
-    }
-
+  const fetchUserData = useCallback(async (currentUser: User) => {
     // Busca os dados em paralelo para otimizar
     const [profileResult, workspaceResult] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', currentUser.id).single(),
@@ -80,28 +73,31 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   useEffect(() => {
     setLoading(true);
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
+      setUser(session?.user ?? null);
+      setLoading(false); // Mark loading as false once session is determined
 
       if (event === 'PASSWORD_RECOVERY') {
         navigate('/update-password', { replace: true });
-      }
-
-      // Busca os dados do usuário sempre que a sessão mudar (incluindo a carga inicial)
-      await fetchUserData(currentUser);
-
-      // Considera o carregamento concluído após o primeiro evento ser processado
-      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-        setLoading(false);
       }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [navigate, fetchUserData]);
+  }, [navigate]);
+
+  useEffect(() => {
+    if (user && !loading) {
+      fetchUserData(user);
+    } else if (!user && !loading) {
+      // Clear user data if user logs out
+      setProfile(null);
+      setWorkspace(null);
+      setRole(null);
+    }
+  }, [user, loading, fetchUserData]);
 
   return (
     <SessionContext.Provider value={{ session, user, profile, workspace, role, loading }}>
