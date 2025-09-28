@@ -33,6 +33,15 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+// Novo componente para rotas exclusivas de administradores
+const AdminOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { role, loading } = useSession();
+  if (loading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+  // Se não for admin, redireciona para a página principal do painel
+  if (role !== 'admin') return <Navigate to="/admin" replace />;
+  return <>{children}</>;
+};
+
 const AppContent = () => {
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
@@ -56,8 +65,9 @@ const AppContent = () => {
           <Route path="user-data-fields" element={<UserDataFieldsPage />} />
           <Route path="clients" element={<ClientsPage />} />
           <Route path="installation" element={<InstallationPage />} />
-          <Route path="saas/users" element={<SaasUsersPage />} />
-          <Route path="saas/financial" element={<SaasFinancialPage />} />
+          {/* Protegendo as rotas SaaS */}
+          <Route path="saas/users" element={<AdminOnlyRoute><SaasUsersPage /></AdminOnlyRoute>} />
+          <Route path="saas/financial" element={<AdminOnlyRoute><SaasFinancialPage /></AdminOnlyRoute>} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

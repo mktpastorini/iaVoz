@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { MoreHorizontal, PlusCircle, UserPlus } from 'lucide-react';
+import { MoreHorizontal, UserPlus } from 'lucide-react';
 
 import { useSession } from '@/contexts/SessionContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -40,7 +40,7 @@ const userSchema = z.object({
 type UserFormData = z.infer<typeof userSchema>;
 
 const SaasUsersPage: React.FC = () => {
-  const { workspace, user: adminUser } = useSession();
+  const { workspace, user: adminUser, role } = useSession(); // Adicionando role
   const [users, setUsers] = useState<SaasUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -122,9 +122,11 @@ const SaasUsersPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Gerenciamento de Usuários</h1>
-        <Button onClick={() => handleOpenForm(null)}>
-          <UserPlus className="mr-2 h-4 w-4" /> Adicionar Usuário
-        </Button>
+        {role === 'admin' && ( // Apenas admin pode adicionar
+          <Button onClick={() => handleOpenForm(null)}>
+            <UserPlus className="mr-2 h-4 w-4" /> Adicionar Usuário
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -137,12 +139,12 @@ const SaasUsersPage: React.FC = () => {
                 <TableHead>Email</TableHead>
                 <TableHead>Função</TableHead>
                 <TableHead>Data de Entrada</TableHead>
-                <TableHead><span className="sr-only">Ações</span></TableHead>
+                {role === 'admin' && <TableHead><span className="sr-only">Ações</span></TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={5} className="text-center">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={role === 'admin' ? 5 : 4} className="text-center">Carregando...</TableCell></TableRow>
               ) : users.length > 0 ? (
                 users.map((user) => (
                   <TableRow key={user.id}>
@@ -150,25 +152,27 @@ const SaasUsersPage: React.FC = () => {
                     <TableCell>{user.email}</TableCell>
                     <TableCell><Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>{user.role}</Badge></TableCell>
                     <TableCell>{format(new Date(user.created_at), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0" disabled={user.id === adminUser?.id}>
-                            <span className="sr-only">Abrir menu</span>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Ações</DropdownMenuLabel>
-                          <DropdownMenuItem onClick={() => handleOpenForm(user)}>Editar</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive" onClick={() => setDeletingUser(user)}>Excluir</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+                    {role === 'admin' && (
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0" disabled={user.id === adminUser?.id}>
+                              <span className="sr-only">Abrir menu</span>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Ações</DropdownMenuLabel>
+                            <DropdownMenuItem onClick={() => handleOpenForm(user)}>Editar</DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive" onClick={() => setDeletingUser(user)}>Excluir</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               ) : (
-                <TableRow><TableCell colSpan={5} className="text-center">Nenhum usuário encontrado.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={role === 'admin' ? 5 : 4} className="text-center">Nenhum usuário encontrado.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
