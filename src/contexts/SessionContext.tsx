@@ -44,18 +44,14 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-      // Prioridade máxima: se for um evento de recuperação/convite, força o redirecionamento.
       if (event === 'PASSWORD_RECOVERY') {
         navigate('/update-password', { replace: true });
-        // Define a sessão para que a página de senha não reclame, mas não continua o fluxo normal.
         setSession(currentSession);
         return;
       }
 
       setSession(currentSession);
-      if (currentSession?.user?.id !== lastUserIdRef.current) {
-        setUser(currentSession?.user || null);
-      }
+      setUser(currentSession?.user || null);
 
       if (event === 'SIGNED_IN' && currentSession?.provider_token) {
         const { error: upsertError } = await supabase
@@ -74,11 +70,10 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       }
     });
 
-    // Verifica a sessão inicial para lidar com o primeiro carregamento da página
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
       setSession(initialSession);
       setUser(initialSession?.user || null);
-      setInitialLoadComplete(true); // Marca que o carregamento inicial terminou
+      setInitialLoadComplete(true);
     });
 
     return () => subscription.unsubscribe();
