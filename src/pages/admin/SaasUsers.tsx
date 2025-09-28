@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { MoreHorizontal, UserPlus } from 'lucide-react';
+import { MoreHorizontal } from 'lucide-react';
 
 import { useSession } from '@/contexts/SessionContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,9 +19,8 @@ import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface SaasUser {
   id: string;
@@ -34,7 +33,6 @@ interface SaasUser {
 }
 
 const userSchema = z.object({
-  email: z.string().email("Por favor, insira um e-mail válido."),
   role: z.enum(['admin', 'member'], { required_error: "A função é obrigatória." }),
 });
 
@@ -48,12 +46,12 @@ const SaasUsersPage: React.FC = () => {
   const [editingUser, setEditingUser] = useState<SaasUser | null>(null);
   const [deletingUser, setDeletingUser] = useState<SaasUser | null>(null);
 
-  const { control, register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<UserFormData>({
+  const { control, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<UserFormData>({
     resolver: zodResolver(userSchema),
   });
 
   const fetchUsers = useCallback(async () => {
-    if (role !== 'admin') return; // Apenas admins podem buscar todos os usuários
+    if (role !== 'admin') return;
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('list-all-saas-users');
@@ -71,13 +69,14 @@ const SaasUsersPage: React.FC = () => {
   }, [fetchUsers]);
 
   const handleOpenForm = (user: SaasUser | null) => {
+    if (!user) return;
     setEditingUser(user);
-    reset(user ? { email: user.email, role: user.role } : { email: '', role: 'member' });
+    reset({ role: user.role });
     setIsFormOpen(true);
   };
 
   const onSubmit = async (formData: UserFormData) => {
-    if (!editingUser) return; // Apenas edição de função é suportada aqui
+    if (!editingUser) return;
     try {
       const { error } = await supabase.functions.invoke('update-user-role', {
         body: { user_id: editingUser.id, workspace_id: editingUser.workspace_id, role: formData.role },
@@ -122,7 +121,6 @@ const SaasUsersPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Gerenciamento de Usuários</h1>
-        {/* O botão de adicionar agora é o formulário de cadastro na página de login */}
       </div>
 
       <Card>
@@ -175,7 +173,6 @@ const SaasUsersPage: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Modal de Editar Função */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent>
           <DialogHeader>
@@ -210,7 +207,6 @@ const SaasUsersPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Alerta de Exclusão */}
       <AlertDialog open={!!deletingUser} onOpenChange={() => setDeletingUser(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
