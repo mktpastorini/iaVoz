@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { showError } from '@/utils/toast';
-import { useNavigate } from 'react-router-dom'; // Importar useNavigate
+import { useNavigate } from 'react-router-dom';
 
 interface Profile {
   id: string;
@@ -38,28 +38,18 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [role, setRole] = useState<'admin' | 'member' | null>(null);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
-  const navigate = useNavigate(); // Hook para navegação
+  const navigate = useNavigate();
 
   const lastUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const loadSessionAndUser = async () => {
-      const { data: { session: initialSession }, error } = await supabase.auth.getSession();
-      if (error) {
-        console.error('Error fetching initial session:', error);
-        showError('Erro ao carregar sessão inicial.');
-      }
-      setSession(initialSession);
-      setUser(initialSession?.user || null);
-    };
-
-    loadSessionAndUser();
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-      // Se o evento for de recuperação de senha (que inclui convites),
-      // navega para a página de atualização de senha.
+      // Prioridade máxima: se for um evento de recuperação/convite, força o redirecionamento.
       if (event === 'PASSWORD_RECOVERY') {
         navigate('/update-password', { replace: true });
+        // Define a sessão para que a página de senha não reclame, mas não continua o fluxo normal.
+        setSession(currentSession);
+        return;
       }
 
       setSession(currentSession);
@@ -84,16 +74,20 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       }
     });
 
+    // Verifica a sessão inicial para lidar com o primeiro carregamento da página
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      setSession(initialSession);
+      setUser(initialSession?.user || null);
+      setInitialLoadComplete(true); // Marca que o carregamento inicial terminou
+    });
+
     return () => subscription.unsubscribe();
   }, [navigate]);
 
   useEffect(() => {
     const fetchUserData = async () => {
       if (user && user.id) {
-        if (user.id === lastUserIdRef.current) {
-          setInitialLoadComplete(true);
-          return;
-        }
+        if (user.id === lastUserIdRef.current) return;
         lastUserIdRef.current = user.id;
 
         const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single();
@@ -127,13 +121,12 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         setWorkspace(null);
         setRole(null);
       }
-      setInitialLoadComplete(true);
     };
 
-    if (user !== undefined) {
+    if (initialLoadComplete) {
       fetchUserData();
     }
-  }, [user]);
+  }, [user, initialLoadComplete]);
 
   const loading = !initialLoadComplete;
 
