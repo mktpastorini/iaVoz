@@ -17,9 +17,19 @@ services:
       - sh
       - -c
       - |
+        apk add --no-cache git &&
         npm install -g pnpm &&
-        pnpm install &&
+        echo 'Limpando diretório...' &&
+        rm -rf /app/* &&
+        rm -rf /app/.* 2>/dev/null || true &&
+        echo 'Clonando repositório...' &&
+        git clone --depth=1 https://github.com/mktpastorini/iaVoz.git . &&
+        rm -rf .git &&
+        echo 'Instalando dependências com pnpm...' &&
+        pnpm install --frozen-lockfile &&
+        echo 'Buildando aplicação para produção...' &&
         pnpm run build &&
+        echo 'Iniciando servidor de produção...' &&
         pnpm preview --host 0.0.0.0 --port 8080
     deploy:
       mode: replicated
