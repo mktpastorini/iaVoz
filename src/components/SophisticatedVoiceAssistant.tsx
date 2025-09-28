@@ -64,7 +64,7 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string, altText:
 );
 
 const SophisticatedVoiceAssistant = () => {
-  const { session } = useSession();
+  const { session, workspace } = useSession();
   const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
   const isMobile = useIsMobile();
@@ -129,22 +129,26 @@ const SophisticatedVoiceAssistant = () => {
   useEffect(() => { accumulatedTranscriptRef.current = accumulatedTranscript; }, [accumulatedTranscript]);
 
   const fetchAllAssistantData = useCallback(async () => {
+    if (!workspace?.id) {
+      setIsLoading(false);
+      return null;
+    }
     setIsLoading(true);
     try {
-      const { data: settingsData } = await supabase.from("settings").select("*").order('created_at', { ascending: true }).limit(1).single();
+      const { data: settingsData } = await supabase.from("settings").select("*").eq("workspace_id", workspace.id).single();
       setSettings(settingsData);
-      const { data: powersData } = await supabase.from("powers").select("*");
+      const { data: powersData } = await supabase.from("powers").select("*").eq("workspace_id", workspace.id);
       setPowers(powersData || []);
-      const { data: actionsData } = await supabase.from("client_actions").select("*");
+      const { data: actionsData } = await supabase.from("client_actions").select("*").eq("workspace_id", workspace.id);
       setClientActions(actionsData || []);
       return settingsData;
     } catch (error) {
-      showError("Erro ao carregar dados do assistente.");
+      showError("Erro ao carregar dados do assistente para o seu workspace.");
       return null;
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [workspace]);
 
   const stopListening = useCallback(() => {
     if (settingsRef.current?.streaming_stt_provider === 'deepgram') {

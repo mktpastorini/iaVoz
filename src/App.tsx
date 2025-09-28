@@ -32,6 +32,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 // Componente interno para ter acesso ao contexto do Router (useLocation)
 const AppContent = () => {
   const location = useLocation();
+  const { session } = useSession();
   const isAdminRoute = location.pathname.startsWith('/admin');
 
   return (
@@ -54,7 +55,7 @@ const AppContent = () => {
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
-      {!isAdminRoute && <SophisticatedVoiceAssistant />}
+      {session && !isAdminRoute && <SophisticatedVoiceAssistant />}
     </>
   );
 };
