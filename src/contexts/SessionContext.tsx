@@ -48,13 +48,19 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       return;
     }
 
-    const { data: profileData, error: profileError } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
+    // Busca os dados em paralelo para otimizar
+    const [profileResult, workspaceResult] = await Promise.all([
+      supabase.from('profiles').select('*').eq('id', currentUser.id).single(),
+      supabase.rpc('create_workspace_for_user', { p_user_id: currentUser.id })
+    ]);
+
+    const { data: profileData, error: profileError } = profileResult;
     if (profileError && profileError.code !== 'PGRST116') {
       console.error("Profile fetch error:", profileError);
     }
     setProfile(profileData);
 
-    const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', { p_user_id: currentUser.id });
+    const { data: workspaceData, error: workspaceError } = workspaceResult;
     if (workspaceError) {
       showError('Erro ao garantir workspace.');
       setWorkspace(null);
@@ -73,35 +79,40 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   }, []);
 
   useEffect(() => {
-    const handleAuthChange = async (_event: string, currentSession: Session | null) => {
-      setSession(currentSession);
-      const currentUser = currentSession?.user ?? null;
-      setUser(currentUser);
-
-      if (_event === 'PASSWORD_RECOVERY') {
-        navigate('/update-password', { replace: true });
+    const initializeAndListen = async () => {
+      // 1. Pega a sessão inicial
+      const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        console.error("Error getting initial session:", sessionError);
+        setLoading(false);
+        return;
       }
-      
-      // Busca os dados sempre que a autenticação mudar
-      await fetchUserData(currentUser);
-    };
 
-    // Configura o listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthChange);
-
-    // Busca a sessão inicial e os dados do usuário
-    const initializeSession = async () => {
-      const { data: { session: initialSession } } = await supabase.auth.getSession();
+      // 2. Define o estado inicial e busca os dados do usuário
       setSession(initialSession);
       const initialUser = initialSession?.user ?? null;
       setUser(initialUser);
       await fetchUserData(initialUser);
-      setLoading(false); // Marca o fim do carregamento inicial
+      setLoading(false); // O carregamento inicial está completo
+
+      // 3. Ouve por mudanças futuras na autenticação
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, currentSession) => {
+        setSession(currentSession);
+        const currentUser = currentSession?.user ?? null;
+        setUser(currentUser);
+
+        if (_event === 'PASSWORD_RECOVERY') {
+          navigate('/update-password', { replace: true });
+        } else {
+          // Busca os dados novamente sempre que a sessão mudar
+          await fetchUserData(currentUser);
+        }
+      });
+
+      return () => subscription.unsubscribe();
     };
 
-    initializeSession();
-
-    return () => subscription.unsubscribe();
+    initializeAndListen();
   }, [navigate, fetchUserData]);
 
   return (
