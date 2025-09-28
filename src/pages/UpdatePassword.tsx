@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -11,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { KeyRound } from "lucide-react";
+import { useSession } from "@/contexts/SessionContext";
 
 const passwordSchema = z.object({
   password: z.string().min(8, "A senha deve ter pelo menos 8 caracteres."),
@@ -24,6 +26,8 @@ type PasswordFormData = z.infer<typeof passwordSchema>;
 
 const UpdatePasswordPage = () => {
   const navigate = useNavigate();
+  const { session, loading } = useSession(); // Usando o hook de sessão
+
   const {
     register,
     handleSubmit,
@@ -32,7 +36,24 @@ const UpdatePasswordPage = () => {
     resolver: zodResolver(passwordSchema),
   });
 
+  // Efeito para verificar se o usuário chegou aqui sem um token válido
+  useEffect(() => {
+    if (!loading && !session) {
+      // Atraso para dar tempo ao toast de aparecer antes do redirecionamento
+      setTimeout(() => {
+        showError("Sessão inválida. Por favor, use o link do seu e-mail.");
+        navigate("/login", { replace: true });
+      }, 500);
+    }
+  }, [session, loading, navigate]);
+
   const onSubmit = async (data: PasswordFormData) => {
+    // Verificação final para garantir que a sessão existe antes de enviar
+    if (!session) {
+      showError("Sua sessão de autenticação não foi encontrada. Por favor, tente novamente a partir do link no seu e-mail.");
+      return;
+    }
+
     const { error } = await supabase.auth.updateUser({
       password: data.password,
     });
@@ -44,6 +65,14 @@ const UpdatePasswordPage = () => {
       navigate("/admin", { replace: true });
     }
   };
+
+  if (loading || !session) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#0B022D] to-[#20053D] p-4">
+        <p className="text-white">Verificando sua sessão...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#0B022D] to-[#20053D] p-4">
@@ -79,7 +108,7 @@ const UpdatePasswordPage = () => {
             </div>
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" className="w-full" disabled={isSubmitting || loading}>
               {isSubmitting ? "Salvando..." : "Salvar e Acessar"}
             </Button>
           </CardFooter>
