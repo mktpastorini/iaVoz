@@ -24,6 +24,7 @@ interface SessionContextType {
   user: User | null;
   profile: Profile | null;
   workspace: Workspace | null;
+  role: 'admin' | 'member' | null; // Adicionando a role
   loading: boolean; // Overall loading for the session context
 }
 
@@ -34,6 +35,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [role, setRole] = useState<'admin' | 'member' | null>(null); // Estado para a role
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
 
   const lastUserIdRef = useRef<string | null>(null);
@@ -57,7 +59,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         setUser(currentSession?.user || null);
       }
 
-      // Handle saving Google tokens after OAuth sign-in
       if (event === 'SIGNED_IN' && currentSession?.provider_token) {
         const { error: upsertError } = await supabase
           .from('user_google_tokens')
@@ -87,45 +88,39 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         }
         lastUserIdRef.current = user.id;
 
-        try {
-          const { data: profileData, error: profileError, status } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
+        // Fetch Profile
+        const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+        setProfile(profileData);
 
-          if (profileError) {
-            if (profileError.code === 'PGRST116') {
-              setProfile(null);
-            } else {
-              console.error('Error fetching profile:', profileError, 'Status:', status);
-              showError('Erro ao carregar perfil.');
-              setProfile(null);
-            }
-          } else {
-            setProfile(profileData);
-          }
-        } catch (err) {
-          console.error('Unexpected error fetching profile:', err);
-          showError('Erro inesperado ao carregar perfil.');
-          setProfile(null);
-        }
-
-        const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', {
-          p_user_id: user.id,
-        });
-
+        // Fetch Workspace
+        const { data: workspaceData, error: workspaceError } = await supabase.rpc('create_workspace_for_user', { p_user_id: user.id });
         if (workspaceError) {
-          console.error('Error ensuring workspace:', workspaceError);
           showError('Erro ao garantir workspace.');
           setWorkspace(null);
         } else {
           setWorkspace(workspaceData);
+          // Fetch Role after getting workspace
+          if (workspaceData) {
+            const { data: memberData, error: memberError } = await supabase
+              .from('workspace_members')
+              .select('role')
+              .eq('user_id', user.id)
+              .eq('workspace_id', workspaceData.id)
+              .single();
+            
+            if (memberError) {
+              showError('Erro ao buscar a função do usuário.');
+              setRole(null);
+            } else {
+              setRole(memberData.role as 'admin' | 'member');
+            }
+          }
         }
       } else {
         lastUserIdRef.current = null;
         setProfile(null);
         setWorkspace(null);
+        setRole(null);
       }
       setInitialLoadComplete(true);
     };
@@ -138,7 +133,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const loading = !initialLoadComplete;
 
   return (
-    <SessionContext.Provider value={{ session, user, profile, workspace, loading }}>
+    <SessionContext.Provider value={{ session, user, profile, workspace, role, loading }}>
       {children}
     </SessionContext.Provider>
   );

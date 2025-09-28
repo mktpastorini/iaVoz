@@ -5,7 +5,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Settings, Zap, MessageSquare, SlidersHorizontal, 
   MousePointerClick, UserSquare, Users, LogOut, Code, 
-  Briefcase, DollarSign, ChevronDown 
+  Briefcase, DollarSign, ChevronDown, User 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -16,10 +16,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { useSession } from '@/contexts/SessionContext';
 
 const AdminLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, role } = useSession();
 
   const navItems = [
     { type: 'link', name: 'Configurações', path: '/admin/settings', icon: Settings },
@@ -76,7 +78,7 @@ const AdminLayout: React.FC = () => {
                     </li>
                   );
                 }
-                if (item.type === 'group') {
+                if (item.type === 'group' && role === 'admin') {
                   const isActive = item.paths.some(path => location.pathname.startsWith(path));
                   return (
                     <li key={item.name}>
@@ -128,8 +130,18 @@ const AdminLayout: React.FC = () => {
           </Button>
         </div>
       </aside>
-      <main className="flex-1 p-8">
-        <Outlet />
+      <main className="flex-1 flex flex-col">
+        <header className="flex items-center justify-end p-4 border-b bg-white dark:bg-gray-900">
+          {user && (
+            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
+              <User className="h-4 w-4" />
+              <span>{user.email}</span>
+            </div>
+          )}
+        </header>
+        <div className="flex-1 p-8 overflow-y-auto">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
