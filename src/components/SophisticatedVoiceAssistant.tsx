@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { showError } from "@/utils/toast";
-import { supabaseAnon } from "@/integrations/supabase/client";
+import { supabase, supabaseAnon } from "@/integrations/supabase/client";
+import { useSession } from "@/contexts/SessionContext";
 import { useSystem } from "@/contexts/SystemContext";
 import { replacePlaceholders } from "@/lib/utils";
 import { AudioVisualizer } from "./AudioVisualizer";
@@ -13,10 +14,14 @@ import { UrlIframeModal } from "./UrlIframeModal";
 import { MicrophonePermissionModal } from "./MicrophonePermissionModal";
 import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import Orb from "./Orb";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { createClient, LiveClient, LiveTranscriptionEvents } from "@deepgram/sdk";
-import { useAssistantState } from "@/hooks/useAssistantState";
 
-// As funções auxiliares de conversão de schema podem ser movidas para um arquivo utils/ai.ts no futuro
+const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
+const DEEPGRAM_TTS_API_URL = "https://api.deepgram.com/v1/speak";
+const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+
+// Funções de conversão de schema de ferramentas (OpenAI -> Gemini)
 const mapOpenAITypeToGemini = (type: string) => {
   const typeMap: { [key: string]: string } = { string: 'STRING', number: 'NUMBER', boolean: 'BOOLEAN', object: 'OBJECT', array: 'ARRAY' };
   return typeMap[type?.toLowerCase()] || 'STRING';
@@ -58,24 +63,22 @@ const ImageModal = ({ imageUrl, altText, onClose }: { imageUrl: string, altText:
   <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/80" onClick={onClose}><div className="relative max-w-4xl max-h-[80vh] p-4" onClick={(e) => e.stopPropagation()}><img src={imageUrl} alt={altText} className="w-full h-full object-contain rounded-lg" /><Button variant="destructive" size="icon" className="absolute top-6 right-6 rounded-full" onClick={onClose}><X className="h-4 w-4" /></Button></div></div>
 );
 
-interface SophisticatedVoiceAssistantProps {
-  embedWorkspaceId?: string;
-}
-
-const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = ({ embedWorkspaceId }) => {
+const SophisticatedVoiceAssistant = () => {
+  const { session } = useSession();
   const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
-  const {
-    settings, powers, clientActions, isLoading,
-    settingsRef, powersRef, clientActionsRef, fetchAllAssistantData
-  } = useAssistantState(embedWorkspaceId);
+  const isMobile = useIsMobile();
 
+  const [settings, setSettings] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [messageHistory, setMessageHistory] = useState<any[]>([]);
+  const [powers, setPowers] = useState<any[]>([]);
+  const [clientActions, setClientActions] = useState<any[]>([]);
   const [imageToShow, setImageToShow] = useState<any>(null);
   const [urlToOpenInIframe, setUrlToOpenInIframe] = useState<string | null>(null);
   const [micPermission, setMicPermission] = useState("checking");
@@ -84,11 +87,15 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const [audioIntensity, setAudioIntensity] = useState(0);
   const [accumulatedTranscript, setAccumulatedTranscript] = useState("");
 
+  const settingsRef = useRef(settings);
   const isOpenRef = useRef(isOpen);
   const isListeningRef = useRef(isListening);
   const isSpeakingRef = useRef(isSpeaking);
   const hasBeenActivatedRef = useRef(hasBeenActivated);
+  const powersRef = useRef(powers);
+  const clientActionsRef = useRef(clientActions);
   const systemVariablesRef = useRef(systemVariables);
+  const sessionRef = useRef(session);
   const messageHistoryRef = useRef(messageHistory);
   const recognitionRef = useRef<any>(null);
   const interruptRecognitionRef = useRef<any>(null);
@@ -98,6 +105,8 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const activationTriggerRef = useRef(0);
   const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const deepgramConnectionRef = useRef<LiveClient | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -107,13 +116,35 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const processingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumulatedTranscriptRef = useRef("");
 
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
+  useEffect(() => { powersRef.current = powers; }, [powers]);
+  useEffect(() => { clientActionsRef.current = clientActions; }, [clientActions]);
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
+  useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
   useEffect(() => { accumulatedTranscriptRef.current = accumulatedTranscript; }, [accumulatedTranscript]);
+
+  const fetchAllAssistantData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const { data: settingsData } = await supabase.from("settings").select("*").order('created_at', { ascending: true }).limit(1).single();
+      setSettings(settingsData);
+      const { data: powersData } = await supabase.from("powers").select("*");
+      setPowers(powersData || []);
+      const { data: actionsData } = await supabase.from("client_actions").select("*");
+      setClientActions(actionsData || []);
+      return settingsData;
+    } catch (error) {
+      showError("Erro ao carregar dados do assistente.");
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   const stopListening = useCallback(() => {
     if (settingsRef.current?.streaming_stt_provider === 'deepgram') {
@@ -182,7 +213,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
         utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
-        const response = await fetch("https://api.openai.com/v1/audio/speech", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }) });
+        const response = await fetch(OPENAI_TTS_API_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }) });
         if (!response.ok) throw new Error("Falha na API OpenAI TTS");
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
@@ -190,7 +221,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
         audioRef.current.onended = () => { onSpeechEnd(); URL.revokeObjectURL(audioUrl); };
         await audioRef.current.play();
       } else if (currentSettings.voice_model === "deepgram-tts" && currentSettings.deepgram_api_key) {
-        const response = await fetch(`https://api.deepgram.com/v1/speak?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
+        const response = await fetch(`${DEEPGRAM_TTS_API_URL}?model=${currentSettings.deepgram_tts_model}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Token ${currentSettings.deepgram_api_key}` }, body: JSON.stringify({ text }) });
         if (!response.ok) {
           const errorBody = await response.json().catch(() => ({ err_msg: `Request failed with status ${response.status}` }));
           const errorMessage = errorBody.err_msg || errorBody.reason || JSON.stringify(errorBody);
@@ -355,7 +386,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
           const secondReader = secondResponse.body!.getReader();
           let finalResponseText = "";
           while (true) {
-            const { done, value } = await reader.read();
+            const { done, value } = await secondReader.read();
             if (done) break;
             const chunk = decoder.decode(value);
             for (const line of chunk.split("\n")) {
@@ -390,13 +421,15 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
       runConversation(finalTranscript);
     } else {
       if (currentSettings.activation_phrases?.some((p: string) => finalTranscript.includes(p))) {
-        if (!currentSettings) return;
-        setIsOpen(true);
-        speak(hasBeenActivatedRef.current && currentSettings.continuation_phrase ? currentSettings.continuation_phrase : currentSettings.welcome_message);
-        setHasBeenActivated(true);
+        fetchAllAssistantData().then(s => {
+          if (!s) return;
+          setIsOpen(true);
+          speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message);
+          setHasBeenActivated(true);
+        });
       }
     }
-  }, [executeClientAction, runConversation, speak, stopSpeaking]);
+  }, [executeClientAction, runConversation, fetchAllAssistantData, speak, stopSpeaking]);
 
   const handleDeepgramTranscript = (transcript: string, isFinal: boolean) => {
     if (isFinal) {
@@ -517,16 +550,11 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const handleManualActivation = useCallback(() => {
     if (isOpenRef.current) return;
     if (micPermission !== "granted") checkAndRequestMicPermission();
-    else {
-      if (!settings) return;
-      setIsOpen(true);
-      speak(hasBeenActivatedRef.current && settings.continuation_phrase ? settings.continuation_phrase : settings.welcome_message);
-      setHasBeenActivated(true);
-    }
-  }, [micPermission, checkAndRequestMicPermission, speak, settings, hasBeenActivated]);
+    else fetchAllAssistantData().then(s => { if (!s) return; setIsOpen(true); speak(hasBeenActivatedRef.current && s.continuation_phrase ? s.continuation_phrase : s.welcome_message); setHasBeenActivated(true); });
+  }, [micPermission, checkAndRequestMicPermission, speak, fetchAllAssistantData]);
 
   useEffect(() => { if (activationTrigger > activationTriggerRef.current) { activationTriggerRef.current = activationTrigger; handleManualActivation(); } }, [activationTrigger, handleManualActivation]);
-  useEffect(() => { if (!isLoading) checkAndRequestMicPermission(); return () => { stopPermanentlyRef.current = true; stopListening(); stopSpeaking(); }; }, [isLoading, checkAndRequestMicPermission]);
+  useEffect(() => { fetchAllAssistantData().then(() => checkAndRequestMicPermission()); return () => { stopPermanentlyRef.current = true; stopListening(); stopSpeaking(); }; }, [fetchAllAssistantData, checkAndRequestMicPermission]);
 
   if (isLoading || !settings) return null;
 
@@ -540,7 +568,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
         <div className="absolute inset-0 -z-10 pointer-events-none"><Orb audioIntensity={audioIntensity} /></div>
         <div />
         <div className="text-center select-text pointer-events-auto max-w-2xl mx-auto w-full">
-          {aiResponse && <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)]"><p className="text-white text-xl md:text-3xl font-bold leading-tight drop-shadow-lg">{aiResponse}</p></div>}
+          {aiResponse && <div className="bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-xl p-6 shadow-[0_0_20px_rgba(0,255,255,0.1)]"><p className="text-white text-2xl md:text-4xl font-bold leading-tight drop-shadow-lg">{aiResponse}</p></div>}
           {transcript && <p className="text-gray-200 text-lg mt-4 drop-shadow-md">{transcript}</p>}
         </div>
         <div className="flex items-center justify-center gap-4 p-4 bg-[rgba(30,35,70,0.5)] backdrop-blur-lg border border-cyan-400/20 rounded-2xl shadow-[0_0_20px_rgba(0,255,255,0.1)] pointer-events-auto">

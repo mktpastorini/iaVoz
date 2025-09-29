@@ -13,16 +13,12 @@ import SystemPowersPage from "./pages/admin/SystemPowers";
 import ClientActionsPage from "./pages/admin/ClientActions";
 import UserDataFieldsPage from "./pages/admin/UserDataFields";
 import ClientsPage from "./pages/admin/Clients";
-import InstallationPage from "./pages/admin/Installation";
 import Login from "./pages/login";
-import UpdatePasswordPage from "./pages/UpdatePassword";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
 import { SystemContextProvider } from "./contexts/SystemContext";
 import React from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
-import SaasUsersPage from "./pages/admin/SaasUsers";
-import SaasFinancialPage from "./pages/admin/SaasFinancial";
 
 const queryClient = new QueryClient();
 
@@ -33,15 +29,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// Novo componente para rotas exclusivas de administradores
-const AdminOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { role, loading } = useSession();
-  if (loading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
-  // Se não for admin, redireciona para a página principal do painel
-  if (role !== 'admin') return <Navigate to="/admin" replace />;
-  return <>{children}</>;
-};
-
+// Componente interno para ter acesso ao contexto do Router (useLocation)
 const AppContent = () => {
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
@@ -51,7 +39,6 @@ const AppContent = () => {
       <Routes>
         <Route path="/" element={<Index />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/update-password" element={<UpdatePasswordPage />} />
         <Route
           path="/admin"
           element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}
@@ -64,10 +51,6 @@ const AppContent = () => {
           <Route path="client-actions" element={<ClientActionsPage />} />
           <Route path="user-data-fields" element={<UserDataFieldsPage />} />
           <Route path="clients" element={<ClientsPage />} />
-          <Route path="installation" element={<InstallationPage />} />
-          {/* Protegendo as rotas SaaS */}
-          <Route path="saas/users" element={<AdminOnlyRoute><SaasUsersPage /></AdminOnlyRoute>} />
-          <Route path="saas/financial" element={<AdminOnlyRoute><SaasFinancialPage /></AdminOnlyRoute>} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

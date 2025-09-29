@@ -23,8 +23,33 @@ services:
         rm -rf /app/* &&
         rm -rf /app/.* 2>/dev/null || true &&
         echo 'Clonando repositório...' &&
-        git clone --depth=1 https://github.com/mktpastorini/iaVoz.git . &&
+        git clone --depth=1 https://github.com/mktpastorini/assistente-poderes.git . &&
         rm -rf .git &&
+        echo 'Reescrevendo vite.config.ts...' &&
+        printf "%s\n" 'import { defineConfig } from "vite";' \
+        'import dyadComponentTagger from "@dyad-sh/react-vite-component-tagger";' \
+        'import react from "@vitejs/plugin-react-swc";' \
+        'import path from "path";' \
+        '' \
+        'export default defineConfig(() => ({' \
+        '  server: {' \
+        '    host: "::",' \
+        '    port: 8080,' \
+        '  },' \
+        '  preview: {' \
+        '    host: "::",' \
+        '    port: 8080,' \
+        '    allowedHosts: [' \
+        '      "assistenteia.intrategica.com.br"' \
+        '    ],' \
+        '  },' \
+        '  plugins: [dyadComponentTagger(), react()], ' \
+        '  resolve: { ' \
+        '    alias: { ' \
+        '      "@": path.resolve(__dirname, "./src"), ' \
+        '    }, ' \
+        '  }, ' \
+        '}));' > vite.config.ts &&
         echo 'Instalando dependências com pnpm...' &&
         pnpm install --frozen-lockfile &&
         echo 'Buildando aplicação para produção...' &&

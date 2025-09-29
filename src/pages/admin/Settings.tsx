@@ -23,7 +23,6 @@ import { showSuccess, showError } from "@/utils/toast";
 import { FieldInsertPopover } from "@/components/FieldInsertPopover";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
-import { GoogleIcon } from "@/components/icons/Google";
 
 interface UserDataField {
   id: string;
@@ -127,13 +126,12 @@ const ELEVENLABS_VOICES = [
 ];
 
 const SettingsPage: React.FC = () => {
-  const { workspace, user, loading } = useSession();
+  const { workspace, loading } = useSession();
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [userDataFields, setUserDataFields] = useState<UserDataField[]>([]);
   const [powers, setPowers] = useState<Power[]>([]);
   const [activationInput, setActivationInput] = useState("");
   const [deactivationInput, setDeactivationInput] = useState("");
-  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
 
   const systemPromptRef = useRef<HTMLTextAreaElement>(null);
   const assistantPromptRef = useRef<HTMLTextAreaElement>(null);
@@ -147,36 +145,6 @@ const SettingsPage: React.FC = () => {
   const sttProvider = watch("streaming_stt_provider");
   const activationPhrases = watch("activation_phrases");
   const deactivationPhrases = watch("deactivation_phrases");
-
-  useEffect(() => {
-    const checkGoogleConnection = async () => {
-      if (!user) return;
-      const { data } = await supabase.from('user_google_tokens').select('user_id').eq('user_id', user.id).single();
-      setIsGoogleConnected(!!data);
-    };
-    if (!loading) checkGoogleConnection();
-  }, [user, loading]);
-
-  const handleGoogleSignIn = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        scopes: 'https://www.googleapis.com/auth/calendar.events',
-        redirectTo: window.location.href,
-      },
-    });
-    if (error) showError("Erro ao conectar com o Google.");
-  };
-
-  const handleGoogleSignOut = async () => {
-    if (!user) return;
-    const { error } = await supabase.from('user_google_tokens').delete().eq('user_id', user.id);
-    if (error) showError("Erro ao desconectar a conta Google.");
-    else {
-      showSuccess("Conta Google desconectada.");
-      setIsGoogleConnected(false);
-    }
-  };
 
   const onSubmit = useCallback(async (formData: SettingsFormData) => {
     if (!workspace) { showError("Workspace não encontrado."); return; }
@@ -243,26 +211,7 @@ const SettingsPage: React.FC = () => {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <h1 className="text-3xl font-bold">Configurações do Assistente IA</h1>
       
-      <Card>
-        <CardHeader><CardTitle>Integrações</CardTitle></CardHeader>
-        <CardContent>
-          {isGoogleConnected ? (
-            <div className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-              <div className="flex items-center gap-3">
-                <GoogleIcon className="h-6 w-6" />
-                <p className="font-medium text-green-800 dark:text-green-300">Conectado com Google Calendar</p>
-              </div>
-              <Button variant="destructive" onClick={handleGoogleSignOut}>Desconectar</Button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/30 border rounded-lg">
-              <p className="text-muted-foreground">Conecte sua conta para criar eventos e links do Meet.</p>
-              <Button onClick={handleGoogleSignIn}><GoogleIcon className="mr-2 h-4 w-4" /> Conectar com Google</Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
+      {/* Prompts */}
       <Card>
         <CardHeader><CardTitle>Prompts da IA</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -279,6 +228,7 @@ const SettingsPage: React.FC = () => {
         </CardContent>
       </Card>
 
+      {/* API Keys */}
       <Card>
         <CardHeader><CardTitle>Chaves de API</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -289,6 +239,7 @@ const SettingsPage: React.FC = () => {
         </CardContent>
       </Card>
 
+      {/* Modelos */}
       <Card>
         <CardHeader><CardTitle>Modelos e Provedores</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -302,6 +253,7 @@ const SettingsPage: React.FC = () => {
         </CardContent>
       </Card>
 
+      {/* Outras Configurações */}
       <Card>
         <CardHeader><CardTitle>Comportamento e Ativação</CardTitle></CardHeader>
         <CardContent className="space-y-4">
