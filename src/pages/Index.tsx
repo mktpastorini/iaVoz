@@ -68,19 +68,6 @@ const Index = () => {
       <div className="fixed inset-0 -z-10 pointer-events-none">
         <Orb audioIntensity={0} />
       </div>
-
-      {/* Widget do Orb */}
-      <div
-        onClick={activateAssistant}
-        className="fixed bottom-8 right-8 z-50 flex flex-col items-center cursor-pointer group"
-      >
-        <div className="w-24 h-24 transition-transform duration-300 group-hover:scale-110">
-          <Orb audioIntensity={0} />
-        </div>
-        <p className="mt-2 text-sm text-cyan-300 transition-all duration-300 group-hover:text-cyan-100 group-hover:scale-105">
-          Clique para falar com IAM
-        </p>
-      </div>
     </div>
   );
 };

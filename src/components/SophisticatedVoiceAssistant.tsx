@@ -535,6 +535,8 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
       <MicrophonePermissionModal isOpen={isPermissionModalOpen} onAllow={handleAllowMic} onClose={() => setIsPermissionModalOpen(false)} permissionState={micPermission as any} />
       {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl} altText={imageToShow.altText} onClose={() => { setImageToShow(null); startListening(); }} />}
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
+      
+      {/* Modal Principal do Assistente */}
       <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-between p-8 transition-opacity duration-500", isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none")}>
         <div className="absolute inset-0 -z-20 pointer-events-none bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
         <div className="absolute inset-0 -z-10 pointer-events-none"><Orb audioIntensity={audioIntensity} /></div>
@@ -549,6 +551,21 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
           <AudioVisualizer isSpeaking={isSpeaking} />
         </div>
       </div>
+
+      {/* Widget Flutuante (Orb) */}
+      {!isOpen && (
+        <div
+          onClick={handleManualActivation}
+          className="fixed bottom-8 right-8 z-50 flex flex-col items-center cursor-pointer group"
+        >
+          <div className="w-24 h-24 transition-transform duration-300 group-hover:scale-110">
+            <Orb audioIntensity={0} />
+          </div>
+          <p className="mt-2 text-sm text-cyan-300 transition-all duration-300 group-hover:text-cyan-100 group-hover:scale-105">
+            Clique para falar com IAM
+          </p>
+        </div>
+      )}
     </>
   );
 };
