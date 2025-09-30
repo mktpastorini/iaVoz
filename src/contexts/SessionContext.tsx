@@ -41,59 +41,92 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const navigate = useNavigate();
 
   const fetchUserData = useCallback(async (currentUser: User) => {
-    const [profileResult, workspaceResult] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', currentUser.id).single(),
-      supabase.rpc('create_workspace_for_user', { p_user_id: currentUser.id })
-    ]);
+    try {
+      const [profileResult, workspaceResult] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', currentUser.id).single(),
+        supabase.rpc('create_workspace_for_user', { p_user_id: currentUser.id })
+      ]);
 
-    const { data: profileData, error: profileError } = profileResult;
-    if (profileError && profileError.code !== 'PGRST116') {
-      console.error("Profile fetch error:", profileError);
-    }
-    setProfile(profileData);
-
-    const { data: workspaceData, error: workspaceError } = workspaceResult;
-    if (workspaceError) {
-      showError('Erro ao garantir workspace.');
-      setWorkspace(null);
-    } else {
-      setWorkspace(workspaceData);
-      if (workspaceData) {
-        const { data: memberData } = await supabase
-          .from('workspace_members')
-          .select('role')
-          .eq('user_id', currentUser.id)
-          .eq('workspace_id', workspaceData.id)
-          .single();
-        setRole(memberData?.role as 'admin' | 'member' || null);
+      const { data: profileData, error: profileError } = profileResult;
+      if (profileError && profileError.code !== 'PGRST116') {
+        console.error("Profile fetch error:", profileError);
       }
+      setProfile(profileData);
+
+      const { data: workspaceData, error: workspaceError } = workspaceResult;
+      if (workspaceError) {
+        showError('Erro ao garantir workspace.');
+        setWorkspace(null);
+        setRole(null);
+      } else {
+        setWorkspace(workspaceData);
+        if (workspaceData) {
+          const { data: memberData } = await supabase
+            .from('workspace_members')
+            .select('role')
+            .eq('user_id', currentUser.id)
+            .eq('workspace_id', workspaceData.id)
+            .single();
+          setRole(memberData?.role as 'admin' | 'member' || null);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+      showError("Falha ao carregar os dados do usuário.");
+      // Limpa o estado em caso de erro para evitar inconsistências
+      setProfile(null);
+      setWorkspace(null);
+      setRole(null);
     }
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setSession(session);
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
-
-      if (currentUser) {
-        await fetchUserData(currentUser);
-      } else {
-        setProfile(null);
-        setWorkspace(null);
-        setRole(null);
+    const initializeSession = async () => {
+      // 1. Faz a verificação da sessão inicial
+      const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+      if (error) {
+        console.error("Error getting initial session:", error);
       }
 
-      if (event === 'PASSWORD_RECOVERY') {
-        navigate('/update-password', { replace: true });
+      if (initialSession) {
+        setSession(initialSession);
+        setUser(initialSession.user);
+        await fetchUserData(initialSession.user);
       }
       
+      // 2. Garante que o carregamento inicial termine
       setLoading(false);
-    });
+
+      // 3. Configura o listener para mudanças futuras
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+        setSession(currentSession);
+        const currentUser = currentSession?.user ?? null;
+        setUser(currentUser);
+
+        if (currentUser) {
+          // Apenas atualiza os dados, não gerencia mais o estado de 'loading'
+          await fetchUserData(currentUser);
+        } else {
+          setProfile(null);
+          setWorkspace(null);
+          setRole(null);
+        }
+
+        if (event === 'PASSWORD_RECOVERY') {
+          navigate('/update-password', { replace: true });
+        }
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    };
+
+    const subscriptionPromise = initializeSession();
 
     return () => {
-      subscription.unsubscribe();
+      // Cleanup para a desinscrição do listener
+      subscriptionPromise.then(cleanup => cleanup && cleanup());
     };
   }, [navigate, fetchUserData]);
 
