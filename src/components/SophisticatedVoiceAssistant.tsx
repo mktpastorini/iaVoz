@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { showError } from "@/utils/toast";
 import { supabaseAnon } from "@/integrations/supabase/client";
-import { useSystem } from "@/contexts/SystemContext";
 import { replacePlaceholders } from "@/lib/utils";
 import { AudioVisualizer } from "./AudioVisualizer";
 import { cn } from "@/lib/utils";
@@ -15,6 +14,7 @@ import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import Orb from "./Orb";
 import { createClient, LiveClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 import { useAssistantState } from "@/hooks/useAssistantState";
+import { useSystemPowers } from "@/hooks/useSystemPowers"; // Importando o novo hook
 
 // As funções auxiliares de conversão de schema podem ser movidas para um arquivo utils/ai.ts no futuro
 const mapOpenAITypeToGemini = (type: string) => {
@@ -63,12 +63,13 @@ interface SophisticatedVoiceAssistantProps {
 }
 
 const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = ({ embedWorkspaceId }) => {
-  const { systemVariables } = useSystem();
   const { activationTrigger } = useVoiceAssistant();
   const {
-    settings, powers, clientActions, isLoading,
-    settingsRef, powersRef, clientActionsRef, fetchAllAssistantData
+    settings, powers, clientActions, isLoading: isLoadingAssistantState,
+    settingsRef, powersRef, clientActionsRef, currentWorkspaceId
   } = useAssistantState(embedWorkspaceId);
+
+  const { systemVariables, loadingSystemPowers } = useSystemPowers(currentWorkspaceId);
 
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -530,6 +531,9 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   }, [isOpen, micPermission, checkAndRequestMicPermission, speak, settings]);
 
   useEffect(() => { if (activationTrigger > activationTriggerRef.current) { activationTriggerRef.current = activationTrigger; handleManualActivation(); } }, [activationTrigger, handleManualActivation]);
+  
+  const isLoading = isLoadingAssistantState || loadingSystemPowers;
+
   useEffect(() => { if (!isLoading) checkAndRequestMicPermission(); return () => { stopPermanentlyRef.current = true; stopListening(); stopSpeaking(); }; }, [isLoading, checkAndRequestMicPermission]);
 
   // Supervisor Effect: The single source of truth for starting the microphone.
