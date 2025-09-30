@@ -87,6 +87,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const [audioIntensity, setAudioIntensity] = useState(0);
   const [accumulatedTranscript, setAccumulatedTranscript] = useState("");
 
+  const isOpenRef = useRef(isOpen);
   const isSpeakingRef = useRef(isSpeaking);
   const hasBeenActivatedRef = useRef(hasBeenActivated);
   const systemVariablesRef = useRef(systemVariables);
@@ -108,6 +109,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const processingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumulatedTranscriptRef = useRef("");
 
+  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
@@ -115,50 +117,68 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   useEffect(() => { accumulatedTranscriptRef.current = accumulatedTranscript; }, [accumulatedTranscript]);
 
   const stopListening = useCallback(() => {
+    console.log("[ASSISTANT] Stop Listening triggered.");
     if (settingsRef.current?.streaming_stt_provider === 'deepgram') {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') mediaRecorderRef.current.stop();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        console.log("[STT_DEEPGRAM] Stopping media recorder.");
+        mediaRecorderRef.current.stop();
+      }
       if (deepgramConnectionRef.current) {
+        console.log("[STT_DEEPGRAM] Finishing connection.");
         deepgramConnectionRef.current.finish();
         deepgramConnectionRef.current = null;
       }
     } else {
-      if (recognitionRef.current) recognitionRef.current.stop();
+      if (recognitionRef.current) {
+        console.log("[STT_BROWSER] Stopping recognition.");
+        recognitionRef.current.stop();
+      }
     }
   }, []);
 
   const connectToDeepgram = useCallback(async () => {
+    console.log("[STT_DEEPGRAM] Connecting...");
     const apiKey = settingsRef.current?.deepgram_api_key;
     if (!apiKey || apiKey.trim() === "") {
-      showError("A chave de API da Deepgram não está configurada. Por favor, adicione-a no painel de configurações.");
+      showError("A chave de API da Deepgram não está configurada.");
       setIsListening(false);
       return;
     }
     const deepgram = createClient(apiKey);
     const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true, interim_results: true });
     connection.on(LiveTranscriptionEvents.Open, () => {
+      console.log("[STT_DEEPGRAM] Connection opened. Requesting media.");
       navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
         const recorder = new MediaRecorder(stream);
         recorder.ondataavailable = e => connection.send(e.data);
         recorder.start(250);
         mediaRecorderRef.current = recorder;
-      });
+        setIsListening(true);
+      }).catch(err => console.error("[STT_DEEPGRAM] Media access error:", err));
     });
     connection.on(LiveTranscriptionEvents.Transcript, data => {
       const transcript = data.channel.alternatives[0].transcript;
-      if (transcript) {
-        handleDeepgramTranscript(transcript.toLowerCase(), data.is_final);
-      }
+      if (transcript) handleDeepgramTranscript(transcript.toLowerCase(), data.is_final);
     });
     connection.on(LiveTranscriptionEvents.Error, (error) => {
-      console.error("Deepgram STT Error:", error);
-      showError(`Erro na transcrição Deepgram. Verifique sua chave de API e a conexão com a internet.`);
+      console.error("[STT_DEEPGRAM] Error:", error);
+      showError(`Erro na transcrição Deepgram.`);
     });
-    connection.on(LiveTranscriptionEvents.Close, () => setIsListening(false));
+    connection.on(LiveTranscriptionEvents.Close, () => {
+      console.log("[STT_DEEPGRAM] Connection closed.");
+      setIsListening(false);
+      // Auto-restart logic
+      if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+        console.log("[STT_DEEPGRAM] Auto-restarting connection.");
+        setTimeout(() => connectToDeepgram(), 500);
+      }
+    });
     deepgramConnectionRef.current = connection;
   }, []);
 
   const startListening = useCallback(() => {
     if (isListening || isSpeakingRef.current || stopPermanentlyRef.current) return;
+    console.log(`[ASSISTANT] Start Listening. Provider: ${settingsRef.current?.streaming_stt_provider}`);
     if (settingsRef.current?.streaming_stt_provider === 'deepgram') {
       connectToDeepgram();
     } else {
@@ -166,13 +186,15 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
         try {
           recognitionRef.current.start();
         } catch (e) {
-          console.warn("Recognition start error (might be safe to ignore):", e);
+          console.warn("[STT_BROWSER] Recognition start error (might be safe to ignore):", e);
         }
       }
     }
   }, [isListening, connectToDeepgram]);
 
   const stopSpeaking = useCallback(() => {
+    if (!isSpeakingRef.current && !synthRef.current?.speaking && audioRef.current?.paused) return;
+    console.log("[TTS] Stop Speaking triggered.");
     if (synthRef.current?.speaking) synthRef.current.cancel();
     if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
     if (elevenlabsSocketRef.current) { elevenlabsSocketRef.current.close(); elevenlabsSocketRef.current = null; }
@@ -188,7 +210,9 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const speak = useCallback(async (text: string, onEndCallback?: () => void) => {
     const currentSettings = settingsRef.current;
     if (!text || !currentSettings) { onEndCallback?.(); return; }
+    console.log(`[TTS] Speak triggered. Provider: ${currentSettings.voice_model}. Text: "${text}"`);
     const onSpeechEnd = () => {
+      console.log("[TTS] Speech ended.");
       if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
       if (interruptRecognitionRef.current) interruptRecognitionRef.current.stop();
       setIsSpeaking(false);
@@ -201,6 +225,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
     setIsSpeaking(true);
     setAiResponse(text);
     if (currentSettings.interrupt_phrase && interruptRecognitionRef.current) {
+      console.log("[ASSISTANT] Starting interrupt recognizer.");
       interruptRecognitionRef.current.start();
     }
     speechTimeoutRef.current = setTimeout(onSpeechEnd, (text.length / 15) * 1000 + 5000);
@@ -209,7 +234,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "pt-BR";
         utterance.onend = onSpeechEnd;
-        utterance.onerror = (e) => { console.error("SpeechSynthesis Error:", e); onSpeechEnd(); };
+        utterance.onerror = (e) => { console.error("[TTS_BROWSER] Error:", e); onSpeechEnd(); };
         synthRef.current.speak(utterance);
       } else if (currentSettings.voice_model === "openai-tts" && currentSettings.openai_api_key) {
         const response = await fetch("https://api.openai.com/v1/audio/speech", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentSettings.openai_api_key}` }, body: JSON.stringify({ model: "tts-1", voice: currentSettings.openai_tts_voice || "alloy", input: text }) });
@@ -250,7 +275,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
             if (!isPlayingAudioRef.current) playAudioQueue(onSpeechEnd);
           }
         };
-        socket.onerror = (error) => { console.error("ElevenLabs WebSocket Error:", error); onSpeechEnd(); };
+        socket.onerror = (error) => { console.error("[TTS_ELEVENLABS] WebSocket Error:", error); onSpeechEnd(); };
         socket.onclose = () => { if (audioQueueRef.current.length === 0 && !isPlayingAudioRef.current) onSpeechEnd(); };
       } else { onSpeechEnd(); }
     } catch (e: any) { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); }
@@ -276,12 +301,13 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
       };
       source.start();
     } catch (error) {
-      console.error("Error decoding audio data:", error);
+      console.error("[TTS_ELEVENLABS] Error decoding audio data:", error);
       isPlayingAudioRef.current = false;
     }
   }, []);
 
   const executeClientAction = useCallback((action: any) => {
+    console.log("[ACTION] Executing client action:", action);
     stopListening();
     speak("Ok, executando.", () => {
       switch (action.action_type) {
@@ -294,6 +320,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
 
   const runConversation = useCallback(async (userMessage: string) => {
     if (!userMessage) return;
+    console.log("[AI_CONV] Running conversation with message:", userMessage);
     setTranscript(userMessage);
     setAiResponse("");
     stopListening();
@@ -308,6 +335,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
     const systemPrompt = replacePlaceholders(currentSettings.system_prompt, systemVariablesRef.current);
     const tools = powersRef.current.map(p => ({ type: "function", function: { name: p.name, description: p.description, parameters: p.parameters_schema || { type: "object", properties: {} } } }));
     const executeTools = async (toolCalls: any[]) => {
+      console.log("[AI_CONV] Executing tools:", toolCalls);
       return Promise.all(toolCalls.map(async (toolCall) => {
         const { name, arguments: args } = toolCall.function;
         const functionArgs = JSON.parse(args);
@@ -409,10 +437,12 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
 
   const processFinalTranscript = useCallback((finalTranscript: string) => {
     if (!finalTranscript) return;
+    console.log("[ASSISTANT] Processing final transcript:", finalTranscript);
     const currentSettings = settingsRef.current;
     if (!currentSettings) return;
     if (isOpen) {
       if (currentSettings.deactivation_phrases?.some((p: string) => finalTranscript.includes(p))) {
+        console.log("[ASSISTANT] Deactivation phrase detected.");
         setIsOpen(false); setAiResponse(""); setTranscript(""); stopSpeaking(); return;
       }
       const action = clientActionsRef.current.find(a => finalTranscript.includes(a.trigger_phrase.toLowerCase()));
@@ -420,6 +450,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
       runConversation(finalTranscript);
     } else {
       if (currentSettings.activation_phrases?.some((p: string) => finalTranscript.includes(p))) {
+        console.log("[ASSISTANT] Activation phrase detected.");
         if (!currentSettings) return;
         setIsOpen(true);
         speak(hasBeenActivatedRef.current && currentSettings.continuation_phrase ? currentSettings.continuation_phrase : currentSettings.welcome_message);
@@ -430,9 +461,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
 
   const handleDeepgramTranscript = (transcript: string, isFinal: boolean) => {
     if (isFinal) {
-      if (processingTimeoutRef.current) {
-        clearTimeout(processingTimeoutRef.current);
-      }
+      if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
       const newAccumulated = (accumulatedTranscriptRef.current + " " + transcript).trim();
       setAccumulatedTranscript(newAccumulated);
       setTranscript(newAccumulated);
@@ -457,6 +486,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
       const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
       const interruptPhrase = settingsRef.current?.interrupt_phrase?.toLowerCase();
       if (interruptPhrase && transcript.includes(interruptPhrase)) {
+        console.log("[ASSISTANT] Interrupt phrase detected.");
         stopSpeaking();
         speak(settingsRef.current.continuation_phrase || "Pois não?");
       }
@@ -469,25 +499,30 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) { setMicPermission("denied"); return; }
     recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = true;
-    recognitionRef.current.interimResults = true;
-    recognitionRef.current.lang = "pt-BR";
-    recognitionRef.current.onstart = () => setIsListening(true);
-    recognitionRef.current.onend = () => {
+    const recognition = recognitionRef.current;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "pt-BR";
+    recognition.onstart = () => { console.log("[STT_BROWSER] Recognition started."); setIsListening(true); };
+    recognition.onend = () => {
+      console.log("[STT_BROWSER] Recognition ended.");
       setIsListening(false);
+      // Auto-restart logic
+      if (isOpenRef.current && !isSpeakingRef.current && !stopPermanentlyRef.current) {
+        console.log("[STT_BROWSER] Auto-restarting recognition.");
+        setTimeout(() => recognition.start(), 500);
+      }
     };
-    recognitionRef.current.onerror = (e: any) => { 
-      console.error('SpeechRecognition Error:', e.error);
+    recognition.onerror = (e: any) => { 
+      console.error('[STT_BROWSER] Recognition Error:', e.error);
       setIsListening(false);
       if (e.error === "not-allowed") { 
         setMicPermission("denied"); 
         setIsPermissionModalOpen(true); 
       } 
     };
-    recognitionRef.current.onresult = (event: any) => {
-      if (processingTimeoutRef.current) {
-        clearTimeout(processingTimeoutRef.current);
-      }
+    recognition.onresult = (event: any) => {
+      if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
       let fullTranscript = "";
       for (let i = 0; i < event.results.length; i++) {
         fullTranscript += event.results[i][0].transcript;
@@ -503,6 +538,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   }, [processFinalTranscript, initializeInterruptRecognizer]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
+    console.log("[ASSISTANT] Checking microphone permission.");
     try {
       const permission = await navigator.permissions.query({ name: "microphone" as PermissionName });
       setMicPermission(permission.state);
@@ -523,6 +559,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
 
   const handleManualActivation = useCallback(() => {
     if (isOpen) return;
+    console.log("[ASSISTANT] Manual activation triggered.");
     if (micPermission !== "granted") checkAndRequestMicPermission();
     else {
       if (!settings) return;
@@ -538,14 +575,13 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
 
   useEffect(() => { if (!isLoading) checkAndRequestMicPermission(); return () => { stopPermanentlyRef.current = true; stopListening(); stopSpeaking(); }; }, [isLoading, checkAndRequestMicPermission]);
 
-  // Supervisor Effect: The single source of truth for starting the microphone.
   useEffect(() => {
-    const shouldBeListening = micPermission === 'granted' && !isListening && !isSpeaking && !stopPermanentlyRef.current;
+    const shouldBeListening = isOpen && micPermission === 'granted' && !isListening && !isSpeaking && !stopPermanentlyRef.current;
     if (shouldBeListening) {
       const timer = setTimeout(() => startListening(), 100);
       return () => clearTimeout(timer);
     }
-  }, [isListening, isSpeaking, micPermission, startListening]);
+  }, [isOpen, isListening, isSpeaking, micPermission, startListening]);
 
   if (isLoading || !settings) return null;
 
@@ -555,7 +591,6 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
       {imageToShow && <ImageModal imageUrl={imageToShow.imageUrl} altText={imageToShow.altText} onClose={() => { setImageToShow(null); startListening(); }} />}
       {urlToOpenInIframe && <UrlIframeModal url={urlToOpenInIframe} onClose={() => { setUrlToOpenInIframe(null); startListening(); }} />}
       
-      {/* Modal Principal do Assistente */}
       <div className={cn("fixed inset-0 z-[9999] flex flex-col items-center justify-between p-8 transition-opacity duration-500", isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none")}>
         <div className="absolute inset-0 -z-20 pointer-events-none bg-gradient-to-br from-gray-900/60 via-blue-950/60 to-purple-950/60 backdrop-blur-xl" />
         <div className="absolute inset-0 -z-10 pointer-events-none"><Orb audioIntensity={audioIntensity} /></div>
@@ -571,7 +606,6 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
         </div>
       </div>
 
-      {/* Widget Flutuante (Orb) */}
       {!isOpen && (
         <div
           onClick={handleManualActivation}
