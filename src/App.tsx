@@ -45,6 +45,7 @@ const AdminOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 const AppContent = () => {
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
+  const adminWorkspaceId = "9a8f87d1-ec36-4984-8bd5-6015dcde67b8";
 
   return (
     <>
@@ -71,7 +72,7 @@ const AppContent = () => {
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
-      {!isAdminRoute && <SophisticatedVoiceAssistant />}
+      {!isAdminRoute && <SophisticatedVoiceAssistant embedWorkspaceId={adminWorkspaceId} />}
     </>
   );
 };
