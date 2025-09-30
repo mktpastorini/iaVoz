@@ -17,7 +17,6 @@ import InstallationPage from "./pages/admin/Installation";
 import Login from "./pages/login";
 import UpdatePasswordPage from "./pages/UpdatePassword";
 import { SessionContextProvider, useSession } from "./contexts/SessionContext";
-import { SystemContextProvider } from "./contexts/SystemContext";
 import React from "react";
 import SophisticatedVoiceAssistant from "./components/SophisticatedVoiceAssistant";
 import { VoiceAssistantProvider } from "./contexts/VoiceAssistantContext";
@@ -84,11 +83,9 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <SessionContextProvider>
-          <SystemContextProvider>
-            <VoiceAssistantProvider>
-              <AppContent />
-            </VoiceAssistantProvider>
-          </SystemContextProvider>
+          <VoiceAssistantProvider>
+            <AppContent />
+          </VoiceAssistantProvider>
         </SessionContextProvider>
       </BrowserRouter>
     </TooltipProvider>

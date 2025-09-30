@@ -14,7 +14,9 @@ import { useVoiceAssistant } from "@/contexts/VoiceAssistantContext";
 import Orb from "./Orb";
 import { createClient, LiveClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 import { useAssistantState } from "@/hooks/useAssistantState";
-import { useSystemPowers } from "@/hooks/useSystemPowers"; // Importando o novo hook
+import { useSystemPowers } from "@/hooks/useSystemPowers";
+
+const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
 // As funções auxiliares de conversão de schema podem ser movidas para um arquivo utils/ai.ts no futuro
 const mapOpenAITypeToGemini = (type: string) => {
