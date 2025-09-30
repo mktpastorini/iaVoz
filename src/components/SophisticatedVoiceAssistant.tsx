@@ -121,6 +121,37 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
     }
   }, []);
 
+  const connectToDeepgram = useCallback(async () => {
+    const apiKey = settingsRef.current?.deepgram_api_key;
+    if (!apiKey || apiKey.trim() === "") {
+      showError("A chave de API da Deepgram não está configurada. Por favor, adicione-a no painel de configurações.");
+      setIsListening(false);
+      return;
+    }
+    const deepgram = createClient(apiKey);
+    const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true, interim_results: true });
+    connection.on(LiveTranscriptionEvents.Open, () => {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+        const recorder = new MediaRecorder(stream);
+        recorder.ondataavailable = e => connection.send(e.data);
+        recorder.start(250);
+        mediaRecorderRef.current = recorder;
+      });
+    });
+    connection.on(LiveTranscriptionEvents.Transcript, data => {
+      const transcript = data.channel.alternatives[0].transcript;
+      if (transcript) {
+        handleDeepgramTranscript(transcript.toLowerCase(), data.is_final);
+      }
+    });
+    connection.on(LiveTranscriptionEvents.Error, (error) => {
+      console.error("Deepgram STT Error:", error);
+      showError(`Erro na transcrição Deepgram. Verifique sua chave de API e a conexão com a internet.`);
+    });
+    connection.on(LiveTranscriptionEvents.Close, () => setIsListening(false));
+    deepgramConnectionRef.current = connection;
+  }, []);
+
   const startListening = useCallback(() => {
     if (isListening || isSpeakingRef.current || stopPermanentlyRef.current) return;
     if (settingsRef.current?.streaming_stt_provider === 'deepgram') {
@@ -130,11 +161,11 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
         try {
           recognitionRef.current.start();
         } catch (e) {
-          console.error("Error starting recognition:", e);
+          console.warn("Recognition start error (might be safe to ignore):", e);
         }
       }
     }
-  }, [isListening]);
+  }, [isListening, connectToDeepgram]);
 
   const stopSpeaking = useCallback(() => {
     if (synthRef.current?.speaking) synthRef.current.cancel();
@@ -410,37 +441,6 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
     }
   };
 
-  const connectToDeepgram = useCallback(async () => {
-    const apiKey = settingsRef.current?.deepgram_api_key;
-    if (!apiKey || apiKey.trim() === "") {
-      showError("A chave de API da Deepgram não está configurada. Por favor, adicione-a no painel de configurações.");
-      setIsListening(false);
-      return;
-    }
-    const deepgram = createClient(apiKey);
-    const connection = deepgram.listen.live({ model: settingsRef.current.deepgram_stt_model || 'nova-2-general', language: 'pt-BR', smart_format: true, interim_results: true });
-    connection.on(LiveTranscriptionEvents.Open, () => {
-      navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-        const recorder = new MediaRecorder(stream);
-        recorder.ondataavailable = e => connection.send(e.data);
-        recorder.start(250);
-        mediaRecorderRef.current = recorder;
-      });
-    });
-    connection.on(LiveTranscriptionEvents.Transcript, data => {
-      const transcript = data.channel.alternatives[0].transcript;
-      if (transcript) {
-        handleDeepgramTranscript(transcript.toLowerCase(), data.is_final);
-      }
-    });
-    connection.on(LiveTranscriptionEvents.Error, (error) => {
-      console.error("Deepgram STT Error:", error);
-      showError(`Erro na transcrição Deepgram. Verifique sua chave de API e a conexão com a internet.`);
-    });
-    connection.on(LiveTranscriptionEvents.Close, () => setIsListening(false));
-    deepgramConnectionRef.current = connection;
-  }, [handleDeepgramTranscript]);
-
   const initializeInterruptRecognizer = useCallback(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
@@ -469,7 +469,14 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
     recognitionRef.current.lang = "pt-BR";
     recognitionRef.current.onstart = () => setIsListening(true);
     recognitionRef.current.onend = () => setIsListening(false);
-    recognitionRef.current.onerror = (e: any) => { if (e.error === "not-allowed") { setMicPermission("denied"); setIsPermissionModalOpen(true); } };
+    recognitionRef.current.onerror = (e: any) => { 
+      console.error('SpeechRecognition Error:', e.error);
+      setIsListening(false);
+      if (e.error === "not-allowed") { 
+        setMicPermission("denied"); 
+        setIsPermissionModalOpen(true); 
+      } 
+    };
     recognitionRef.current.onresult = (event: any) => {
       if (processingTimeoutRef.current) {
         clearTimeout(processingTimeoutRef.current);
@@ -521,8 +528,10 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   useEffect(() => { if (activationTrigger > activationTriggerRef.current) { activationTriggerRef.current = activationTrigger; handleManualActivation(); } }, [activationTrigger, handleManualActivation]);
   useEffect(() => { if (!isLoading) checkAndRequestMicPermission(); return () => { stopPermanentlyRef.current = true; stopListening(); stopSpeaking(); }; }, [isLoading, checkAndRequestMicPermission]);
 
+  // Supervisor Effect: The single source of truth for starting the microphone.
   useEffect(() => {
-    if (micPermission === 'granted' && !isListening && !isSpeaking && !stopPermanentlyRef.current) {
+    const shouldBeListening = micPermission === 'granted' && !isListening && !isSpeaking && !stopPermanentlyRef.current;
+    if (shouldBeListening) {
       const timer = setTimeout(() => startListening(), 100);
       return () => clearTimeout(timer);
     }
