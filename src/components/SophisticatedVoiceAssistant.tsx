@@ -470,7 +470,9 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
     recognitionRef.current.interimResults = true;
     recognitionRef.current.lang = "pt-BR";
     recognitionRef.current.onstart = () => setIsListening(true);
-    recognitionRef.current.onend = () => setIsListening(false);
+    recognitionRef.current.onend = () => {
+      setIsListening(false);
+    };
     recognitionRef.current.onerror = (e: any) => { 
       console.error('SpeechRecognition Error:', e.error);
       setIsListening(false);
