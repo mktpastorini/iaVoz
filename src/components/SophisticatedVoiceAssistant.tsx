@@ -85,6 +85,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const [accumulatedTranscript, setAccumulatedTranscript] = useState("");
 
   const isSpeakingRef = useRef(isSpeaking);
+  const hasBeenActivatedRef = useRef(hasBeenActivated);
   const systemVariablesRef = useRef(systemVariables);
   const messageHistoryRef = useRef(messageHistory);
   const recognitionRef = useRef<any>(null);
@@ -105,6 +106,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const accumulatedTranscriptRef = useRef("");
 
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
+  useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
   useEffect(() => { messageHistoryRef.current = messageHistory; }, [messageHistory]);
   useEffect(() => { accumulatedTranscriptRef.current = accumulatedTranscript; }, [accumulatedTranscript]);
@@ -523,7 +525,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
       speak(hasBeenActivatedRef.current && settings.continuation_phrase ? settings.continuation_phrase : settings.welcome_message);
       setHasBeenActivated(true);
     }
-  }, [isOpen, micPermission, checkAndRequestMicPermission, speak, settings, hasBeenActivated]);
+  }, [isOpen, micPermission, checkAndRequestMicPermission, speak, settings]);
 
   useEffect(() => { if (activationTrigger > activationTriggerRef.current) { activationTriggerRef.current = activationTrigger; handleManualActivation(); } }, [activationTrigger, handleManualActivation]);
   useEffect(() => { if (!isLoading) checkAndRequestMicPermission(); return () => { stopPermanentlyRef.current = true; stopListening(); stopSpeaking(); }; }, [isLoading, checkAndRequestMicPermission]);
