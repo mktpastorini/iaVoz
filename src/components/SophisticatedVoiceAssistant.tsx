@@ -84,6 +84,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const [audioIntensity, setAudioIntensity] = useState(0);
   const [accumulatedTranscript, setAccumulatedTranscript] = useState("");
 
+  const isOpenRef = useRef(isOpen);
   const isSpeakingRef = useRef(isSpeaking);
   const hasBeenActivatedRef = useRef(hasBeenActivated);
   const systemVariablesRef = useRef(systemVariables);
@@ -105,6 +106,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
   const processingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumulatedTranscriptRef = useRef("");
 
+  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { hasBeenActivatedRef.current = hasBeenActivated; }, [hasBeenActivated]);
   useEffect(() => { systemVariablesRef.current = systemVariables; }, [systemVariables]);
@@ -192,6 +194,9 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       setAudioIntensity(0);
       onEndCallback?.();
+      if (isOpenRef.current) {
+        startListening();
+      }
     };
     stopSpeaking();
     stopListening();
@@ -251,7 +256,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
         socket.onclose = () => { if (audioQueueRef.current.length === 0 && !isPlayingAudioRef.current) onSpeechEnd(); };
       } else { onSpeechEnd(); }
     } catch (e: any) { showError(`Erro na síntese de voz: ${e.message}`); onSpeechEnd(); }
-  }, [stopSpeaking, stopListening]);
+  }, [stopSpeaking, stopListening, startListening]);
 
   const playAudioQueue = useCallback(async (onEnd: () => void) => {
     if (isPlayingAudioRef.current || audioQueueRef.current.length === 0) return;
@@ -472,6 +477,9 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
     recognitionRef.current.onstart = () => setIsListening(true);
     recognitionRef.current.onend = () => {
       setIsListening(false);
+      if (!isSpeakingRef.current && !stopPermanentlyRef.current) {
+        setTimeout(() => startListening(), 100);
+      }
     };
     recognitionRef.current.onerror = (e: any) => { 
       console.error('SpeechRecognition Error:', e.error);
@@ -497,7 +505,7 @@ const SophisticatedVoiceAssistant: React.FC<SophisticatedVoiceAssistantProps> = 
     };
     if ("speechSynthesis" in window) synthRef.current = window.speechSynthesis;
     initializeInterruptRecognizer();
-  }, [processFinalTranscript, initializeInterruptRecognizer]);
+  }, [processFinalTranscript, startListening, initializeInterruptRecognizer]);
 
   const checkAndRequestMicPermission = useCallback(async () => {
     try {
