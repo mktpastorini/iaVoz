@@ -73,7 +73,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     } catch (error) {
       console.error("Error fetching user data:", error);
       showError("Falha ao carregar os dados do usuário.");
-      // Limpa o estado em caso de erro para evitar inconsistências
       setProfile(null);
       setWorkspace(null);
       setRole(null);
@@ -81,52 +80,32 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   }, []);
 
   useEffect(() => {
-    const initializeSession = async () => {
-      // 1. Faz a verificação da sessão inicial
-      const { data: { session: initialSession }, error } = await supabase.auth.getSession();
-      if (error) {
-        console.error("Error getting initial session:", error);
-      }
+    // onAuthStateChange is the single source of truth.
+    // It fires once on load with the initial session, and then on every auth change.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      setSession(currentSession);
+      const currentUser = currentSession?.user ?? null;
+      setUser(currentUser);
 
-      if (initialSession) {
-        setSession(initialSession);
-        setUser(initialSession.user);
-        await fetchUserData(initialSession.user);
+      if (currentUser) {
+        await fetchUserData(currentUser);
+      } else {
+        // Clear user data if session is lost
+        setProfile(null);
+        setWorkspace(null);
+        setRole(null);
       }
       
-      // 2. Garante que o carregamento inicial termine
+      // Stop loading after the first auth state change is processed
       setLoading(false);
 
-      // 3. Configura o listener para mudanças futuras
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-        setSession(currentSession);
-        const currentUser = currentSession?.user ?? null;
-        setUser(currentUser);
-
-        if (currentUser) {
-          // Apenas atualiza os dados, não gerencia mais o estado de 'loading'
-          await fetchUserData(currentUser);
-        } else {
-          setProfile(null);
-          setWorkspace(null);
-          setRole(null);
-        }
-
-        if (event === 'PASSWORD_RECOVERY') {
-          navigate('/update-password', { replace: true });
-        }
-      });
-
-      return () => {
-        subscription.unsubscribe();
-      };
-    };
-
-    const subscriptionPromise = initializeSession();
+      if (event === 'PASSWORD_RECOVERY') {
+        navigate('/update-password', { replace: true });
+      }
+    });
 
     return () => {
-      // Cleanup para a desinscrição do listener
-      subscriptionPromise.then(cleanup => cleanup && cleanup());
+      subscription.unsubscribe();
     };
   }, [navigate, fetchUserData]);
 
